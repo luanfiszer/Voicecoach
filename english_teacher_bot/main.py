@@ -125,9 +125,11 @@ async def _handle_message(
     feedback = teacher.get_feedback(sender, transcript)
     logger.info("Teacher feedback: %r", feedback)
 
-    # 1) Send the text "card" first — appears immediately while TTS is generating
-    card = teacher.format_feedback_card(feedback)
-    whatsapp.send_text(sender, card)
+    # 1) Only send the feedback "card" when there are real corrections to show.
+    #    If the student nailed it, just reply with audio — feels natural.
+    if teacher.has_corrections(feedback):
+        card = teacher.format_feedback_card(feedback)
+        whatsapp.send_text(sender, card)
 
     # 2) Generate and send the spoken reply as audio
     spoken = feedback.get("spoken_reply", "").strip()
