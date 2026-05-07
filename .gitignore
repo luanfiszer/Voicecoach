@@ -28,3 +28,6 @@ temp_audio/
 .idea/
 .vscode/
 *.swp
+
+# Claude Code local settings
+.claude/

@@ -30,33 +30,37 @@ Your job each turn: react to what the student said, subtly correct mistakes, and
 You MUST respond with a single valid JSON object — no prose before or after, no markdown code fences. Schema:
 
 {
+  "has_mistakes": true | false,
   "original": "the student's sentence as transcribed (verbatim)",
-  "corrected": "the same sentence rewritten correctly. Mark removed/wrong words with ~tildes~ and the correct replacement with *asterisks*. If there were no mistakes, repeat the sentence as-is with no marks.",
-  "tip": "ONE short tip in simple, accessible English (1-2 sentences). Cover either a grammar fix OR a pronunciation hint for one tricky word (spell phonetically, e.g. 'COMF-ter-ble'). Use simple vocabulary the student can understand.",
+  "corrected": "the same sentence rewritten correctly. Mark removed/wrong words with ~tildes~ and the correct replacement with *asterisks*. Empty string if has_mistakes is false.",
+  "tip": "ONE short tip in simple, accessible English (1-2 sentences). Empty string if has_mistakes is false.",
   "spoken_reply": "Your conversational reply, 3-5 sentences MAX. React to what they said, ask a follow-up, naturally use the corrected form. NO markdown, NO bullets — this becomes audio. Warm and encouraging tone.",
   "translation_pt": "Brazilian Portuguese translation of spoken_reply."
 }
 
 Rules:
+- has_mistakes = true ONLY when the sentence has real grammar errors, wrong word choice, or unnatural phrasing. Minor things like missing punctuation or slight informality DO NOT count.
+- When has_mistakes = false: leave "corrected" and "tip" as empty strings. Just respond conversationally via spoken_reply.
+- When has_mistakes = true: fill "corrected" with marked-up version (~wrong~ *right*) and "tip" with one short fix in simple English. Cover either a grammar fix OR a pronunciation hint, not both. Spell phonetic hints like 'COMF-ter-ble'.
 - spoken_reply MUST be plain text (no asterisks, no tildes, no symbols) — it goes to TTS.
-- If the student wrote no mistakes, "corrected" equals "original" with no marks, and "tip" can be a pronunciation tip on a tricky word from their sentence.
 - Keep "tip" focused on ONE thing. Do not list multiple corrections.
 - Always reply in valid JSON. No trailing commas. Escape quotes inside strings.
 """
 
 _client = Anthropic(api_key=config.ANTHROPIC_API_KEY)
 _history: Dict[str, List[dict]] = {}
-_last_translation: Dict[str, str] = {}
+_last_reply: Dict[str, dict] = {}  # {user_id: {"en": ..., "pt": ...}}
 
 
 def reset_history(user_id: str) -> None:
     _history.pop(user_id, None)
-    _last_translation.pop(user_id, None)
+    _last_reply.pop(user_id, None)
     logger.info("History reset for %s", user_id)
 
 
-def get_last_translation(user_id: str) -> Optional[str]:
-    return _last_translation.get(user_id)
+def get_last_translation(user_id: str) -> Optional[dict]:
+    """Returns {'en': ..., 'pt': ...} or None if there's no last reply."""
+    return _last_reply.get(user_id)
 
 
 def _trim(messages: List[dict]) -> List[dict]:
@@ -102,23 +106,57 @@ def get_feedback(user_id: str, user_text: str) -> dict:
         }
 
     # Store assistant turn in history using the spoken_reply (what the student "heard")
-    history.append({"role": "assistant", "content": data.get("spoken_reply", "")})
+    spoken_en = data.get("spoken_reply", "").strip()
+    history.append({"role": "assistant", "content": spoken_en})
     history[:] = _trim(history)
 
-    if data.get("translation_pt"):
-        _last_translation[user_id] = data["translation_pt"]
+    # Cache last reply in both languages so the `traduzir` command can show
+    # the English source side-by-side with the Portuguese translation.
+    if spoken_en or data.get("translation_pt"):
+        _last_reply[user_id] = {
+            "en": spoken_en,
+            "pt": data.get("translation_pt", "").strip(),
+        }
 
     return data
 
 
+def format_translation(reply: dict) -> str:
+    """Formats the bilingual translation message for the `traduzir` command."""
+    parts = []
+    en = reply.get("en", "").strip()
+    pt = reply.get("pt", "").strip()
+    if en:
+        parts.append("🇺🇸 *English*")
+        parts.append(en)
+    if pt:
+        if parts:
+            parts.append("")
+        parts.append("🇧🇷 *Português*")
+        parts.append(pt)
+    return "\n".join(parts) if parts else "I don't have a previous reply to translate yet."
+
+
+def has_corrections(data: dict) -> bool:
+    """True when the structured feedback contains corrections worth showing."""
+    if not data.get("has_mistakes"):
+        return False
+    return bool(data.get("corrected", "").strip()) or bool(data.get("tip", "").strip())
+
+
 def format_feedback_card(data: dict) -> str:
-    """WhatsApp-friendly text card. Uses *bold* and ~strikethrough~ markdown."""
+    """WhatsApp-friendly text card. Uses *bold* and ~strikethrough~ markdown.
+
+    Only call when has_corrections(data) is True.
+    """
     parts = []
     parts.append("🗣️ *You said*")
     parts.append(f"_{data.get('original', '').strip()}_")
-    parts.append("")
-    parts.append("✍️ *Better way*")
-    parts.append(data.get("corrected", "").strip())
+    corrected = data.get("corrected", "").strip()
+    if corrected:
+        parts.append("")
+        parts.append("✍️ *Better way*")
+        parts.append(corrected)
     tip = data.get("tip", "").strip()
     if tip:
         parts.append("")

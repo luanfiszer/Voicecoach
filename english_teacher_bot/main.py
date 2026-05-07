@@ -78,17 +78,17 @@ async def _handle_message(
 ) -> None:
     # Text-only message
     if num_media == 0:
-        cmd = body.lower()
+        cmd = body.lower().strip()
         if cmd in config.RESET_COMMANDS:
             teacher.reset_history(sender)
             whatsapp.send_text(sender, "Conversation reset. Send me a voice message in English to start fresh!")
             return
         if cmd in config.TRANSLATE_COMMANDS:
-            translation = teacher.get_last_translation(sender)
-            if translation:
-                whatsapp.send_text(sender, f"🌐 *Tradução*\n{translation}")
-            else:
+            last = teacher.get_last_translation(sender)
+            if not last:
                 whatsapp.send_text(sender, "Não tenho nada pra traduzir ainda. Manda um áudio primeiro!")
+                return
+            whatsapp.send_text(sender, teacher.format_translation(last))
             return
         whatsapp.send_text(
             sender,
@@ -125,9 +125,11 @@ async def _handle_message(
     feedback = teacher.get_feedback(sender, transcript)
     logger.info("Teacher feedback: %r", feedback)
 
-    # 1) Send the text "card" first — appears immediately while TTS is generating
-    card = teacher.format_feedback_card(feedback)
-    whatsapp.send_text(sender, card)
+    # 1) Only send the feedback "card" when there are real corrections to show.
+    #    If the student nailed it, just reply with audio — feels natural.
+    if teacher.has_corrections(feedback):
+        card = teacher.format_feedback_card(feedback)
+        whatsapp.send_text(sender, card)
 
     # 2) Generate and send the spoken reply as audio
     spoken = feedback.get("spoken_reply", "").strip()

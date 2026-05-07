@@ -24,11 +24,11 @@ TWILIO_WHATSAPP_NUMBER = _required("TWILIO_WHATSAPP_NUMBER")
 # Public URL where Twilio can reach our /audio/ static files (e.g. ngrok)
 PUBLIC_URL = _required("PUBLIC_URL").rstrip("/")
 
-# Models
-CLAUDE_MODEL = "claude-sonnet-4-20250514"
-WHISPER_MODEL = "whisper-1"
-TTS_MODEL = "tts-1"
-TTS_VOICE = "nova"
+# Models — overridable via .env so you can A/B between Sonnet and Haiku
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-1")
+TTS_MODEL = os.getenv("TTS_MODEL", "tts-1")
+TTS_VOICE = os.getenv("TTS_VOICE", "nova")
 
 # Conversation
 MAX_HISTORY_ITEMS = 20  # 10 exchanges (user + assistant)
