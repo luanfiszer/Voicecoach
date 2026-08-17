@@ -72,6 +72,15 @@ Velocidade de entrega NÃO é prioridade.
 
 ---
 
+## Convenções de commit
+
+- Commits neste repositório **NUNCA** devem incluir o trailer
+  `Co-Authored-By: Claude` (ou qualquer variação com nome de modelo). A
+  autoria é exclusivamente do desenvolvedor humano, mesmo quando o agente
+  redige a mensagem ou parte do código.
+
+---
+
 ## Definition of Done
 
 Uma tarefa só está concluída quando **todos** os itens abaixo forem verdade:
