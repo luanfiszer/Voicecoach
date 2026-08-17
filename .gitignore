@@ -29,5 +29,5 @@ temp_audio/
 .vscode/
 *.swp
 
-# Claude Code local settings
-.claude/
+# Claude Code — versionar commands/ e skills/, ignorar apenas settings locais
+.claude/settings.local.json
