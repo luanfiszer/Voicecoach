@@ -29,6 +29,16 @@ HTTP, com retry e transição de estado correta em falha.
 - Testes: use case com fakes de todas as portas (o teste central da
   arquitetura); integração fina do worker com Redis real.
 
+## Ajuste vindo do CARD-005 (sessão de reconciliação com as telas)
+
+**O Turn travado precisa de dono.** A tela de sistema promete "sua fala foi
+enviada, mas a resposta não chegou em 30s — tentar de novo / descartar", e hoje
+**ninguém** marca um Turn como `failed`: o worker que morreu não marca nada. Este
+card decide quem faz isso (job periódico do arq varrendo turns antigos em
+`queued`/`processing`, ou timeout no próprio job) e o CARD-010 expõe o desfecho.
+O domínio já aceita `fail()` a partir de `queued` **e** de `processing`
+(CARD-005), justamente para acomodar as duas escolhas.
+
 ## Escopo
 
 - **In:** o acima. **Out:** endpoints HTTP (CARD-010); UsageEvent (CARD-014).

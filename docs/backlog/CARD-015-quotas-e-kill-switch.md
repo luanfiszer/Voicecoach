@@ -27,6 +27,16 @@ do mês em horas.
   janela virar.
 - Rate limit por conta e por IP no POST (janela deslizante em Redis —
   a mecânica do protótipo, agora distribuída).
+- **Duas janelas diferentes, de propósito** (ajuste do CARD-005, sessão de
+  reconciliação): *rate limit* é janela deslizante; a **quota diária reseta por
+  dia-calendário em fuso fixo** (a tela promete "renova às 00:00, horário de
+  Brasília" — e um usuário que fala às 23h50 não pode ficar bloqueado até as
+  23h50 do dia seguinte). A visão §D fala em "janela deslizante" para as duas
+  coisas; a distinção é decisão deste card e provavelmente vira ADR. Os
+  `TIMESTAMPTZ` do CARD-005 são o que torna essa conta possível.
+- **Quota bloqueia escrita, não leitura**: com quota estourada, revisar as
+  correções do dia continua liberado (a tela diz isso explicitamente). O bloqueio
+  é do POST de turn, nunca do GET.
 - Testes: estourar quota do student; estourar budget global; janela vira e
   libera; contagem atômica com requests concorrentes.
 
