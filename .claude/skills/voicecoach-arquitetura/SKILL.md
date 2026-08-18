@@ -1,0 +1,177 @@
+---
+name: voicecoach-arquitetura
+description: Regras de arquitetura do BACKEND do Voicecoach (Python, FastAPI + worker arq, camadas com portas/adapters) destiladas dos ADRs. Use ao decidir em que camada mora um módulo novo, se uma dependência pode entrar numa camada, o que é proibido em domain/application, como nomear uma porta, ou ao revisar arquitetura do backend. Não cobre o app Expo nem a web (ver Escopo).
+---
+
+# Arquitetura do backend — Voicecoach
+
+Regras **destiladas dos ADRs** (`docs/adr/`) e da visão
+(`docs/visao-produto-e-arquitetura-alvo.md`, Parte D). **Nenhuma regra aqui sem
+fonte.** O *porquê* de cada uma, com o gatilho para reavaliá-la, está em
+[REFERENCE.md](REFERENCE.md).
+
+> O produto deste projeto é o conhecimento do desenvolvedor; o código é
+> subproduto (CLAUDE.md). Ao aplicar uma regra, saiba citar o ADR que a originou
+> — regra sem lastro é opinião do agente disfarçada de convenção.
+
+## Quem manda quando as fontes divergirem
+
+| Fonte | O que é | Quando ganha |
+|---|---|---|
+| `backend/pyproject.toml` | **lei executável** — contratos do import-linter, ruff, mypy, cobertura | sempre. Se a skill disser outra coisa, a skill está errada |
+| `docs/adr/` | a decisão, com alternativas e trade-offs | é a origem de toda regra abaixo |
+| `backend/README.md` | documentação para humano (mapa, ambiente, comandos) | leitura, não arbitragem |
+| **esta skill** | digest operacional: "onde ponho X", com a fonte citada | orienta; nunca contradiz as três acima |
+
+Divergência entre a skill e o código **não se resolve afrouxando a skill em
+silêncio**: ou o código está errado, ou falta um ADR novo (ADR-0012).
+
+## Escopo
+
+Só o **backend Python** (`backend/`). O app Expo e a web (ADR-0002) têm suas
+próprias convenções — auth em `expo-secure-store` (ADR-0007), tipos gerados do
+OpenAPI (ADR-0008) — e ganham skill própria no CARD-011, quando existir código
+de cliente para conferir a regra contra ele.
+
+## O que o produto é (a régua contra overengineering)
+
+Tutor de inglês por **conversa de áudio**, com **correções persistidas** e
+progresso. Backend = **1 API + 1 worker** sobre Postgres/Redis/MinIO, tudo local
+a custo zero (ADR-0010). **V1 é turn-based** (upload + polling), desenhado para o
+V2 realtime sem reescrita (ADR-0003). Não é plataforma, não é microserviço.
+Antes de propor qualquer peça nova, cheque a tabela de gatilhos da **Parte F da
+visão** — o corte já foi decidido, com o gatilho objetivo que o reabre.
+
+## Mapa de camadas
+
+```
+api | worker      ← entrypoints (composition root). FastAPI / arq.
+   │                api e worker NÃO se importam: são irmãos, não uma pilha
+   └── adapters   ← implementam as portas: repos SQLAlchemy, STT/LLM/TTS,
+        │           storage S3, fila, redis
+        └── application  ← casos de uso (handlers CQS), PORTAS (Protocol)
+             └── domain  ← entidades, value objects, regras puras.
+                           NÃO conhece ninguém
+
+voicecoach/config.py  ← fora das cinco camadas. Só api/worker/adapters leem
+                        (ADR-0013)
+```
+
+**Tudo aponta para dentro. Uma seta que sobe é bug de arquitetura, não questão
+de gosto.** E a regra é **executável**: `uv run lint-imports` (ADR-0012). Em C# a
+barreira é o `.csproj`; em Python não existe fronteira de compilação, então a
+fronteira é um lint.
+
+## Onde colocar o quê
+
+| Preciso de… | Vai em | Fonte |
+|---|---|---|
+| Entidade / value object / regra pura | `domain/` — só stdlib, `dataclasses` no lugar de pydantic | ADR-0012 |
+| Caso de uso que orquestra domínio + portas | `application/` (handler CQS) | visão §D |
+| Interface para trocar provider (STT/LLM/TTS/storage/fila) | `application/ports/`, como `Protocol` | visão §D |
+| Implementação de uma porta (SQLAlchemy, Anthropic, MinIO, arq) | `adapters/` | visão §D |
+| Router, schema pydantic de request/response, auth, Problem Details | `api/` | ADR-0008 |
+| Entrypoint que consome a fila | `worker/` | ADR-0005 |
+| Leitura de env, segredo, budget | `config.py` (pydantic-settings) — passado **por parâmetro** ao núcleo | ADR-0013 |
+| Migration | `alembic/` (nasce no CARD-005) | ADR-0004 |
+| Montagem/escolha de adapter concreto | composition root (`api/app.py`, entrypoint do worker) | ADR-0012 |
+
+## O que NÃO fazer
+
+Cada proibição tem contrato executável ou ADR por trás.
+
+- **`domain` importar framework, SDK ou IO.** Domain usa **só a stdlib**
+  (ADR-0012). Contrato `forbidden` no `pyproject.toml`.
+- **`application` importar framework ou SDK de provider** — nem FastAPI, nem
+  driver de banco, nem SDK de IA (ADR-0012).
+- **`domain` ou `application` importarem `voicecoach.config`.** Recebem valores
+  **por parâmetro**; configuração é composição (ADR-0013), com contrato próprio
+  porque `config.py` fica fora do contrato de camadas.
+- **Modelo SQLAlchemy fora de `adapters/`** — persistência não vaza para o
+  núcleo (ADR-0004).
+- **pydantic fora da borda `api/`** — schema é contrato de API, não modelo de
+  domínio (ADR-0008). Domain usa `dataclasses`.
+- **Literal de modelo de IA no código** (`"claude-…"`) — sempre via
+  `TEACHER_MODEL`/`ASSISTANT_MODEL` na config; trocar modelo é operação de
+  configuração, não deploy (ADR-0009).
+- **`float` para dinheiro** — sempre `Decimal` (ADR-0013).
+- **`api` importar `worker`, ou o contrário** — dois entrypoints do mesmo
+  núcleo (ADR-0012).
+- **Adicionar dependência que não pode vazar para dentro sem pôr o módulo na
+  lista `forbidden` no mesmo commit.** A lista não se atualiza sozinha: é o elo
+  fraco assumido do ADR-0012, e lista desatualizada é gate que não morde.
+- **`except Exception` sem justificativa** — o `BLE` do ruff exige `# noqa:
+  BLE001` com o motivo ao lado (ADR-0015).
+- **Peça de infra cortada na Parte F** (WebSocket no V1, RabbitMQ, cache de LLM,
+  K8s, event sourcing, Prometheus) sem o gatilho objetivo atingido.
+
+## Convenções
+
+- **Portas nomeadas pela capacidade, sem sufixo `Port`:** `SpeechToText`,
+  `TeacherLlm`, `TextToSpeech`, `MediaStorage`, `TurnQueue` (visão §D). A porta
+  evolui por **extensão** — o V2 acrescenta `stream_*`, não altera o que existe
+  (ADR-0003).
+- **PEP 8 imposta por `ruff` (`N`):** `snake_case` para função e variável,
+  `PascalCase` para classe, `UPPER_CASE` para constante de módulo. Os nomes de
+  domínio são os da linguagem ubíqua da visão §A, em inglês: `Student`,
+  `Session`, `Turn`, `Correction`, `UsageEvent`.
+- **Config:** `get_settings()` memoizado com `@lru_cache`, consumido dentro de
+  `create_app()`. Nunca `Settings()` no topo do módulo — o fail-fast é desejável
+  no **boot**, não no import (ADR-0013).
+- **Contrato de API evolui só aditivamente** sob `/v1`; breaking change é `/v2`
+  convivendo (ADR-0008).
+- **CQS leve:** handlers em `application`. Não é CQRS completo nem event
+  sourcing (visão §F).
+- **Suprimir aviso é decisão:** todo `# noqa: XXX` e `# type: ignore[...]` vem
+  com o código específico e o motivo ao lado (ADR-0015).
+- **Erro / Result pattern: TBD.** Sem ADR ainda — a visão §D menciona `Result`
+  em `application`, mas a forma (exceção vs. tipo `Result`) não foi decidida.
+  **Não invente**: siga o código existente; a decisão vira ADR no primeiro caso
+  de uso real (CARD-005 em diante).
+
+## Quality gates (ADR-0015)
+
+Três anéis: hook do agente a cada edição de `.py` → `pre-commit` → CI. De
+`backend/`, à mão:
+
+```bash
+uv run ruff format --check src tests
+uv run ruff check src tests
+uv run mypy
+uv run lint-imports
+uv run pytest --cov --cov-fail-under=70
+uv run coverage report --include="*/domain/*,*/application/*" --fail-under=90
+```
+
+Dois anéis de cobertura: **70% global** (travado no valor real de hoje, para que
+regressão quebre) e **90% de `domain` + `application`** — a lógica mais barata de
+testar e a mais cara de errar. Gate vermelho contornado com `--no-verify` não
+conta como cumprido (CLAUDE.md).
+
+## Testes por camada (visão §D)
+
+| Camada | Como | Com o quê |
+|---|---|---|
+| domain | unit puro, sem IO | pytest |
+| application | fakes em memória das portas — `Protocol` dispensa mock framework: um fake é uma classe com os métodos certos | pytest |
+| adapters | integração contra dependência real em container; HTTP de provider interceptado | pytest + testcontainers, respx *(planejado — ainda não instalados)* |
+| api | rota via `httpx.AsyncClient` contra o app | pytest + httpx |
+| contrato | OpenAPI + geração de tipos no CI acusa breaking change | CI |
+| qualidade pedagógica da IA | **não é teste unitário** — é o eval harness | Fase 4 (P5) |
+
+## Antes de fechar (checklist de PR)
+
+- [ ] `uv run lint-imports` verde — nenhuma seta proibida (ADR-0012)
+- [ ] Dependência nova que não pode vazar para dentro entrou no `forbidden` do
+      `pyproject.toml` **no mesmo commit** (ADR-0012)
+- [ ] Nada de pydantic fora de `api/` (ADR-0008), SQLAlchemy fora de `adapters/`
+      (ADR-0004), literal de modelo de IA (ADR-0009) ou `float` para dinheiro
+      (ADR-0013)
+- [ ] Todo `# noqa`/`# type: ignore` é específico e traz o motivo (ADR-0015)
+- [ ] Decisão que cruza fronteira, dependência, custo ou segurança virou **ADR**
+      — conferido contra a lista "Quando um ADR é OBRIGATÓRIO" de
+      `docs/adr/README.md`, citando o critério (LEARNING-0003)
+- [ ] Card em `docs/backlog/` atualizado; **regra do explicador** cumprida
+      (CLAUDE.md)
+- [ ] Regra desta skill que não bateu com o código virou ADR ou correção —
+      **nunca afrouxada em silêncio** (ADR-0012)

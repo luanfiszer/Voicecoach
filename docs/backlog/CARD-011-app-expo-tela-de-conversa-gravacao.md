@@ -29,6 +29,12 @@ permissões) precisa ser atacado agora, como decidido no roadmap.
 
 - **In:** o acima. **Out:** upload/polling/playback da resposta (CARD-012);
   qualquer estilização além do funcional.
+- **Herdado do CARD-004:** este é o card em que nasce a skill
+  `voicecoach-cliente` (`.claude/skills/`), irmã da `voicecoach-arquitetura`.
+  Ela foi adiada de propósito — regra escrita antes de existir tela é letra
+  morta. Fontes a destilar: ADR-0002 (Expo + web separada), ADR-0007 (token em
+  `expo-secure-store`, nunca AsyncStorage), ADR-0008 (tipos gerados do OpenAPI,
+  `min_supported_app_version`), ADR-0003 (upload + polling com backoff).
 
 ## Critérios de aceite
 

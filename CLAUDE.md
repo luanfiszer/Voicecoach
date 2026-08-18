@@ -130,6 +130,17 @@ O que ainda é TBD está marcado como tal, com o card que resolve.
   dependem — em especial **o que é permanente vs. andaime** no sistema atual —
   e as confirma com o desenvolvedor antes de produzir o artefato. Premissa não
   confirmada é anotada como tal no próprio artefato.
+- **A skill de arquitetura é de consulta obrigatória** (CARD-004): antes de
+  criar um módulo novo no `backend/`, decidir em que camada algo mora ou julgar
+  se uma dependência pode entrar numa camada, carregue a skill
+  `voicecoach-arquitetura` (`.claude/skills/`). Ela destila os ADRs em regra
+  operacional — **nenhuma regra lá existe sem ADR de origem**, e a hierarquia
+  quando as fontes divergirem está no topo do `SKILL.md`
+  (`pyproject.toml` é lei executável; a skill orienta, nunca contradiz).
+  Se uma regra da skill não bater com o código, é sinal de ADR novo ou de bug —
+  **nunca de afrouxar a regra em silêncio**. A skill cresce por postmortem, com
+  linha no log de decisões do `REFERENCE.md`; o cliente (Expo/web) tem skill
+  própria a partir do CARD-011.
 
 ---
 
@@ -182,6 +193,7 @@ O produto deste projeto é o meu conhecimento; o código é subproduto.
 | `docs/backlog/` | Um card por arquivo, com objetivo de aprendizado obrigatório |
 | `docs/learnings/` | Post-mortems de erros, cada um gerando uma regra nova aqui |
 | `.claude/commands/` | Slash commands: `/executa-card`, `/card`, `/adr`, `/postmortem`, `/review`, `/explica` |
+| `.claude/skills/` | Skills de arquitetura: `voicecoach-arquitetura` (backend), derivada dos ADRs |
 | `docs/referencias/` | Análises de projetos externos usados como referência, com o que foi aproveitado e o que foi recusado |
 
 > **Toda execução de card começa por `/executa-card <número>`** — ele carrega o
