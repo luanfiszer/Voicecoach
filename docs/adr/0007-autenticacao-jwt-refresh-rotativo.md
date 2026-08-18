@@ -1,6 +1,8 @@
 # ADR-0007 — Autenticação: e-mail+senha verificado, JWT curto + refresh rotativo em secure storage
 
-- **Status:** aceito
+- **Status:** aceito · **ajustado pelo ADR-0010**: no MVP o cadastro é gated
+  por código de convite e a verificação de e-mail obrigatória move-se para o
+  gatilho "beta aberto"; o restante desta decisão permanece
 - **Data:** 2026-08-17
 
 ## Contexto

@@ -73,8 +73,11 @@ o contexto de uso manda, e o resumo pós-sessão é a única sobreposição real
 
 O menor conjunto que já é um produto (cada item com o porquê de não ser cortado):
 
-1. **Conta com e-mail verificado + quotas + kill switch de custo** — bloqueante
-   herdado do diagnóstico §7.3; sem isso não existe nem beta.
+1. **Conta gated por código de convite + quotas + kill switch de custo**
+   *(ajustado pelo ADR-0010: convite substitui cadastro aberto no MVP;
+   verificação de e-mail move-se para o gatilho "beta aberto")* — a proteção
+   de custo do diagnóstico §7.3 pela via mais barata: sem cadastro aberto,
+   sem superfície de abuso.
 2. **Sessão de conversa turn-based no app**: gravar → enviar → processar
    (STT→LLM→TTS assíncrono) → ouvir resposta + ver correções estruturadas.
    É o núcleo pedagógico portado do protótipo, agora com sessão explícita.
@@ -254,16 +257,19 @@ Registrado aqui para não ser esquecido, cortado na Parte F.
 
 ### Proteção de custo (bloqueante de lançamento — diagnóstico §7.3)
 
+*(Revisado pelo ADR-0010 — política de custo de projeto pessoal.)*
 Defesa em camadas, todas por conta/IP (não mais por telefone):
 
-1. E-mail verificado antes do primeiro Turn
-2. Quota diária por conta em **minutos de áudio** (ex.: 10 min/dia), mais
-   restritiva para contas com <48h
+1. **Cadastro por código de convite** (MVP) — elimina a superfície de abuso
+   na raiz; e-mail verificado entra no gatilho "beta aberto" (ADR-0007/0010)
+2. Quota diária por conta em **minutos de áudio** (ex.: 10 min/dia)
 3. Rate limit por conta e por IP (cadastro e turns)
 4. `UsageEvent` por Turn com custo real → métrica de custo por usuário/sessão
-5. **Kill switch global**: orçamento diário em Redis; excedido ⇒ `503` com
-   Problem Details honesto ("daily budget exhausted")
-6. Alertas de gasto nos providers; auto-reload desligado nas contas de API
+5. **Kill switch global**: orçamento diário **e mensal** (`MONTHLY_BUDGET_USD`)
+   em Redis; excedido ⇒ `503` com Problem Details honesto
+6. Spend limit no console Anthropic; auto-reload desligado
+7. **STT e TTS locais por default** (ADR-0011) — o gasto recorrente fica
+   restrito ao Claude: ~US$ 3,6/mês em dev, ~US$ 15/mês em modo qualidade
 
 ### Observabilidade
 

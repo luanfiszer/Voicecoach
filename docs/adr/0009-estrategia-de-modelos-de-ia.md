@@ -1,6 +1,9 @@
 # ADR-0009 — Estratégia de modelos de IA: modelo forte para pedagogia, modelo barato para auxiliares, sempre por configuração
 
-- **Status:** aceito
+- **Status:** aceito · **ajustado pelo ADR-0010**: em ambiente de
+  desenvolvimento o default é `TEACHER_MODEL=claude-haiku-4-5`; Sonnet fica
+  para o modo qualidade e para o eval (P5). A recomendação de produto abaixo
+  permanece
 - **Data:** 2026-08-17
 
 ## Contexto
