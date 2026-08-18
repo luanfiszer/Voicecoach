@@ -1,0 +1,86 @@
+# Infraestrutura de desenvolvimento local do Voicecoach.
+#
+# Custo zero por requisito (ADR-0010): tudo roda na máquina, nenhum serviço
+# gerenciado. Tags fixadas por versão exata — `:16` ou `:latest` fazem a
+# imagem mudar debaixo do projeto sem ninguém pedir.
+#
+#   docker compose up -d                              # postgres + redis + minio
+#   docker compose --profile observability up -d      # + jaeger
+#
+# As portas de host são configuráveis (${X_PORT}) porque 5432/6379 costumam já
+# estar ocupadas por instalações locais — é o risco que o CARD-002 antecipou.
+name: voicecoach
+
+services:
+  postgres:
+    image: postgres:16.15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-voicecoach}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-voicecoach}
+      POSTGRES_DB: ${POSTGRES_DB:-voicecoach}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready é o probe oficial do Postgres: responde só quando o servidor
+      # aceita conexão, não quando o processo nasceu.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-voicecoach} -d ${POSTGRES_DB:-voicecoach}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7.4.10-alpine
+    # appendonly no + snapshot raro: em dev o Redis guarda idempotência, quota e
+    # fila (ADR-0005). Perder isso num restart é aceitável; pagar fsync não é.
+    command: ["redis-server", "--appendonly", "no", "--save", "60", "1"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-voicecoach}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-voicecoach-dev-secret}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      # A imagem do MinIO não traz curl; traz o `mc`. `mc ready local` é o probe
+      # que a própria MinIO documenta.
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  jaeger:
+    # Jaeger v2 — a imagem all-in-one do v1 foi substituída por esta.
+    image: jaegertracing/jaeger:2.20.0
+    # Profile opcional (ADR-0010, item 6): sobe só quando se está estudando
+    # traces. Nenhum código exporta spans ainda — a instrumentação OTel vem com
+    # a observabilidade (visão §D), não com este card.
+    profiles: ["observability"]
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"   # UI
+      - "${OTLP_GRPC_PORT:-4317}:4317"     # OTLP gRPC
+      - "${OTLP_HTTP_PORT:-4318}:4318"     # OTLP HTTP
+
+# Volumes nomeados: o dado sobrevive a `docker compose down`; some só com
+# `down -v`. Bind mount para dentro do repo seria pior — sujaria o git e
+# amarraria permissão de arquivo do host ao container.
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

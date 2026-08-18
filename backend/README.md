@@ -4,8 +4,9 @@ Backend em camadas consumido pelos dois clientes (`apps/mobile`, `apps/web`).
 Este README é a **fonte da regra de arquitetura** deste diretório — é o insumo
 da skill de arquitetura (CARD-004).
 
-Estado: **esqueleto** (CARD-001). Nenhuma lógica de aplicação ainda; as
-camadas existem vazias com sua regra declarada.
+Estado: **fundação** (CARD-001 + CARD-002). Configuração tipada, app FastAPI
+com health check e infraestrutura local no Docker Compose. Nenhuma lógica de
+domínio ainda.
 
 ---
 
@@ -43,6 +44,10 @@ de arquitetura, não uma questão de gosto.
 | `api` | `application`, `adapters`, `domain` | ser importada por outra camada; regra de negócio | `API` (controllers + `Program.cs`) |
 | `worker` | `application`, `adapters`, `domain` | ser importada por outra camada; regra de negócio; importar `api` | host de `BackgroundService` |
 
+`voicecoach/config.py` fica **fora das cinco camadas** (ADR-0013): configuração é
+detalhe de composição. Só `api`, `worker` e `adapters` podem lê-la — `domain` e
+`application` recebem valores por parâmetro, garantido por contrato próprio.
+
 O docstring de cada `__init__.py` repete a regra da sua camada — quem abre o
 arquivo lê a regra antes de escrever a primeira linha.
 
@@ -62,9 +67,15 @@ uv run lint-imports
 > que ser um lint. Equivalente mental: `NetArchTest`/`ArchUnitNET`.
 
 Os contratos `forbidden` listam apenas dependências **já instaladas** (hoje
-`fastapi` e `pydantic`). Ao adicionar uma dependência nova que não pode
-vazar para dentro (SQLAlchemy, `anthropic`, `redis`), acrescente-a à lista
-do contrato no mesmo commit.
+`fastapi`, `pydantic`, `pydantic_settings`, `uvicorn`, `asyncpg`, `redis`,
+`httpx`). Ao adicionar uma dependência nova que não pode vazar para dentro
+(SQLAlchemy, `anthropic`, `boto3`), acrescente-a à lista do contrato no mesmo
+commit — a lista **não** se atualiza sozinha, e é esse o elo fraco do ADR-0012.
+
+O contrato transitivo funciona: com `from voicecoach.config import ...` injetado
+no `domain`, o lint aponta os dois saltos —
+`voicecoach.domain -> voicecoach.config (l.16)` e
+`voicecoach.config -> pydantic (l.18)`.
 
 ---
 
@@ -72,20 +83,29 @@ do contrato no mesmo commit.
 
 ```
 backend/
-├── pyproject.toml        # manifesto + contratos de arquitetura
-├── uv.lock               # resolução determinística (commitado)
-├── .python-version       # 3.12
+├── pyproject.toml            # manifesto + contratos de arquitetura + pytest
+├── uv.lock                   # resolução determinística (commitado)
+├── .python-version           # 3.12
+├── tests/
+│   ├── conftest.py           # fixtures (settings, app, client httpx)
+│   └── api/test_health.py
 └── src/
     └── voicecoach/
+        ├── config.py         # Settings — fora das camadas (ADR-0013)
         ├── domain/
-        ├── application/  # ports/ com os Protocol
+        ├── application/      # ports/ com os Protocol
         ├── adapters/
+        │   └── health.py     # checks de Postgres, Redis e MinIO
         ├── api/
+        │   ├── app.py        # create_app() — composition root
+        │   ├── dependencies.py
+        │   ├── routes/health.py
+        │   └── schemas/health.py
         └── worker/
 ```
 
-`tests/` e `alembic/` entram nos cards que os justificam (testes e
-persistência) — o esqueleto não antecipa pasta vazia sem dono.
+`alembic/` entra no card que o justifica (CARD-005) — não se antecipa pasta
+vazia sem dono.
 
 ---
 
@@ -94,11 +114,62 @@ persistência) — o esqueleto não antecipa pasta vazia sem dono.
 Pré-requisito: [uv](https://docs.astral.sh/uv/).
 
 ```bash
+cp .env.example .env                      # na RAIZ do repo; preencha ANTHROPIC_API_KEY
+docker compose up -d                      # na raiz: postgres, redis, minio
+
 cd backend
 uv sync                                   # cria .venv e instala do lockfile
-uv run python -c "import voicecoach"      # sanidade
 uv run lint-imports                       # contratos de arquitetura
+uv run pytest                             # testes
+uv run uvicorn voicecoach.api.app:create_app --factory --reload
 ```
+
+Depois, `curl localhost:8000/health/ready` deve responder 200 com as três
+dependências `up`.
+
+### Configuração (ADR-0013)
+
+`voicecoach.config.Settings` é a declaração única e tipada de toda a
+configuração — equivalente a `IOptions<T>` com `ValidateOnStart()`. Três
+detalhes que valem saber:
+
+- **Só `ANTHROPIC_API_KEY` é obrigatória.** Os endereços de infraestrutura têm
+  default apontando para o `docker-compose.yml` deste repositório: o default não
+  pode estar errado, ele descreve o Compose ao lado. Segredo de provedor externo
+  é o contrário — nenhum default é correto.
+- **A app é servida por factory** (`--factory`). Assim `create_app()` valida a
+  configuração no **boot** (falha com exit 1 nomeando o campo faltante) sem que
+  um simples `import voicecoach.config` exploda.
+- **O `.env` mora na raiz do repositório**, onde o docker compose o lê sozinho.
+  Como o backend roda de `backend/`, o `env_file` do Settings tenta `.env` e
+  depois `../.env`.
+
+### Health check (ADR-0014)
+
+| Endpoint | Pergunta que responde | Toca em dependência? |
+|---|---|---|
+| `GET /health` | "o processo está vivo?" | **não** — se dependesse do banco, um supervisor mataria uma API sadia por causa de um vizinho |
+| `GET /health/ready` | "posso receber tráfego?" | sim: Postgres (`SELECT 1`), Redis (`PING`), MinIO (`/minio/health/live`) |
+
+`/health/ready` responde **200 só com as três `up`; 503 caso contrário**, com o
+mesmo corpo nos dois casos — quem faz probe lê o status HTTP, quem depura lê o
+JSON (qual caiu, qual erro, quanto demorou).
+
+### Infraestrutura local
+
+O `docker-compose.yml` fica na **raiz** do repositório (é infra do projeto, não
+do pacote Python). Portas de host configuráveis por `.env` para o caso de
+5432/6379 já estarem ocupadas.
+
+```bash
+docker compose up -d                            # postgres + redis + minio
+docker compose --profile observability up -d    # + jaeger (UI em :16686)
+docker compose down                             # para; dados sobrevivem
+docker compose down -v                          # para e apaga os volumes
+```
+
+O Jaeger fica atrás de profile (ADR-0010): sobe só quando se está estudando
+traces. Nenhum código exporta spans ainda.
 
 ### O que cada peça faz (para quem vem de .NET)
 
