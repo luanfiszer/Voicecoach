@@ -19,6 +19,8 @@ dependencies = [
     "asyncpg>=0.30",
     "redis>=5.0",
     "httpx>=0.27",
+    "sqlalchemy[asyncio]>=2.0",
+    "alembic>=1.13",
 ]
 
 [dependency-groups]
@@ -35,6 +37,7 @@ dev = [
     "mypy>=1.13",
     "pytest-cov>=6.0",
     "pre-commit>=4.0",
+    "testcontainers[postgres]>=4.8",
 ]
 
 # pytest: `asyncio_mode = "auto"` dispensa decorar cada teste async com
@@ -171,6 +174,12 @@ forbidden_modules = [
     "asyncpg",
     "redis",
     "httpx",
+    # SQLAlchemy/Alembic entram no CARD-005 (ADR-0004): persistência é detalhe
+    # de adapter e não pode vazar para o núcleo. Adicionados à lista no MESMO
+    # commit que trouxe a dependência — foi a omissão exata que o CARD-004
+    # encontrou com o pydantic.
+    "sqlalchemy",
+    "alembic",
 ]
 
 [[tool.importlinter.contracts]]
@@ -188,6 +197,10 @@ forbidden_modules = [
     "asyncpg",
     "redis",
     "httpx",
+    # Idem para application: o caso de uso orquestra portas, nunca uma sessão
+    # de banco (ADR-0004 + ADR-0012).
+    "sqlalchemy",
+    "alembic",
 ]
 
 # `voicecoach.config` mora fora das cinco camadas (ADR-0013), então o contrato
