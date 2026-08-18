@@ -23,6 +23,11 @@ a partir de Turns persistidos.
   `corrections[]` tipadas (type: grammar|vocabulary|preposition|word_order|
   other, original_excerpt, corrected_form, explanation, severity) — mantendo
   as regras pedagógicas (conservador, uma dica).
+- **`severity` é enum fechado, não texto livre** (ajuste do CARD-005, sessão de
+  reconciliação com as telas): a UI apresenta severidade em **palavras**
+  ("pequeno ajuste", "vale revisar"), o que só é traduzível a partir de uma
+  escala pequena e estável. Definir os níveis aqui, no domínio; o rótulo em
+  pt-BR é apresentação e mora no cliente (CARD-016).
 - Entidade `Correction` no domínio + tabela + repositório; Turn 1-N
   Correction.
 - Histórico do `TeacherLlm` construído pela application a partir dos últimos

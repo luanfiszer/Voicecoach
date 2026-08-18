@@ -261,4 +261,9 @@ tabela é alteração que ninguém vai conseguir auditar depois.
 | 2026-08-18 | Seção de quality gates passou de "TBD, entra no CARD-003" para o conteúdo do ADR-0015 | O CARD-003 fechou; a skill descrevia um estado que não existia mais |
 | 2026-08-18 | `pydantic` entrou na lista `forbidden` de `application` no `pyproject.toml` | A regra "pydantic só na borda `api/`" (ADR-0008) existia na skill mas **não** no contrato: `from pydantic import BaseModel` em `application` passava com o lint verde. Achado ao demonstrar a fragilidade da denylist (CARD-004) |
 
+| 2026-08-18 | Ciclo de vida do `Turn` e a proibição de persistir dado derivável | ADR-0016, escrito no CARD-005. A reconciliação com as telas expôs que o **CARD-010 já prometia** status por etapa que o modelo do CARD-005 não produzia |
+| 2026-08-18 | `Result` deixou de ser TBD **pela metade**: invariante violada é exceção | ADR-0017. O CARD-005 precisava recusar transições hoje; decidir o retorno de casos de uso que ainda não existem seria decidir sobre código imaginário |
+| 2026-08-18 | `testcontainers` deixou de ser "planejado" na tabela de testes | ADR-0018, CARD-005 — o gatilho registrado no CARD-003 (primeiro adapter de persistência) chegou |
+| 2026-08-18 | `sqlalchemy` e `alembic` entraram nas listas `forbidden` de `domain` e `application` | ADR-0012, no mesmo commit da dependência. Demonstrado que sem isso o gate fica verde com a violação dentro |
+
 *Esta skill cresce pelos postmortems (`docs/learnings/`), não por antecipação.*

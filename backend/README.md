@@ -86,16 +86,28 @@ backend/
 ├── pyproject.toml            # manifesto + contratos de arquitetura + pytest
 ├── uv.lock                   # resolução determinística (commitado)
 ├── .python-version           # 3.12
+├── alembic.ini               # a URL do banco NÃO mora aqui (ver env.py)
+├── alembic/
+│   ├── env.py                # async; URL vem da config ou é injetada pelo teste
+│   └── versions/             # esquema inicial + seed do Student dev
 ├── tests/
 │   ├── conftest.py           # fixtures (settings, app, client httpx)
-│   └── api/test_health.py
+│   ├── api/test_health.py
+│   ├── domain/               # unitário puro, sem IO
+│   └── adapters/             # integração com Postgres em container (ADR-0018)
 └── src/
     └── voicecoach/
         ├── config.py         # Settings — fora das camadas (ADR-0013)
         ├── domain/
-        ├── application/      # ports/ com os Protocol
+        │   ├── errors.py     # DomainError, InvalidStateTransitionError (ADR-0017)
+        │   ├── student.py
+        │   ├── session.py
+        │   └── turn.py       # ciclo de vida do Turn (ADR-0016)
+        ├── application/
+        │   └── ports/repositories.py   # os três Protocol de repositório
         ├── adapters/
-        │   └── health.py     # checks de Postgres, Redis e MinIO
+        │   ├── health.py     # checks de Postgres, Redis e MinIO
+        │   └── persistence/  # models, mappers, repositories, engine, seed
         ├── api/
         │   ├── app.py        # create_app() — composition root
         │   ├── dependencies.py
@@ -104,8 +116,27 @@ backend/
         └── worker/
 ```
 
-`alembic/` entra no card que o justifica (CARD-005) — não se antecipa pasta
-vazia sem dono.
+### Banco e migrations (ADR-0004)
+
+```bash
+docker compose up -d postgres    # da raiz do repositório
+uv run alembic upgrade head      # cria o esquema e o Student de desenvolvimento
+uv run alembic revision --autogenerate -m "descrição"
+```
+
+Equivalente mental: `dotnet ef database update` / `dotnet ef migrations add`.
+Duas diferenças que mordem:
+
+- **A URL não está no `alembic.ini`.** O `env.py` a resolve da configuração
+  tipada da aplicação, ou da URL injetada programaticamente (é assim que o teste
+  aponta para o container descartável). Um lugar só para a verdade.
+- **O autogenerate não é confiável sozinho** — ele não derruba tipos `ENUM` no
+  `downgrade`, por exemplo. Leia o arquivo gerado antes de commitar; a migration
+  inicial deste projeto tem exatamente esse ajuste à mão.
+
+Os testes de adapter sobem o **próprio** Postgres em container e aplicam
+`alembic upgrade head` — logo, `pytest` completo exige Docker rodando
+(ADR-0018).
 
 ---
 
@@ -169,7 +200,7 @@ uv run ruff format --check src tests   # formatação (sem reescrever)
 uv run ruff check src tests            # lint
 uv run mypy                            # tipos, modo estrito
 uv run lint-imports                    # contratos de camada (ADR-0012)
-uv run pytest --cov --cov-fail-under=70
+uv run pytest --cov --cov-fail-under=80
 uv run coverage report --include="*/domain/*,*/application/*" --fail-under=90
 ```
 

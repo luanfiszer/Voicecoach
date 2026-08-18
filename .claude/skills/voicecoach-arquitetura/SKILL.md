@@ -73,7 +73,9 @@ fronteira é um lint.
 | Router, schema pydantic de request/response, auth, Problem Details | `api/` | ADR-0008 |
 | Entrypoint que consome a fila | `worker/` | ADR-0005 |
 | Leitura de env, segredo, budget | `config.py` (pydantic-settings) — passado **por parâmetro** ao núcleo | ADR-0013 |
-| Migration | `alembic/` (nasce no CARD-005) | ADR-0004 |
+| Migration | `alembic/` — `env.py` resolve a URL da config ou da injetada pelo teste; nunca do `.ini` | ADR-0004 |
+| Ciclo de vida de um `Turn` | estado grosso em `domain`; a **etapa** é derivada dos artefatos, na borda | ADR-0016 |
+| Sinalizar invariante violada | exceção de `domain/errors.py` (`DomainError`), traduzida na borda | ADR-0017 |
 | Montagem/escolha de adapter concreto | composition root (`api/app.py`, entrypoint do worker) | ADR-0012 |
 
 ## O que NÃO fazer
@@ -95,6 +97,16 @@ Cada proibição tem contrato executável ou ADR por trás.
   `TEACHER_MODEL`/`ASSISTANT_MODEL` na config; trocar modelo é operação de
   configuração, não deploy (ADR-0009).
 - **`float` para dinheiro** — sempre `Decimal` (ADR-0013).
+- **Persistir o que se consegue derivar.** A etapa do `Turn` (`transcribing`,
+  `thinking`, `speaking`) e o "está ativa?" da `Session` **não** são colunas: são
+  função dos artefatos e do `ended_at`. Dado duplicado é dado que sai de
+  sincronia (ADR-0016).
+- **`DateTime` sem `timezone=True`** em coluna de tempo — a quota reseta por
+  dia-calendário em fuso fixo, e isso é impossível sobre timestamp ingênuo
+  (ADR-0016 + CARD-015).
+- **Usar `Result` para invariante de domínio** — invariante violada é bug do
+  chamador e levanta exceção; `Result` está reservado para falha *esperada* de
+  caso de uso, e sua forma ainda é TBD (ADR-0017).
 - **`api` importar `worker`, ou o contrário** — dois entrypoints do mesmo
   núcleo (ADR-0012).
 - **Adicionar dependência que não pode vazar para dentro sem pôr o módulo na
@@ -124,10 +136,13 @@ Cada proibição tem contrato executável ou ADR por trás.
   sourcing (visão §F).
 - **Suprimir aviso é decisão:** todo `# noqa: XXX` e `# type: ignore[...]` vem
   com o código específico e o motivo ao lado (ADR-0015).
-- **Erro / Result pattern: TBD.** Sem ADR ainda — a visão §D menciona `Result`
-  em `application`, mas a forma (exceção vs. tipo `Result`) não foi decidida.
-  **Não invente**: siga o código existente; a decisão vira ADR no primeiro caso
-  de uso real (CARD-005 em diante).
+- **Erro: metade decidida (ADR-0017).** **Invariante de domínio violada levanta
+  exceção** — `DomainError` como raiz, `InvalidStateTransitionError` para
+  transição impossível; a borda traduz para Problem Details num lugar só.
+  **`Result` para falha *esperada* de caso de uso continua TBD**, agora com
+  gatilho escrito: o primeiro desfecho que é normal do negócio e não bug —
+  quota estourada (CARD-015), `Idempotency-Key` repetida (CARD-010), convite já
+  usado (Fase 3). Naquele card decide-se, e vira ADR ali. **Não invente antes.**
 
 ## Quality gates (ADR-0015)
 
@@ -139,12 +154,13 @@ uv run ruff format --check src tests
 uv run ruff check src tests
 uv run mypy
 uv run lint-imports
-uv run pytest --cov --cov-fail-under=70
+uv run pytest --cov --cov-fail-under=80
 uv run coverage report --include="*/domain/*,*/application/*" --fail-under=90
 ```
 
-Dois anéis de cobertura: **70% global** (travado no valor real de hoje, para que
-regressão quebre) e **90% de `domain` + `application`** — a lógica mais barata de
+Dois anéis de cobertura: **80% global** (com folga deliberada sobre o real —
+ADR-0019: o anel global mede majoritariamente borda, que oscila; a régua sem
+folga migrou para o núcleo) e **90% de `domain` + `application`** — a lógica mais barata de
 testar e a mais cara de errar. Gate vermelho contornado com `--no-verify` não
 conta como cumprido (CLAUDE.md).
 
@@ -154,7 +170,7 @@ conta como cumprido (CLAUDE.md).
 |---|---|---|
 | domain | unit puro, sem IO | pytest |
 | application | fakes em memória das portas — `Protocol` dispensa mock framework: um fake é uma classe com os métodos certos | pytest |
-| adapters | integração contra dependência real em container; HTTP de provider interceptado | pytest + testcontainers, respx *(planejado — ainda não instalados)* |
+| adapters | integração contra dependência real em container; HTTP de provider interceptado | pytest + **testcontainers** (instalado no CARD-005, ADR-0018); respx *(ainda não)*. Esquema criado por `alembic upgrade head`, não `create_all()` |
 | api | rota via `httpx.AsyncClient` contra o app | pytest + httpx |
 | contrato | OpenAPI + geração de tipos no CI acusa breaking change | CI |
 | qualidade pedagógica da IA | **não é teste unitário** — é o eval harness | Fase 4 (P5) |

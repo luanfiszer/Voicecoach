@@ -38,6 +38,11 @@ se ela ainda não existir, ou faça `git switch` se já existir.
 
 ## 3. Declare as premissas e o plano — e espere meu OK
 
+**Antes do plano, abra `docs/perguntas-em-aberto.md`** e me reapresente as
+perguntas ainda abertas que tocam o tema deste card (regra do explicador,
+LEARNING-0004). O que eu responder fecha a linha lá; o que eu dispensar
+permanece registrado.
+
 Antes de criar ou alterar qualquer arquivo (regra das **premissas de escopo**,
 origem no LEARNING-0002):
 
@@ -101,10 +106,12 @@ conhecimento; o código é subproduto.
       e **dívidas explícitas** (o que ficou faltando, com o card ou gatilho que
       resolve).
 - [ ] **Tabela de `docs/backlog/README.md`** atualizada.
-- [ ] **Regra do explicador**: me faça **2 perguntas** sobre o que você acabou
-      de escrever. Se eu não souber responder, a tarefa **não** está concluída
-      — simplifique o código ou me explique até eu conseguir defender aquilo em
-      entrevista técnica.
+- [ ] **Regra do explicador**: as perguntas foram feitas **no ponto da decisão,
+      durante a implementação** (não num bloco no fim) e o **desfecho de cada
+      uma** está registrado no card — respondida / dispensada por mim / em
+      aberto. Item fechado pelo agente com a própria explicação **não** conta;
+      pergunta em aberto entra em `docs/perguntas-em-aberto.md`
+      (LEARNING-0004).
 - [ ] Nenhuma regra do CLAUDE.md violada.
 
 ## 7. Commit
