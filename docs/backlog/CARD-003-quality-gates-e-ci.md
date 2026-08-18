@@ -173,9 +173,9 @@ Entropy:     5.720891
 File:        docs/_leak_probe.md
 ```
 
-**Critério 2 — "no push, o CI roda ruff+mypy+pytest e fica verde".**
+**Critério 2 — "no push, o CI roda ruff+mypy+pytest e fica verde".** ✅
 
-**Parcialmente verificado, e digo o que falta.** O workflow foi validado
+O workflow foi validado
 localmente comando a comando (todos verdes, saída abaixo) e sintaticamente pelo
 hook `check-yaml`. O passo mais arriscado — gerar o OpenAPI, que precisa de
 `ANTHROPIC_API_KEY` porque `create_app()` recusa subir sem ela — foi executado
@@ -188,9 +188,42 @@ titulo: Voicecoach API 0.1.0
 bytes: 2399
 ```
 
-**O que não foi verificado:** o pipeline rodando de fato no GitHub Actions.
-Depende de push, que o protocolo do card não autoriza sem consulta. Enquanto o
-PR não rodar, este critério está *provado localmente, não em CI*.
+**Verificado de verdade no PR #6** — e a validação local **não** era
+suficiente. O primeiro run falhou em 3 segundos:
+
+```
+##[error]Unable to resolve action `astral-sh/setup-uv@v10`,
+         unable to find version `v10`
+```
+
+Eu havia consultado a release mais recente (`v10.0.1`) e **assumido** que a tag
+major móvel existisse. Não existe: `astral-sh/setup-uv` só publica majors
+móveis até `v7`. Nenhuma validação na minha máquina pegaria isso — a resolução
+de action só acontece no runner.
+
+A correção foi além do bug pontual: as três actions passaram a ser fixadas em
+**versão exata**, em vez de voltar para `@v7`. Tag móvel era incoerente com o
+próprio repositório — o compose fixa a versão da imagem e o pre-commit fixa o
+`rev` de cada hook, pelo mesmo motivo: build que muda sozinho é build que não
+reproduz.
+
+Segundo run, verde nos dois jobs:
+
+```
+backend (ruff, mypy, pytest, contratos): success
+    ruff format (verifica, não reescreve): success
+    ruff check: success
+    mypy --strict: success
+    contratos de arquitetura (ADR-0012): success
+    pytest + cobertura global: success
+    cobertura do núcleo (domain + application): success
+contrato OpenAPI: success
+    Gera o schema OpenAPI: success
+    Publica o schema como artefato: success
+```
+
+**A lição, gêmea da do gitleaks:** "validei cada comando localmente" não é
+evidência de que o pipeline roda. Só o pipeline rodando é.
 
 **Critério 3 — "edição de arquivo Python pelo agente ⇒ o hook devolve os erros
 na sessão".**
@@ -300,8 +333,6 @@ argumento para revisar o mecanismo.
 
 ### Dívidas registradas
 
-- **CI não observado rodando** — critério 2 provado localmente, não no GitHub.
-  **Gatilho:** o primeiro PR desta branch.
 - **Segundo anel de cobertura dormente** — mede 100% de zero linhas.
   **Gatilho:** CARD-005, o primeiro código de domínio de verdade.
 - **Job `openapi` é placeholder** — gera e publica o schema, mas não gera tipos
