@@ -179,6 +179,10 @@ type = "forbidden"
 source_modules = ["voicecoach.application"]
 forbidden_modules = [
     "fastapi",
+    # pydantic é contrato de API, não modelo de caso de uso (ADR-0008): só a
+    # borda `api/` o usa. Faltava aqui — descoberto no CARD-004 provando que o
+    # gate morde: `from pydantic import BaseModel` em application passava verde.
+    "pydantic",
     "pydantic_settings",
     "uvicorn",
     "asyncpg",

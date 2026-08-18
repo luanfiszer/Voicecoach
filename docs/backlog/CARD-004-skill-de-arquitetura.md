@@ -161,7 +161,50 @@ citar o ADR em cada item do checklist de PR (onde o agente age) e trocar
 `| 0004 |` por `| ADR-0004 |` na tabela de infraestrutura, para que a citação
 seja verificável por grep e não só por leitura.
 
-**Gates (não-regressão — o card não toca código Python):**
+**O achado: `pydantic` faltava no contrato de `application`.**
+Ao demonstrar, para a regra do explicador, *por que* uma lista `forbidden`
+desatualizada é pior que um gate vermelho, a demonstração encontrou o problema
+real em vez de um hipotético. Duas violações no mesmo arquivo de `application`:
+
+```
+import httpx                     -> BROKEN
+                                    voicecoach.application.violacao_demo -> httpx (l.1)
+from pydantic import BaseModel   -> Contracts: 4 kept, 0 broken.
+```
+
+`pydantic` estava na lista de `domain`, mas **não** na de `application` — e a
+regra "pydantic só na borda `api/`" (ADR-0008) existia na skill, no
+`backend/README.md` e no docstring da camada, em lugar nenhum executável. O
+CARD-005 é justamente onde um `BaseModel` de DTO de caso de uso apareceria, e
+teria entrado com o CI verde.
+
+Corrigido no mesmo commit deste card, com a prova de que o gate agora morde:
+
+```
+### injetando 'from pydantic import BaseModel' em application/:
+  application não conhece framework nem SDK de provider BROKEN
+  Contracts: 3 kept, 1 broken.
+  voicecoach.application is not allowed to import pydantic:
+  -   voicecoach.application.violacao_demo -> pydantic (l.1)
+
+### revertido:
+  Contracts: 4 kept, 0 broken.
+```
+
+**Sem ADR novo**, e o critério foi conferido: a mudança não *define* fronteira
+(critério 2) — ela torna executável uma fronteira já decidida no ADR-0008 — nem
+contraria convenção (critério 6): é exatamente a regra de manutenção que o
+ADR-0012 estabelece ("dependência que não pode vazar para dentro entra na lista").
+Ficou registrada no log de decisões da skill.
+
+**A dívida que ele deixa:** o contrato continua sendo **denylist**, então a
+classe do problema segue de pé — só esta instância foi fechada. A cura seria
+inverter para allowlist (`application` só importa stdlib + `voicecoach.domain`),
+possível no import-linter via contrato customizado. É decisão com trade-off real
+(atrito a cada dependência legítima) e portanto ADR próprio, com gatilho: a
+segunda vez que uma dependência entrar em camada errada sem o gate acusar.
+
+**Gates (não-regressão — fora a linha do contrato, o card não toca código Python):**
 
 ```
 16 files already formatted
@@ -172,10 +215,10 @@ Required test coverage of 70% reached. Total coverage: 70.08%
 4 passed in 0.05s
 ```
 
-Não se repetiu a prova de que o gate "morde" (injetar violação e reverter): ela
-foi feita no CARD-001 para o import-linter e no CARD-003 para os demais, e
-**nenhum arquivo `.py` ou contrato mudou aqui** — não há código novo para o gate
-morder.
+A prova de que o gate morde foi feita para o contrato alterado (bloco do achado
+acima): violação injetada, quebra com arquivo e linha, revertida. Para os demais
+gates ela não se repetiu — foi feita no CARD-001 e no CARD-003, e nenhum outro
+arquivo `.py` mudou aqui.
 
 ### Item de ADR (LEARNING-0003)
 
@@ -199,4 +242,5 @@ contestada, o critério 6 passa a valer e aí vira ADR.
 | Skill de arquitetura do **cliente** (Expo/web, ADR-0002, 0007, 0008) | **CARD-011**, quando existir tela de verdade para conferir a regra contra ela. Escrevê-la agora seria regra sobre código inexistente (visão §F) |
 | **Result pattern** continua TBD na skill — a visão §D cita `Result` em `application`, mas a forma em Python não foi decidida | CARD-005 em diante, no primeiro caso de uso real, e vira ADR ali |
 | **Nome dos adapters concretos** sem convenção (a visão só fixa o nome das portas) | CARD-006/007/008; o que eles estabelecerem entra no log da skill |
+| Contrato de camada segue **denylist**: só a instância do `pydantic` foi fechada, não a classe do problema | ADR próprio para inverter em allowlist, com gatilho: a segunda vez que uma dependência entrar em camada errada sem o gate acusar |
 | A skill **não tem anel de verificação automática** — nenhum linter lê markdown | Deliberado (visão §F). A mitigação é a hierarquia de fontes, o não-copiar valor volátil e o item de checklist "regra que não bateu vira ADR". A auditoria por grep desta sessão pode virar script se a skill começar a divergir na prática |

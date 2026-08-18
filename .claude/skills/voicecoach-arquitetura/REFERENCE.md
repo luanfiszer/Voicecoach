@@ -25,6 +25,12 @@ substituem, e eles são a razão de o texto abaixo ser curto:
    arquivo registra o que mudou e por quê. Regra que virou letra morta deve ser
    **removida**, não mantida por respeito.
 
+**E o caminho inverso também vale:** regra da skill que o contrato ainda não
+cobre é buraco no gate, não decoração da skill. Foi assim que o `pydantic`
+entrou na lista `forbidden` de `application` (ver o log no fim). Ao escrever uma
+regra aqui, pergunte se ela é executável — se for, ela pertence ao
+`pyproject.toml`, e a skill só a explica.
+
 ---
 
 ## Por que a camada é um *contrato executável* e não prosa
@@ -251,6 +257,8 @@ tabela é alteração que ninguém vai conseguir auditar depois.
 | 2026-08-18 | Skill criada e revisada no CARD-004 | Codificar os ADRs 0003–0015 em regra operacional; sem ela, cada sessão dependia da memória do agente |
 | 2026-08-18 | Escopo restrito ao backend; cliente adiado para o CARD-011 | Não existe código de Expo/web ainda — regra escrita antes do código nasce letra morta (visão §F) |
 | 2026-08-18 | Lista literal de módulos `forbidden` removida daqui | Duplicava o `pyproject.toml`, que muda a cada card que traz dependência nova (CARD-005, 007). Ficou a regra + o ponteiro |
+| 2026-08-18 | `pydantic` acrescentado ao `forbidden` de `application` no `pyproject.toml` | A skill afirmava "pydantic só na borda `api/`" (ADR-0008) e o contrato não cobria `application` — regra documentada sem gate que a sustente |
 | 2026-08-18 | Seção de quality gates passou de "TBD, entra no CARD-003" para o conteúdo do ADR-0015 | O CARD-003 fechou; a skill descrevia um estado que não existia mais |
+| 2026-08-18 | `pydantic` entrou na lista `forbidden` de `application` no `pyproject.toml` | A regra "pydantic só na borda `api/`" (ADR-0008) existia na skill mas **não** no contrato: `from pydantic import BaseModel` em `application` passava com o lint verde. Achado ao demonstrar a fragilidade da denylist (CARD-004) |
 
 *Esta skill cresce pelos postmortems (`docs/learnings/`), não por antecipação.*
