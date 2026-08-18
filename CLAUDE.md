@@ -28,11 +28,12 @@ Consequência prática para o agente:
 
 ## CONTEXTO DO PRODUTO
 
-Produto: professor de inglês por áudio no WhatsApp.
-Fluxo atual: áudio no WhatsApp → Twilio → webhook FastAPI → Whisper (STT)
+Produto: professor de inglês por conversa de áudio.
+Protótipo atual (a ser descontinuado como canal — ver ESCOPO DO CANAL):
+áudio no WhatsApp → Twilio → webhook FastAPI → Whisper (STT)
 → Claude (resposta + correções) → OpenAI TTS → Twilio → áudio de volta.
 
-Stack atual:
+Stack atual do protótipo:
 - FastAPI 0.115.0, Uvicorn 0.30.6, python-multipart, httpx 0.27.2, python-dotenv
 - SDK anthropic 0.34.0 (modelo claude-sonnet-4-20250514, configurável por .env)
 - SDK openai 1.51.0 (whisper-1 para STT, tts-1 voz "nova" para TTS)
@@ -47,9 +48,35 @@ Estado atual da arquitetura:
 - Allowlist de números via .env
 - Sem testes, sem CI, sem observabilidade, sem camadas
 
+## ESCOPO DO CANAL
+
+O WhatsApp e o Twilio SERÃO DESCONTINUADOS (decisão registrada no ADR-0001).
+Eles foram o andaime do protótipo, não o produto.
+
+Destino:
+- **App mobile (iOS e Android)** — este é o CARRO-CHEFE. É onde a conversa por
+  áudio acontece e é a experiência principal do produto.
+- **App web** — companion. Progresso, histórico de sessões, correções
+  acumuladas, erros recorrentes, onboarding, gestão de conta. Pode também
+  permitir prática por áudio no browser, mas não é o foco.
+- **Backend Python** — API própria consumida pelos dois clientes.
+
+Consequências que o agente deve tratar explicitamente, não assumir:
+- **Some:** webhook público, validação de assinatura Twilio, idempotência por
+  MessageSid, allowlist por número de telefone, limites do Sandbox.
+- **Entra:** autenticação real, captura e playback de áudio no cliente,
+  permissões de microfone, upload com retry, comportamento offline, push
+  notifications, ciclo de publicação em App Store e Play Store, proteção
+  contra abuso de custo por conta criada.
+
+O que NÃO muda e deve ser preservado na migração: o núcleo pedagógico
+(prompt do professor, lógica de correção, fluxo STT → LLM → TTS) e as
+lições de arquitetura assíncrona. O canal era um adapter; troque o adapter,
+preserve o domínio.
+
 ## OBJETIVO
 
-Transformar isto em um produto fullstack (Python + React) escalável e
+Migrar este protótipo para um produto próprio, multiplataforma, escalável e
 defensável em entrevista técnica. Prioridade dupla e explícita:
 1. meu aprendizado real de Python/React,
 2. qualidade de engenharia do produto.
@@ -78,6 +105,17 @@ Velocidade de entrega NÃO é prioridade.
   `Co-Authored-By: Claude` (ou qualquer variação com nome de modelo). A
   autoria é exclusivamente do desenvolvedor humano, mesmo quando o agente
   redige a mensagem ou parte do código.
+
+---
+
+## Regras de trabalho
+
+- **Premissas de escopo antes de análise** (origem: [LEARNING-0002]): toda
+  sessão de análise ou planejamento (diagnóstico, arquitetura, roadmap) começa
+  declarando as premissas de escopo de produto das quais as conclusões
+  dependem — em especial **o que é permanente vs. andaime** no sistema atual —
+  e as confirma com o desenvolvedor antes de produzir o artefato. Premissa não
+  confirmada é anotada como tal no próprio artefato.
 
 ---
 

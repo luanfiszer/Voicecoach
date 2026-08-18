@@ -37,4 +37,4 @@ Escreva um ADR sempre que a decisão:
 
 | ADR | Título | Status |
 |---|---|---|
-| — | (nenhum ainda) | — |
+| [0001](0001-descontinuar-whatsapp-em-favor-de-app-proprio.md) | Descontinuar WhatsApp/Twilio em favor de app mobile próprio + web companion | aceito |

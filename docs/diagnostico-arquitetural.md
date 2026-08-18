@@ -4,6 +4,11 @@
 - **Escopo:** todo o código em `english_teacher_bot/` (6 módulos, ~470 linhas)
 - **Método:** leitura integral do código, sem execução; preços de API da tabela oficial Anthropic (cache 2026-06) e preços públicos OpenAI/Twilio
 - **Sessão:** P1 do harness — nenhuma linha de código foi alterada
+- **Revisão 2026-08-17 (P1.5, ADR-0001):** o WhatsApp/Twilio será descontinuado
+  em favor de app mobile próprio + web companion. Achados atrelados ao canal
+  estão marcados como **OBSOLETO PELO ADR-0001** — nada foi deletado; a análise
+  de migração está na seção final "Revisão pós-mudança de escopo", e o Veredito
+  (§6) foi reescrito para o novo destino.
 
 ---
 
@@ -32,6 +37,11 @@ Twilio POST /webhook (form-encoded)
 | p50 | ~8–12s | OK por pouco |
 | p95 | ~15–25s | **Estoura o timeout de 15s do Twilio** → Twilio marca falha e **reenvia o webhook** |
 
+> **[Nota da revisão ADR-0001]** O timeout do Twilio e seus retries somem com o
+> canal, mas o problema de latência **não**: num app mobile o usuário fica
+> olhando a tela — 8–25s de espera sem feedback incremental é orçamento de UX
+> estourado do mesmo jeito. Muda o juiz (usuário em vez do Twilio), não a falha.
+
 Duas agravantes estruturais:
 
 1. **Todas as chamadas externas são síncronas dentro de um handler `async`** — elas bloqueiam o event loop do Uvicorn. Enquanto uma mensagem é processada, **nenhuma outra requisição é atendida** (nem o health check `/`). A concorrência efetiva do serviço é 1.
@@ -57,12 +67,19 @@ Duas agravantes estruturais:
 Ordenadas por severidade. Formato: severidade · tipo · evidência · cenário de quebra · custo de adiar.
 
 ### F1 — Webhook aceita requisições de qualquer origem (sem validação de assinatura)
+> **OBSOLETO PELO ADR-0001** — o webhook público morre com o canal; no destino a
+> borda é uma API autenticada. Risco residual apenas enquanto o protótipo estiver
+> exposto via ngrok — mitigação: não expor, em vez de corrigir.
 - **Severidade:** crítica · **Tipo:** segurança + custo
 - **Evidência:** `main.py:30-45` — nenhuma verificação de `X-Twilio-Signature`
 - **Cenário de quebra:** qualquer pessoa que descubra a URL (ngrok URLs vazam em logs, histórico de browser, scanners) faz `POST /webhook` com `From` e `MediaUrl0` arbitrários. Cada POST custa ~$0.03 e o atacante controla o volume. Um loop de 10 req/s drena o crédito das três contas em horas. O rate limit não protege: o atacante varia o `From` livremente.
 - **Custo de adiar:** prejuízo financeiro direto e aberto enquanto o ngrok estiver de pé. Corrigir custa ~20 linhas (o SDK Twilio tem `RequestValidator`).
 
 ### F2 — SSRF com vazamento de credenciais Twilio
+> **OBSOLETO PELO ADR-0001** — no destino não existe `MediaUrl` vindo de fora: o
+> áudio chega por upload autenticado do próprio cliente. Mesmo risco residual do
+> F1 enquanto o protótipo rodar exposto. A lição geral (nunca anexar credenciais
+> a URLs controladas por terceiros) permanece válida para qualquer adapter futuro.
 - **Severidade:** crítica · **Tipo:** segurança
 - **Evidência:** `audio.py:31-34` — `client.get(media_url, auth=(SID, AUTH_TOKEN))` com `media_url` vindo **do form da requisição** (`main.py:44`), sem validar o host
 - **Cenário de quebra:** combinado com F1, o atacante envia `MediaUrl0=https://atacante.com/x`. O servidor faz GET nessa URL **enviando Account SID + Auth Token em Basic Auth**. Com o token, o atacante controla a conta Twilio inteira: envia mensagens, lê logs, gasta crédito, sequestra o número.
@@ -75,6 +92,10 @@ Ordenadas por severidade. Formato: severidade · tipo · evidência · cenário 
 - **Custo de adiar:** é a falha que transforma "2 usuários" em incidente. Qualquer plano de produto esbarra nela primeiro.
 
 ### F4 — Sem idempotência por MessageSid
+> **OBSOLETO PELO ADR-0001 (como formulado)** — MessageSid e retry de webhook
+> morrem com o Twilio. O **conceito** renasce mais forte no destino: upload de
+> áudio de rede móvel exige retry no cliente, logo idempotency key por tentativa
+> de envio no backend. O achado vira requisito da nova API, não patch do protótipo.
 - **Severidade:** alta · **Tipo:** correção + custo
 - **Evidência:** `main.py:40-45` — `MessageSid` nunca é lido do form
 - **Cenário de quebra:** p95 > 15s (seção 1) → Twilio reenvia → o mesmo áudio é baixado, transcrito, respondido e sintetizado de novo. Usuário recebe card e áudio duplicados; o histórico ganha turnos duplicados (corrompendo o contexto pedagógico); paga-se 2× por mensagem. Retries em cascata sob carga (F3) multiplicam isso.
@@ -117,6 +138,11 @@ Ordenadas por severidade. Formato: severidade · tipo · evidência · cenário 
 - **Custo de adiar:** baixo; some de graça quando o contrato do webhook virar modelo pydantic.
 
 ### F11 — Cota diária é consumida por mensagens que não custam nada
+> **OBSOLETO PELO ADR-0001 (mecanismo)** — comandos por texto mágico ("reset",
+> "traduzir") e cota por número de telefone morrem com o canal. A lição
+> (contagem de cota ≠ decisão de negócio; cobrar cota só do que custa dinheiro)
+> entra no desenho das quotas por conta — que, sem a allowlist, viram bloqueantes
+> de lançamento (ver Revisão pós-mudança de escopo).
 - **Severidade:** baixa · **Tipo:** correção
 - **Evidência:** `limits.py:38` — `check()` incrementa a cota antes de saber o tipo da mensagem; `main.py:50` roda antes da classificação
 - **Cenário de quebra:** usuário manda 5 textos "oi" e gasta 5% da cota diária de áudio sem custar um centavo de IA. Inverso do objetivo do limite (proteger custo).
@@ -134,9 +160,9 @@ Ordenadas por severidade. Formato: severidade · tipo · evidência · cenário 
 
 | # | Hipótese | Veredito | Evidência |
 |---|---|---|---|
-| a | STT+LLM+TTS síncronos dentro do request? | **CONFIRMADO** — e pior: chamadas síncronas em handler async bloqueiam o event loop (F3). Timeout do Twilio: 15s. p95 estimado do fluxo: 15–25s → retries | `main.py:60`, `audio.py:33,53,68`, `teacher.py:87` |
-| b | `X-Twilio-Signature` validada? | **REFUTADO — não é validada.** Vetor: POST direto com `From`/`MediaUrl0` forjados. Prejuízo: ~$0.03 por request forjada, volume ilimitado (F1) + vazamento do Auth Token via SSRF (F2) | `main.py:30-45`, `audio.py:31-34` |
-| c | Idempotência por MessageSid? | **REFUTADO — não existe.** Retry do Twilio ⇒ reprocessamento completo: custo 2×, respostas duplicadas, histórico corrompido (F4) | `main.py:40-45` |
+| a | STT+LLM+TTS síncronos dentro do request? | **CONFIRMADO** — e pior: chamadas síncronas em handler async bloqueiam o event loop (F3). Timeout do Twilio: 15s. p95 estimado do fluxo: 15–25s → retries. *(Revisão ADR-0001: a referência ao Twilio é obsoleta; a latência continua inaceitável para usuário de app olhando a tela)* | `main.py:60`, `audio.py:33,53,68`, `teacher.py:87` |
+| b | `X-Twilio-Signature` validada? *(OBSOLETO PELO ADR-0001 — webhook morre com o canal)* | **REFUTADO — não é validada.** Vetor: POST direto com `From`/`MediaUrl0` forjados. Prejuízo: ~$0.03 por request forjada, volume ilimitado (F1) + vazamento do Auth Token via SSRF (F2) | `main.py:30-45`, `audio.py:31-34` |
+| c | Idempotência por MessageSid? *(OBSOLETO PELO ADR-0001 — o conceito renasce como idempotency key de upload)* | **REFUTADO — não existe.** Retry do Twilio ⇒ reprocessamento completo: custo 2×, respostas duplicadas, histórico corrompido (F4) | `main.py:40-45` |
 | d | Estado sobrevive a restart? Diverge com 2+ workers? | **CONFIRMADO o problema** — nada sobrevive a restart; com N workers há N cotas e N históricos independentes (F5) | `teacher.py:51-52`, `limits.py:11-12` |
 | e | MP3 públicos sem auth nem expiração? | **CONFIRMADO** — `StaticFiles` sem auth, URLs eternas com conteúdo derivado da fala do usuário (F6) | `main.py:22`, `audio.py:77-78` |
 | f | Limpeza de `temp_audio/`? | **PARCIAL** — inputs são removidos (`main.py:118-119`); **outputs nunca** (F6). ~10 MB/dia no teto da cota; disco enche em meses, não em dias |
@@ -186,22 +212,117 @@ Específico, porque deve sobreviver à refatoração:
 
 ---
 
-## 6. Veredito
+## 6. Veredito *(reescrito na revisão pós-ADR-0001; o original está no histórico git, commit b70b5e2)*
 
-**Reescrever sobre nova fundação, portando a lógica de negócio — com o protótipo congelado como referência executável até a paridade.**
+**Reescrever sobre nova fundação — agora com força dobrada. Portar o núcleo pedagógico; deixar o protótipo congelado como referência executável, sem investir mais nele.**
 
-Argumentos, em ordem de peso:
+O veredito original já recomendava reescrita por argumentos de arquitetura
+(esqueleto alvo incompatível, nada a proteger, aprendizado como objetivo,
+núcleo portável e pequeno). O ADR-0001 adiciona o argumento decisivo, agora
+**de produto**:
 
-1. **A arquitetura alvo não compartilha esqueleto com o atual.** O destino (camadas, portas/adaptadores, fila + worker, banco, pydantic na borda) muda **onde cada linha mora**. "Refatorar incrementalmente" 470 linhas flat para isso é reescrever com passos extras — cada passo intermediário gasta uma sessão preservando estruturas condenadas.
-2. **Não há nada a proteger.** Refatoração incremental é a estratégia certa quando existe tráfego de produção, base grande ou risco de regressão invisível. Aqui: zero usuários pagantes, zero testes (logo, zero rede de segurança para refatorar "com segurança"), 470 linhas. As três justificativas clássicas do incremental estão ausentes.
-3. **O objetivo declarado é aprendizado.** Montar a fundação (estrutura de camadas, DI, SQLAlchemy, pydantic-settings, fila) do zero é exatamente o currículo de Python que o CLAUDE.md pede. Adaptar código existente ensina menos que construir com as decisões nas mãos — e cada decisão vira ADR.
-4. **O que tem valor é portável e pequeno:** o prompt e as regras pedagógicas, a formatação dos cards, as decisões de UX, os limites de custo (seção 5). Isso se move por copy-adapt em poucas sessões; é lógica de negócio, não infraestrutura.
-5. **Contra-argumento considerado (e por que não vence):** "reescrita é o erro clássico; incremental mantém o sistema sempre funcional." A restrição de o sistema ficar sempre demonstrável **permanece válida** — ela entra no roadmap (P3): o protótipo continua rodando intocado enquanto a nova fundação cresce ao lado, e o tráfego troca quando houver paridade (strangler fig aplicado a um protótipo). O que se rejeita é *mutar* o protótipo passo a passo, não a exigência de funcionamento contínuo.
+1. **~40% do código morre por decisão de negócio, independentemente de
+   qualidade** (ver §7): toda a casca de canal — webhook, Twilio, formatação
+   WhatsApp, allowlist por telefone. Refatorar incrementalmente seria polir
+   código já condenado pelo próprio escopo.
+2. **O que sobrevive é exatamente o que o veredito original mandava portar:**
+   o núcleo pedagógico (prompt, contrato JSON, regras de produto) e os
+   adapters de provider (STT/TTS). A costura está mapeada em §7 — a extração
+   é viável e barata.
+3. **A restrição de demonstrabilidade contínua permanece** e vira exigência do
+   roadmap (P3): o protótipo WhatsApp continua executável como demo do núcleo
+   pedagógico enquanto a fatia vertical do novo stack não chega à paridade.
+   Muda a natureza do strangler: o protótipo não é mais um canal a manter vivo
+   em produção — é uma referência de comportamento.
+4. **F1/F2 deixam de merecer patch.** A recomendação original ("corrigir no
+   protótipo se ficar exposto") é substituída por: **não expor o protótipo**.
+   Rodá-lo apenas localmente custa zero linhas; investir segurança em código
+   condenado é desperdício.
 
-**Ressalvas ao veredito:**
-- As correções de **segurança exploráveis hoje** (F1, F2) não esperam a reescrita: se o protótipo ficar exposto via ngrok durante o desenvolvimento, validação de assinatura + validação do host da media URL devem ser aplicadas **no protótipo**, como patch mínimo, antes de qualquer fase do roadmap.
-- A decisão de modelo (3.k) é ganho rápido paralelo: `.env` já suporta override sem tocar em código; a escolha formal (Sonnet atual para resposta pedagógica, Haiku 4.5 para auxiliares) vira ADR na fase de arquitetura.
+**Ressalva mantida:** a decisão de modelo (3.k) segue como ganho rápido
+paralelo via `.env`, com ADR formal (Sonnet atual para resposta pedagógica,
+Haiku 4.5 para auxiliares) na fase de arquitetura.
+
+**Bloqueante novo herdado do ADR-0001:** sem allowlist, a proteção de custo
+por conta (quotas, verificação de e-mail, kill switch de gasto) passa a ser
+pré-requisito de qualquer lançamento — dimensionado em §7.
 
 ---
 
-*Próximos passos do harness: P2 (visão de produto + arquitetura alvo, em plan mode) consome este documento. Os ADRs referenciados aqui (fila, modelo de IA, Result pattern, dispatcher) nascem lá.*
+## 7. Revisão pós-mudança de escopo (P1.5 · ADR-0001 · 2026-08-17)
+
+### 7.1 Quanto do código morre e quanto sobrevive
+
+Base: 511 linhas em 6 módulos. Classificação linha a linha por destino:
+
+| Categoria | Evidência | Linhas (~) | % |
+|---|---|---|---|
+| **Lógica de canal — morre** | `whatsapp.py` inteiro (30); `main.py` webhook/form-data/envio out-of-band (~100 de 139); `audio.py` `download_twilio_media` + `public_audio_url` (~30); `teacher.py` `format_feedback_card`/`format_translation` com markdown WhatsApp (~45 — a **estrutura** da informação sobrevive, a formatação morre); allowlist e chaves por telefone em `limits.py`/`config.py` (~15) | ~220 | **~43%** |
+| **Núcleo pedagógico — preservar** | `SYSTEM_PROMPT` (teacher.py:26-48); `get_feedback` + histórico + `_trim` + `_extract_json` (teacher.py:55-121); regras de produto: card só quando há correção (main.py:128-132), tradução sob demanda, `has_corrections` | ~140 | **~27%** |
+| **Neutro — portável com adaptação** | `transcribe`/`synthesize` (adapters de provider, audio.py:49-74); padrão de config fail-fast (config.py); mecânica de rate limit por janela (limits.py:21-40, rechaveada para conta) | ~150 | **~30%** |
+
+### 7.2 Onde está a costura
+
+O acoplamento é **fraco** — a extração do núcleo é viável sem arqueologia:
+
+- `teacher.get_feedback(user_id, texto) → dict` não conhece Twilio, HTTP nem
+  WhatsApp. É a função mais valiosa do sistema e já tem a assinatura de um
+  serviço de aplicação. Contaminações: `user_id` é um telefone (`whatsapp:+55...`)
+  e as funções `format_*` embutem apresentação de canal no módulo de domínio.
+- `audio.transcribe`/`audio.synthesize` são adapters de provider puros — a
+  fronteira de porta (trocar OpenAI sem tocar domínio) já existe informalmente.
+- `main.py` é 100% casca: parsing de borda + orquestração. A orquestração
+  (ordem do pipeline, quando enviar o quê) é a única lógica a resgatar dele.
+
+**Conclusão da costura:** não é o acoplamento que justifica a reescrita — é o
+fato de a casca (~43%) morrer por decisão de produto e a fundação alvo
+(camadas, fila, banco, auth) não existir no protótipo. Extrai-se o núcleo por
+porte de funções quase inteiras.
+
+### 7.3 Pior cenário financeiro com cadastro aberto (24h)
+
+A allowlist (`limits.py:18-19`) era a **única** proteção que não dependia de
+bom comportamento. Sem ela:
+
+- Custo por interação maximizada (áudio no teto de 2MB ≈ 2 min): Whisper
+  $0.012 + Claude ~$0.012 + TTS ~$0.005 ≈ **$0.03/req** (Twilio sai da conta).
+- Cotas por conta são contornáveis criando contas: um script com e-mails
+  descartáveis a **1 req/s sustentada** gasta 86.400 × $0.03 ≈ **US$ 2.600–3.000
+  em 24h**; a 10 req/s, ~US$ 30.000/24h.
+- O teto real não é o atacante — é **o crédito pré-pago das contas OpenAI e
+  Anthropic e seus spend limits**. Com auto-reload ligado, o teto é o cartão.
+
+**É bloqueante para o lançamento? Sim.** Pré-requisitos mínimos antes de
+qualquer beta aberto: verificação de e-mail no cadastro; quota agressiva para
+conta nova (ex.: N min de áudio/dia); rate limit por conta **e** por IP;
+**limite global de gasto diário com kill switch** (o serviço para de aceitar
+áudio quando o orçamento do dia acaba — degradação honesta); alertas de gasto
+nos dois providers; auto-reload desligado. Nada disso existe hoje.
+
+### 7.4 Decisões que só faziam sentido no WhatsApp — erro carregar adiante
+
+| Decisão do protótipo | Por que existia | O que fazer no destino |
+|---|---|---|
+| Resposta = MP3 completo em URL pública (`audio.py:77-78`) | WhatsApp só entrega mídia por URL | Streaming/playback progressivo no app; qualquer URL de mídia é assinada e expira |
+| Interação estritamente turn-based, sem sessão explícita | WhatsApp é um thread infinito de mensagens | Sessão como entidade de domínio (início/fim/duração) — base de relatórios, CEFR e revisão espaçada |
+| Feedback formatado como string com markdown WhatsApp (`teacher.py:147-167`) | O canal só renderiza texto | API devolve **dados estruturados** (correções tipadas); o cliente renderiza. Formatar no servidor inverte a responsabilidade |
+| Identidade = número de telefone como chave universal | Era o identificador que o canal dava | Conta de usuário com auth real; telefone vira, no máximo, atributo |
+| Comandos por texto mágico ("reset", "traduzir" — `config.py:35-36`) | Único input disponível era mensagem | Ações de UI explícitas |
+| `translation_pt` gerada em **toda** resposta (`teacher.py:38`) | Segundo round-trip era caro/estranho no chat | Tradução on-demand via endpoint — elimina os ~30-40% de output pago e descartado |
+| Resposta out-of-band via REST após 200 vazio (`main.py:68-69`) | Modelo webhook do Twilio | Job assíncrono com status consultável/push — o cliente acompanha o progresso |
+| Cap de 2MB como proxy de duração (`config.py:43`) | Servidor não conhecia a duração antes de baixar | Cliente mede e limita **duração** na captura; servidor valida ambos |
+
+### 7.5 O que do diagnóstico original continua válido
+
+- **Integralmente:** F3 (bloqueio do event loop — agora julgado pela UX do
+  app), F5 (estado em memória — vira a motivação do banco), F7 (mutação do
+  histórico pré-sucesso), F8 (timeouts/retry/circuit breaker), F9 (fallback de
+  JSON indo para TTS), F12 (zero testes); **seção 4 inteira** (tradução
+  .NET→Python — nada nela é específica de canal); **seção 5** (o que está bom);
+  checklist d–k.
+- **Válido com reenquadramento:** custo por interação de IA (~$0.023–0.028 sem
+  Twilio; entra custo próprio de storage/infra/push); latência da seção 1
+  (o juiz muda de "timeout do Twilio" para "usuário olhando a tela"); F6
+  (MP3 públicos → vira requisito de storage com URL assinada e TTL por usuário);
+  F10 (parsing de borda → resolvido por pydantic no contrato da nova API).
+- **Obsoleto:** F1, F2, F4, F11 e itens b/c do checklist — marcados inline.
