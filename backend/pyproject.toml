@@ -4,18 +4,36 @@ version = "0.1.0"
 description = "Backend do Voicecoach — professor de inglês por conversa de áudio."
 requires-python = ">=3.12"
 
-# Dependências mínimas do CARD-001. Cada porta traz a sua no card correspondente
-# (SQLAlchemy no de persistência, arq/redis no de fila, anthropic no de IA).
+# Cada card traz apenas as dependências que ele realmente usa (SQLAlchemy no de
+# persistência, arq no de fila, anthropic no de IA). As do CARD-002 entram para
+# o health check e para servir a aplicação:
+#   uvicorn  — servidor ASGI; sem ele não existe "a API sobe"
+#   asyncpg  — driver async do Postgres (o mesmo dialeto que o CARD-005 usará)
+#   redis    — cliente async oficial (redis-py); PING do readiness
+#   httpx    — probe HTTP do MinIO e client dos testes de API
 dependencies = [
     "fastapi>=0.115",
     "pydantic>=2.9",
     "pydantic-settings>=2.5",
+    "uvicorn[standard]>=0.30",
+    "asyncpg>=0.30",
+    "redis>=5.0",
+    "httpx>=0.27",
 ]
 
 [dependency-groups]
 dev = [
     "import-linter>=2.0",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
 ]
+
+# pytest: `asyncio_mode = "auto"` dispensa decorar cada teste async com
+# @pytest.mark.asyncio. O gate (cobertura, CI) é do CARD-003 — aqui só o
+# mínimo para o primeiro teste rodar.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
 
 [build-system]
 requires = ["hatchling"]
@@ -48,14 +66,45 @@ layers = [
 ]
 containers = ["voicecoach"]
 
+# Regra de manutenção (ADR-0012): dependência nova que não pode vazar para
+# dentro entra nestas listas NO MESMO COMMIT que a adiciona. Lista desatualizada
+# é gate que não morde.
 [[tool.importlinter.contracts]]
 name = "domain é puro: sem framework, sem SDK, sem IO"
 type = "forbidden"
 source_modules = ["voicecoach.domain"]
-forbidden_modules = ["fastapi", "pydantic"]
+forbidden_modules = [
+    "fastapi",
+    "pydantic",
+    "pydantic_settings",
+    "uvicorn",
+    "asyncpg",
+    "redis",
+    "httpx",
+]
 
 [[tool.importlinter.contracts]]
 name = "application não conhece framework nem SDK de provider"
 type = "forbidden"
 source_modules = ["voicecoach.application"]
-forbidden_modules = ["fastapi"]
+forbidden_modules = [
+    "fastapi",
+    "pydantic_settings",
+    "uvicorn",
+    "asyncpg",
+    "redis",
+    "httpx",
+]
+
+# `voicecoach.config` mora fora das cinco camadas (ADR-0013), então o contrato
+# de `layers` acima não diz nada sobre ele — sem este contrato, `domain` poderia
+# importá-lo e o lint passaria. Configuração é composição: só api, worker e
+# adapters a leem; domain e application recebem valores por parâmetro.
+[[tool.importlinter.contracts]]
+name = "configuração é composição: domain e application não leem config"
+type = "forbidden"
+source_modules = [
+    "voicecoach.domain",
+    "voicecoach.application",
+]
+forbidden_modules = ["voicecoach.config"]

@@ -82,6 +82,14 @@ analisado como referência. O achado aproveitado: eles mantêm as regras de
 arquitetura como artefato **executável** (`docs/ai/rules/architecture.json`
 alimentando um validador de PR) em vez de só prosa.
 
+A decisão resultante está registrada no **[ADR-0012](../adr/0012-regra-de-camada-como-contrato-executavel.md)**
+(com as alternativas rejeitadas e o preço aceito); a observação de campo sobre
+compartilhar UI entre web e mobile foi anexada ao ADR-0002. Correção de
+processo: na primeira passagem desta sessão o agente marcou o item "ADR" da DoD
+como cumprido alegando que nenhuma decisão nova exigia registro — errado pelos
+critérios 1 e 2 do `docs/adr/README.md` (dependência externa nova; fronteira
+definida). O ADR foi escrito depois, a pedido do desenvolvedor.
+
 Daí a única adição ao escopo do card: **`import-linter`** com contratos em
 `[tool.importlinter]` no `pyproject.toml`. Motivo — em C# a fronteira de camada
 é imposta pelo `.csproj` (Domain não referencia Infrastructure e o compilador

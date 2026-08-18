@@ -125,7 +125,13 @@ Uma tarefa só está concluída quando **todos** os itens abaixo forem verdade:
 
 - [ ] O código roda localmente sem erro no fluxo afetado
 - [ ] Há teste cobrindo o comportamento novo (quando a infraestrutura de testes existir — antes disso, o card deve registrar a dívida explicitamente)
-- [ ] Decisões arquiteturais relevantes viraram ADR em `docs/adr/`
+- [ ] Decisões arquiteturais relevantes viraram ADR em `docs/adr/` — **verificado
+      contra critério escrito, não de memória** (origem: [LEARNING-0003]): o
+      fechamento consulta a lista "Quando um ADR é OBRIGATÓRIO" de
+      `docs/adr/README.md` e **cita o critério** que se aplicou, ou registra por
+      escrito por que nenhum se aplica. Decisão descrita apenas na seção de
+      execução de um card **não** conta como ADR: card é registro de trabalho,
+      ADR é registro de decisão
 - [ ] O card correspondente em `docs/backlog/` foi atualizado (status + pendências)
 - [ ] A **regra do explicador** foi cumprida (abaixo)
 - [ ] Nenhuma regra deste CLAUDE.md foi violada
@@ -154,4 +160,10 @@ O produto deste projeto é o meu conhecimento; o código é subproduto.
 | `docs/adr/` | Architecture Decision Records — decisões com alternativas e trade-offs |
 | `docs/backlog/` | Um card por arquivo, com objetivo de aprendizado obrigatório |
 | `docs/learnings/` | Post-mortems de erros, cada um gerando uma regra nova aqui |
-| `.claude/commands/` | Slash commands: `/card`, `/adr`, `/postmortem`, `/review`, `/explica` |
+| `.claude/commands/` | Slash commands: `/executa-card`, `/card`, `/adr`, `/postmortem`, `/review`, `/explica` |
+| `docs/referencias/` | Análises de projetos externos usados como referência, com o que foi aproveitado e o que foi recusado |
+
+> **Toda execução de card começa por `/executa-card <número>`** — ele carrega o
+> protocolo de sessão (ordem de leitura, premissas antes do plano, DoD item a
+> item, regra do explicador, convenção de commit). Quando um erro novo virar
+> regra, a regra entra lá também, não só aqui.
