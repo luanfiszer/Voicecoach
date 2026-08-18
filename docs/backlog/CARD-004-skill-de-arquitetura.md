@@ -235,6 +235,28 @@ seis critérios — não é fronteira de código, dependência, custo nem segura
 então fica registrada na própria skill e aqui, e não em ADR. Se ela vier a ser
 contestada, o critério 6 passa a valer e aí vira ADR.
 
+### Regra do explicador — registro honesto
+
+As duas perguntas foram feitas: (1) o que `Protocol` faz que dispensa Moq, e em
+que momento se descobre que um fake não satisfaz a porta; (2) qual falha o
+`lint-imports` **não** pega quando a lista `forbidden` fica desatualizada, e por
+que isso é pior que um gate vermelho.
+
+Nenhuma foi respondida — a primeira veio errada (CORS, que é política de origem
+do browser e acontece depois, sobre HTTP; aqui o erro é de type-check, antes de
+qualquer execução) e a segunda como "não sei dizer". As duas foram então
+explicadas com demonstração executável em vez de prosa: um `Protocol` com três
+fakes (um válido, um com método renomeado, um com tipo de retorno errado) reprovado
+pelo `mypy --strict`, e as duas violações lado a lado em `application` mostrando
+`BROKEN` para `httpx` e `4 kept, 0 broken` para `pydantic`.
+
+**O item fica marcado como parcial, não cumprido:** a explicação foi entregue e
+gerou correção real no repositório (o achado do `pydantic`), mas a verificação
+de que o desenvolvedor consegue defender os dois pontos sozinho foi dispensada
+por ele nesta sessão. Fica como gatilho para o CARD-005, que é onde os dois
+assuntos voltam na prática — o primeiro `Protocol` de verdade (CARD-006) e a
+primeira dependência nova entrando numa lista `forbidden` (`sqlalchemy`).
+
 ### Dívidas explícitas
 
 | Dívida | Quem resolve |
