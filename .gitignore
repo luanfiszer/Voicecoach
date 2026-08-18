@@ -16,6 +16,9 @@ env/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
 
 # Node / JS (monorepo pnpm — ADR-0002)
 node_modules/

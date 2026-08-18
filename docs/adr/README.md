@@ -51,3 +51,4 @@ Escreva um ADR sempre que a decisão:
 | [0012](0012-regra-de-camada-como-contrato-executavel.md) | Regra de camada como contrato executável (import-linter) | aceito |
 | [0013](0013-configuracao-tipada-fora-das-camadas.md) | Configuração tipada com pydantic-settings, fora das camadas e proibida no núcleo | aceito |
 | [0014](0014-health-check-liveness-readiness.md) | Health check: liveness separado de readiness, com clientes nativos e sem porta | aceito |
+| [0015](0015-quality-gates-tres-aneis.md) | Quality gates em três anéis: agente, pre-commit e CI | aceito |

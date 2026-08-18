@@ -1,0 +1,102 @@
+# Anel de integração dos quality gates (ADR-0015).
+#
+# Custo: R$ 0 — repositório público tem GitHub Actions gratuito e ilimitado
+# (ADR-0010). Nenhum serviço externo, nenhuma conta paga.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancela execuções antigas da mesma branch: push seguido não paga duas vezes
+# em fila e o resultado que importa é sempre o do último commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend (ruff, mypy, pytest, contratos)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Instala o uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Instala as dependências
+        # `--frozen` recusa resolver: se o uv.lock não bate com o
+        # pyproject.toml, o job falha em vez de instalar outra coisa. É o
+        # equivalente do `dotnet restore --locked-mode`.
+        run: uv sync --frozen
+
+      - name: ruff format (verifica, não reescreve)
+        run: uv run ruff format --check src tests
+
+      - name: ruff check
+        run: uv run ruff check src tests
+
+      - name: mypy --strict
+        run: uv run mypy
+
+      - name: contratos de arquitetura (ADR-0012)
+        run: uv run lint-imports
+
+      - name: pytest + cobertura global
+        run: uv run pytest --cov --cov-fail-under=70
+
+      - name: cobertura do núcleo (domain + application)
+        # Segundo anel (ADR-0015): a lógica pura é barata de testar e cara de
+        # errar. Reaproveita o .coverage do passo anterior.
+        run: uv run coverage report --include="*/domain/*,*/application/*" --fail-under=90
+
+  openapi:
+    name: contrato OpenAPI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - run: uv sync --frozen
+
+      - name: Gera o schema OpenAPI
+        # A chave é um valor descartável só para o boot passar: `create_app()`
+        # recusa subir sem ANTHROPIC_API_KEY (ADR-0013), e gerar o schema exige
+        # instanciar a aplicação. Nenhuma chamada de rede acontece aqui —
+        # nenhum segredo de verdade é necessário no CI.
+        env:
+          ANTHROPIC_API_KEY: ci-nao-e-uma-chave-real
+        run: |
+          uv run python -c "
+          import json, pathlib
+          from voicecoach.api.app import create_app
+          schema = create_app().openapi()
+          pathlib.Path('openapi.json').write_text(json.dumps(schema, indent=2))
+          print('paths:', sorted(schema['paths']))
+          "
+
+      - name: Publica o schema como artefato
+        # Placeholder deliberado: hoje só prova que o contrato é *gerável* e
+        # deixa o JSON baixável. A geração de tipos TypeScript
+        # (openapi-typescript) entra quando existir rota /v1 para tipar —
+        # CARD-010. Ver ADR-0008.
+        uses: actions/upload-artifact@v7
+        with:
+          name: openapi-schema
+          path: backend/openapi.json

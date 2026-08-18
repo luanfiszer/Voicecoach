@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case \"$f\" in */backend/*.py) root=\"${f%%/backend/*}/backend\"; cd \"$root\" || exit 0; out=$(uv run ruff format \"$f\" 2>&1 && uv run ruff check --fix \"$f\" 2>&1 && uv run mypy 2>&1) || { echo \"$out\" >&2; exit 2; };; esac; }",
+            "timeout": 60,
+            "statusMessage": "ruff + mypy no arquivo editado"
+          }
+        ]
+      }
+    ]
+  }
+}

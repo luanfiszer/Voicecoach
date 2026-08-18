@@ -26,14 +26,104 @@ dev = [
     "import-linter>=2.0",
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
+    # Quality gates do CARD-003 (ADR-0015):
+    #   ruff        — lint + format numa ferramenta só (≈ analyzers + dotnet format)
+    #   mypy        — tipagem estática estrita (≈ nullable enable + warning-as-error)
+    #   pytest-cov  — cobertura; plugin do coverage.py
+    #   pre-commit  — orquestra os hooks de git (o anel local do gate)
+    "ruff>=0.14",
+    "mypy>=1.13",
+    "pytest-cov>=6.0",
+    "pre-commit>=4.0",
 ]
 
 # pytest: `asyncio_mode = "auto"` dispensa decorar cada teste async com
-# @pytest.mark.asyncio. O gate (cobertura, CI) é do CARD-003 — aqui só o
-# mínimo para o primeiro teste rodar.
+# @pytest.mark.asyncio.
+#
+# `--strict-markers` faz marker não registrado virar erro em vez de aviso — sem
+# isso, um `@pytest.mark.slwo` (com typo) é silenciosamente ignorado e o teste
+# roda quando não devia.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+addopts = "--strict-markers --strict-config"
+
+# ---------------------------------------------------------------------------
+# ruff — lint e format (ADR-0015)
+#
+# Substitui black + flake8 + isort. O que se perde: plugins de flake8 sem
+# equivalente portado. O que se ganha: uma config, uma ferramenta, ~50ms no
+# repositório inteiro.
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 88          # o default do ruff e do black; o formatter cuida sozinho
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# Conjunto curado: além dos erros, as famílias que corrigem *idioma* — o valor
+# pedagógico é o ponto (CLAUDE.md: o produto é o conhecimento do desenvolvedor).
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes — o que o compilador pegaria
+    "I",        # isort — ordem dos imports
+    "N",        # pep8-naming
+    "UP",       # pyupgrade — escreve no idioma da versão do Python alvo
+    "B",        # flake8-bugbear — armadilhas reais (mutable default, etc.)
+    "BLE",      # blind except — `except Exception` tem que ser justificado
+    "C4",       # comprehensions
+    "SIM",      # simplify
+    "PT",       # pytest style
+    "ANN",      # anotação de tipo obrigatória na assinatura
+    "RUF",      # regras do próprio ruff
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Testes podem ter funções longas de arranjo; o que importa é a asserção.
+"tests/**" = ["ANN401"]
+
+# ---------------------------------------------------------------------------
+# mypy — modo estrito (ADR-0015)
+#
+# `strict = true` liga de uma vez ~12 flags, entre elas:
+#   disallow_untyped_defs      — função sem anotação é erro
+#   disallow_any_generics      — `list` pelado é erro; tem que ser `list[str]`
+#   warn_return_any            — devolver Any de função tipada é erro
+#   warn_unused_ignores        — `# type: ignore` que não silencia nada é erro
+# Equivalente mental: <Nullable>enable</Nullable> + TreatWarningsAsErrors.
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+# Mostra o código do erro (ex.: [union-attr]) para o `# type: ignore[...]` poder
+# ser específico em vez de um silenciador genérico.
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+# asyncpg não publica `py.typed`: não distribui suas anotações, então o mypy não
+# tem o que ler e reclama do import. Override pontual e documentado — a
+# alternativa (afrouxar o modo global) trocaria um erro conhecido por cegueira
+# em todo o resto. Gatilho para remover: asyncpg passar a publicar py.typed.
+module = ["asyncpg.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# coverage — dois anéis (ADR-0015)
+#   1. global, travado no valor real de hoje: qualquer regressão quebra
+#   2. núcleo (domain + application), mais exigente: é a lógica barata de
+#      testar e cara de errar. Hoje passa vazio; morde a partir do CARD-005.
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["voicecoach"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = [
+    "if TYPE_CHECKING:",       # bloco que só existe para o type checker
+    "raise NotImplementedError",
+]
 
 [build-system]
 requires = ["hatchling"]

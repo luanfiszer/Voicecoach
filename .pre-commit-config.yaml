@@ -1,0 +1,83 @@
+# Anel local dos quality gates (ADR-0015): roda no `git commit`, antes de a
+# história existir. O CI é o anel de integração; este é o que evita commitar o
+# erro em primeiro lugar.
+#
+# Instalação (uma vez por clone):
+#   cd backend && uv sync
+#   uv run pre-commit install
+#
+# Equivalente mental .NET: o que um `dotnet format --verify-no-changes` + os
+# analyzers fariam num pre-commit — com a diferença de que aqui o hook é
+# versionado e instalável por qualquer pessoa que clone o repositório.
+
+# `rev` fixo em todos os repos: hook que se move sozinho é gate que muda de
+# opinião entre duas máquinas. `pre-commit autoupdate` sobe as versões quando
+# for uma decisão, não um acidente.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        # Em Markdown, dois espaços no fim da linha SÃO uma quebra de linha —
+        # e o .editorconfig deste repositório já preserva isso (`[*.md]
+        # trim_trailing_whitespace = false`). Sem este arg, o hook brigaria com
+        # o .editorconfig e reescreveria os documentos.
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=3072]   # o Design.pdf de docs/design tem ~2,8 MB
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      # Varre o diff atrás de segredo (chave da Anthropic, token, chave privada).
+      # O .gitignore já impede o `.env`, mas .gitignore protege o arquivo certo —
+      # não protege a chave colada por engano dentro de um .py ou de um .md.
+      - id: gitleaks
+
+  # Os gates do backend rodam como `language: system`, isto é, com o ambiente do
+  # projeto (via uv), e NÃO no virtualenv isolado que o pre-commit criaria.
+  # Motivo: mypy precisa enxergar fastapi, pydantic e httpx para tipar o código;
+  # num venv isolado ele não os encontraria e cuspiria erro de import em tudo —
+  # o hook viraria ruído e seria desligado na primeira semana.
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format (backend)
+        entry: uv run --project backend ruff format
+        language: system
+        types: [python]
+        files: ^backend/
+
+      - id: ruff-check
+        name: ruff check --fix (backend)
+        entry: uv run --project backend ruff check --fix --force-exclude
+        language: system
+        types: [python]
+        files: ^backend/
+
+      - id: mypy
+        name: mypy --strict (backend)
+        # `pass_filenames: false`: mypy analisa o projeto inteiro, não os
+        # arquivos soltos do commit. Checar um arquivo isolado esconde erro de
+        # quem o chama — tipagem é uma propriedade do grafo, não do arquivo.
+        #
+        # O alvo (`src tests`) vai explícito em vez de vir do `files` do
+        # pyproject: durante o commit o pre-commit faz stash do que não está
+        # staged, então uma alteração não-commitada no pyproject faria o mypy
+        # rodar sem saber o que checar — e "não sei o que checar" viraria um
+        # verde falso.
+        entry: bash -c 'cd backend && uv run mypy src tests'
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: import-linter
+        name: contratos de arquitetura (ADR-0012)
+        entry: bash -c 'cd backend && uv run lint-imports'
+        language: system
+        types: [python]
+        pass_filenames: false
