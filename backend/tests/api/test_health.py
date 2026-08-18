@@ -54,12 +54,16 @@ async def test_readiness_200_quando_as_tres_dependencias_respondem(
     assert all(check["status"] == "up" for check in body["checks"].values())
 
 
-async def test_readiness_503_e_nomeia_quem_caiu(app: FastAPI, client: AsyncClient) -> None:
+async def test_readiness_503_e_nomeia_quem_caiu(
+    app: FastAPI, client: AsyncClient
+) -> None:
     _override(
         app,
         [
             DependencyStatus("postgres", up=True, latency_ms=3),
-            DependencyStatus("redis", up=False, latency_ms=2000, error="timeout after 2s"),
+            DependencyStatus(
+                "redis", up=False, latency_ms=2000, error="timeout after 2s"
+            ),
             DependencyStatus("minio", up=True, latency_ms=5),
         ],
     )

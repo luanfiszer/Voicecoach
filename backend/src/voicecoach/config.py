@@ -70,7 +70,9 @@ class Settings(BaseSettings):
     # Estas TÊM default porque o docker-compose.yml deste repositório é quem as
     # provê: o default não pode estar errado, ele descreve o compose ao lado.
     # Segredo de provedor externo é o oposto — não existe default correto.
-    database_url: str = "postgresql+asyncpg://voicecoach:voicecoach@localhost:5432/voicecoach"
+    database_url: str = (
+        "postgresql+asyncpg://voicecoach:voicecoach@localhost:5432/voicecoach"
+    )
     redis_url: str = "redis://localhost:6379/0"
     s3_endpoint_url: str = "http://localhost:9000"
     s3_access_key: str = "voicecoach"

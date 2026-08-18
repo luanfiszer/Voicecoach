@@ -144,6 +144,51 @@ detalhes que valem saber:
   Como o backend roda de `backend/`, o `env_file` do Settings tenta `.env` e
   depois `../.env`.
 
+### Quality gates (ADR-0015)
+
+Três anéis, do mais barato ao mais lento. Cada um pega o que o anterior deixou
+passar — é o que substitui, aqui, a barreira que em C# o compilador dá de graça.
+
+| Anel | Quando | O que roda |
+|---|---|---|
+| agente | a cada `Write`/`Edit` de `.py` (hook em `.claude/settings.json`) | `ruff format`, `ruff check --fix`, `mypy` |
+| pre-commit | `git commit` | o acima + `gitleaks`, `lint-imports`, higiene de arquivo |
+| CI | push em `main` e todo PR | o acima + `pytest` + cobertura (2 anéis) + OpenAPI |
+
+Instalação do anel 2 (uma vez por clone):
+
+```bash
+cd backend && uv sync
+uv run pre-commit install
+```
+
+Rodando tudo à mão, de `backend/`:
+
+```bash
+uv run ruff format --check src tests   # formatação (sem reescrever)
+uv run ruff check src tests            # lint
+uv run mypy                            # tipos, modo estrito
+uv run lint-imports                    # contratos de camada (ADR-0012)
+uv run pytest --cov --cov-fail-under=70
+uv run coverage report --include="*/domain/*,*/application/*" --fail-under=90
+```
+
+**Os dois anéis de cobertura.** O global está travado em **70%** — o valor real
+de hoje, sem folga, para que qualquer regressão quebre. O segundo exige **90% de
+`domain` + `application`**: é a lógica mais barata de testar e a mais cara de
+errar. Hoje ele passa medindo zero linhas; começa a morder quando o CARD-005
+trouxer o primeiro código de domínio.
+
+**Suprimir um aviso é uma decisão.** Todo `# noqa: XXX` e `# type: ignore[...]`
+deve ser específico (com o código) e trazer o motivo ao lado. Há três `noqa:
+BLE001` em `adapters/health.py`: o readiness converte falha em status e por isso
+captura `Exception` de propósito.
+
+**Segredos.** O `.gitleaks.toml` da raiz estende as regras default com duas
+próprias para a chave da Anthropic — as regras de fábrica do gitleaks **não**
+reconhecem `sk-ant-...`, e essa é a única credencial paga do projeto
+(ADR-0010). Sem elas, o hook ficaria verde justamente no caso que importa.
+
 ### Health check (ADR-0014)
 
 | Endpoint | Pergunta que responde | Toca em dependência? |

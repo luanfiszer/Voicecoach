@@ -87,15 +87,29 @@ Velocidade de entrega NÃO é prioridade.
 
 ## Convenções de código
 
-> **TBD** — serão definidas após P1 (diagnóstico) e P2 (arquitetura alvo),
-> e consolidadas em ADRs + skill de arquitetura (P4). Não invente convenções
-> antes disso; siga o estilo do código existente até lá.
+Decididas no CARD-003 ([ADR-0015](docs/adr/0015-quality-gates-tres-aneis.md)).
+O que ainda é TBD está marcado como tal, com o card que resolve.
 
-- Formatação e lint: TBD (P4)
-- Tipagem estática: TBD (P4)
-- Padrão de erro/Result: TBD (ADR em P2)
-- Camadas e o que é proibido em cada uma: TBD (ADR em P2)
-- Nomenclatura: TBD (P4)
+- **Formatação e lint:** `ruff` (formatter + linter), 88 colunas, alvo `py312`.
+  Conjunto de regras curado — além dos erros, as famílias que corrigem *idioma*
+  (`UP`, `B`, `C4`, `SIM`, `PT`, `N`) e exigem anotação de tipo (`ANN`).
+  Configuração em `backend/pyproject.toml`.
+- **Tipagem estática:** `mypy --strict` sobre `src/` e `tests/`. Override de
+  módulo é permitido quando a biblioteca não publica `py.typed` — mas **sempre
+  pontual e comentado com o motivo e o gatilho para remover**; afrouxar o modo
+  global, não.
+- **Nomenclatura:** PEP 8 imposta por `ruff` (`N`) — `snake_case` para funções e
+  variáveis, `PascalCase` para classes, `UPPER_CASE` para constantes de módulo.
+  Nome de porta é a **capacidade**, sem sufixo `Port` (`SpeechToText`,
+  `MediaStorage` — visão §D).
+- **Suprimir um aviso é uma decisão, não um atalho:** todo `# noqa: XXX` e
+  `# type: ignore[...]` deve ser **específico** (com o código do erro) e vir
+  acompanhado do motivo na mesma linha ou logo acima.
+- **Camadas e o que é proibido em cada uma:** [ADR-0012](docs/adr/0012-regra-de-camada-como-contrato-executavel.md)
+  e [ADR-0013](docs/adr/0013-configuracao-tipada-fora-das-camadas.md), verificados
+  por `uv run lint-imports`. Resumo em `backend/README.md`.
+- **Padrão de erro/Result:** ainda **TBD** — sem ADR. Não inventar; surge no
+  primeiro card com caso de uso de verdade (CARD-005 em diante) e vira ADR ali.
 
 ---
 
@@ -124,7 +138,13 @@ Velocidade de entrega NÃO é prioridade.
 Uma tarefa só está concluída quando **todos** os itens abaixo forem verdade:
 
 - [ ] O código roda localmente sem erro no fluxo afetado
-- [ ] Há teste cobrindo o comportamento novo (quando a infraestrutura de testes existir — antes disso, o card deve registrar a dívida explicitamente)
+- [ ] **Os quality gates passam localmente** ([ADR-0015](docs/adr/0015-quality-gates-tres-aneis.md)):
+      `uv run ruff format --check src tests`, `uv run ruff check src tests`,
+      `uv run mypy`, `uv run lint-imports` e `uv run pytest --cov
+      --cov-fail-under=70` — todos verdes, em `backend/`. Gate vermelho
+      contornado com `--no-verify` **não** conta como cumprido
+- [ ] Há teste cobrindo o comportamento novo. A cobertura do núcleo
+      (`domain` + `application`) não pode cair abaixo de **90%**
 - [ ] Decisões arquiteturais relevantes viraram ADR em `docs/adr/` — **verificado
       contra critério escrito, não de memória** (origem: [LEARNING-0003]): o
       fechamento consulta a lista "Quando um ADR é OBRIGATÓRIO" de
@@ -136,7 +156,8 @@ Uma tarefa só está concluída quando **todos** os itens abaixo forem verdade:
 - [ ] A **regra do explicador** foi cumprida (abaixo)
 - [ ] Nenhuma regra deste CLAUDE.md foi violada
 
-> Esta lista será expandida em P4 com os quality gates automatizados.
+> Os quality gates automatizados entraram no CARD-003 (P4). O que roda sozinho
+> — pre-commit, CI e o hook de edição do agente — está descrito no ADR-0015.
 
 ---
 

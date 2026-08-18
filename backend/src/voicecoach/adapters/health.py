@@ -53,20 +53,27 @@ def _asyncpg_dsn(database_url: str) -> str:
 async def check_postgres(database_url: str) -> DependencyStatus:
     """Conecta e roda `SELECT 1` — prova que o banco responde, não só a porta."""
     started = time.perf_counter()
-    conn: asyncpg.Connection[asyncpg.Record] | None = None
     try:
-        conn = await asyncio.wait_for(
+        # O `finally` aninhado (em vez de uma variável `conn = None` declarada
+        # antes do try) existe por causa do type checker: como asyncpg não
+        # publica anotações, `connect()` devolve `Any`, e atribuir `Any` a uma
+        # variável declarada `Connection | None` não estreita o tipo — o mypy
+        # continuaria vendo `None` no `.execute()`. Aqui a conexão só existe
+        # depois de aberta, então não há `None` a considerar.
+        connection = await asyncio.wait_for(
             asyncpg.connect(_asyncpg_dsn(database_url)), timeout=_TIMEOUT_SECONDS
         )
-        await asyncio.wait_for(conn.execute("SELECT 1"), timeout=_TIMEOUT_SECONDS)
+        try:
+            await asyncio.wait_for(
+                connection.execute("SELECT 1"), timeout=_TIMEOUT_SECONDS
+            )
+        finally:
+            await connection.close()
         return DependencyStatus("postgres", up=True, latency_ms=_elapsed_ms(started))
-    except Exception as exc:  # readiness reporta a falha, nunca propaga
+    except Exception as exc:  # noqa: BLE001 — readiness reporta a falha, nunca propaga
         return DependencyStatus(
             "postgres", up=False, latency_ms=_elapsed_ms(started), error=_describe(exc)
         )
-    finally:
-        if conn is not None:
-            await conn.close()
 
 
 async def check_redis(redis_url: str) -> DependencyStatus:
@@ -80,7 +87,7 @@ async def check_redis(redis_url: str) -> DependencyStatus:
     try:
         await asyncio.wait_for(client.ping(), timeout=_TIMEOUT_SECONDS)
         return DependencyStatus("redis", up=True, latency_ms=_elapsed_ms(started))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — idem: a falha vira status, não exceção
         return DependencyStatus(
             "redis", up=False, latency_ms=_elapsed_ms(started), error=_describe(exc)
         )
@@ -100,10 +107,12 @@ async def check_minio(s3_endpoint_url: str) -> DependencyStatus:
     started = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
-            response = await client.get(f"{s3_endpoint_url.rstrip('/')}/minio/health/live")
+            response = await client.get(
+                f"{s3_endpoint_url.rstrip('/')}/minio/health/live"
+            )
             response.raise_for_status()
         return DependencyStatus("minio", up=True, latency_ms=_elapsed_ms(started))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — idem: a falha vira status, não exceção
         return DependencyStatus(
             "minio", up=False, latency_ms=_elapsed_ms(started), error=_describe(exc)
         )
