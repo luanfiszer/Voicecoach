@@ -154,12 +154,13 @@ uv run ruff format --check src tests
 uv run ruff check src tests
 uv run mypy
 uv run lint-imports
-uv run pytest --cov --cov-fail-under=70
+uv run pytest --cov --cov-fail-under=80
 uv run coverage report --include="*/domain/*,*/application/*" --fail-under=90
 ```
 
-Dois anéis de cobertura: **70% global** (travado no valor real de hoje, para que
-regressão quebre) e **90% de `domain` + `application`** — a lógica mais barata de
+Dois anéis de cobertura: **80% global** (com folga deliberada sobre o real —
+ADR-0019: o anel global mede majoritariamente borda, que oscila; a régua sem
+folga migrou para o núcleo) e **90% de `domain` + `application`** — a lógica mais barata de
 testar e a mais cara de errar. Gate vermelho contornado com `--no-verify` não
 conta como cumprido (CLAUDE.md).
 

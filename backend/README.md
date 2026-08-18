@@ -200,7 +200,7 @@ uv run ruff format --check src tests   # formatação (sem reescrever)
 uv run ruff check src tests            # lint
 uv run mypy                            # tipos, modo estrito
 uv run lint-imports                    # contratos de camada (ADR-0012)
-uv run pytest --cov --cov-fail-under=70
+uv run pytest --cov --cov-fail-under=80
 uv run coverage report --include="*/domain/*,*/application/*" --fail-under=90
 ```
 

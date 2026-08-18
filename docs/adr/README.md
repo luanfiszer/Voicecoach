@@ -51,7 +51,8 @@ Escreva um ADR sempre que a decisão:
 | [0012](0012-regra-de-camada-como-contrato-executavel.md) | Regra de camada como contrato executável (import-linter) | aceito |
 | [0013](0013-configuracao-tipada-fora-das-camadas.md) | Configuração tipada com pydantic-settings, fora das camadas e proibida no núcleo | aceito |
 | [0014](0014-health-check-liveness-readiness.md) | Health check: liveness separado de readiness, com clientes nativos e sem porta | aceito |
-| [0015](0015-quality-gates-tres-aneis.md) | Quality gates em três anéis: agente, pre-commit e CI | aceito |
+| [0015](0015-quality-gates-tres-aneis.md) | Quality gates em três anéis: agente, pre-commit e CI | aceito (item 3 ajustado por 0019) |
 | [0016](0016-ciclo-de-vida-do-turn-estado-grosso-e-etapa-derivada.md) | Ciclo de vida do Turn: estado grosso persistido, etapa derivada dos artefatos | aceito |
 | [0017](0017-erro-de-dominio-e-excecao-result-fica-para-o-caso-de-uso.md) | Invariante de domínio violada é exceção; `Result` fica para o caso de uso | aceito |
 | [0018](0018-teste-de-adapter-contra-postgres-real-com-testcontainers.md) | Teste de adapter contra Postgres real, com testcontainers | aceito |
+| [0019](0019-limiar-global-de-cobertura-com-folga-agora-que-o-nucleo-morde.md) | Limiar global de cobertura com folga, agora que o anel do núcleo morde | aceito |

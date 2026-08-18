@@ -161,7 +161,7 @@ Uma tarefa só está concluída quando **todos** os itens abaixo forem verdade:
 - [ ] **Os quality gates passam localmente** ([ADR-0015](docs/adr/0015-quality-gates-tres-aneis.md)):
       `uv run ruff format --check src tests`, `uv run ruff check src tests`,
       `uv run mypy`, `uv run lint-imports` e `uv run pytest --cov
-      --cov-fail-under=70` — todos verdes, em `backend/`. Gate vermelho
+      --cov-fail-under=80` — todos verdes, em `backend/`. Gate vermelho
       contornado com `--no-verify` **não** conta como cumprido
 - [ ] Há teste cobrindo o comportamento novo. A cobertura do núcleo
       (`domain` + `application`) não pode cair abaixo de **90%**

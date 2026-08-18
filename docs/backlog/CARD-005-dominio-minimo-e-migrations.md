@@ -142,7 +142,7 @@ ruff format --check src tests   31 files already formatted
 ruff check src tests            All checks passed!
 mypy                            Success: no issues found in 31 source files
 lint-imports                    Contracts: 4 kept, 0 broken.
-pytest --cov --cov-fail-under=70   35 passed · Total coverage: 89.27%
+pytest --cov --cov-fail-under=80   35 passed · Total coverage: 89.27%
 coverage (domain+application) --fail-under=90   TOTAL 114 stmts, 0 miss → 100%
 ```
 
@@ -194,7 +194,7 @@ CARD-006/007, onde o primeiro fake de porta aparece.
 | Dívida | Gatilho / quem resolve |
 |---|---|
 | **`alembic/` fica fora do `ruff`/`mypy` dos gates** (que rodam sobre `src` e `tests`). Foi conferido à mão nesta sessão | Ampliar os comandos do ADR-0015 — decisão para o CARD-009, quando houver mais migrations |
-| **Cobertura global travada em 70%, real é 89%** — o ADR-0015 manda travar no valor real para que regressão quebre | Subir o limiar em `pre-commit` + CI; proposto, aguardando decisão |
+| ~~Cobertura global travada em 70%~~ — **resolvido nesta sessão**: subiu para 80% ([ADR-0019](../adr/0019-limiar-global-de-cobertura-com-folga-agora-que-o-nucleo-morde.md)), com a folga sobre o real (89,27%) registrada como decisão consciente, já que a régua sem folga migrou para o anel do núcleo | — |
 | **Seed de dev numa migration que rodaria em produção** | Fase 3 (auth real), quando existir Student criado por cadastro |
 | **`stage` derivado ainda não existe em código** — o ADR-0016 o define, mas ele mora na borda, e endpoint é Out deste card | CARD-010 |
 | **`complete()` não é chamado por ninguém ainda** — o pipeline que orquestra as transições | CARD-009 |

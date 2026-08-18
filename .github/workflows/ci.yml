@@ -56,7 +56,7 @@ jobs:
         run: uv run lint-imports
 
       - name: pytest + cobertura global
-        run: uv run pytest --cov --cov-fail-under=70
+        run: uv run pytest --cov --cov-fail-under=80
 
       - name: cobertura do núcleo (domain + application)
         # Segundo anel (ADR-0015): a lógica pura é barata de testar e cara de

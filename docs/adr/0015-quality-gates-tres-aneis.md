@@ -1,6 +1,6 @@
 # ADR-0015 — Quality gates em três anéis: agente, pre-commit e CI
 
-- **Status:** aceito
+- **Status:** aceito (item 3 ajustado por [ADR-0019](0019-limiar-global-de-cobertura-com-folga-agora-que-o-nucleo-morde.md))
 - **Data:** 2026-08-18
 - **Complementa:** ADR-0010 (política de custo), ADR-0012 (contratos de camada)
 - **Critérios de obrigatoriedade** (`docs/adr/README.md`): **1 — introduz
