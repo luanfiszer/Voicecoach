@@ -27,7 +27,10 @@ se ela ainda não existir, ou faça `git switch` se já existir.
 4. `docs/visao-produto-e-arquitetura-alvo.md` — as partes que o card referencia,
    sempre incluindo a **Parte F (anti-overengineering)**.
 5. `backend/README.md` — o mapa de dependências entre camadas, se o card tocar
-   o backend.
+   o backend. Junto dele, carregue a skill `voicecoach-arquitetura`: é o digest
+   operacional dos ADRs (onde mora o quê, o que é proibido em cada camada,
+   checklist de PR). Regra da skill que não bater com o código é ADR novo ou
+   bug — nunca motivo para afrouxá-la.
 6. `docs/learnings/` — **todos**. São erros já cometidos neste projeto; repetir
    um deles é a única falha realmente inaceitável.
 7. `docs/referencias/` — análises de projetos de referência, quando houver

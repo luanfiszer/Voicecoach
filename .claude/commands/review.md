@@ -12,7 +12,9 @@ use `git diff <ref>...HEAD`).
 Passos:
 
 1. Leia `CLAUDE.md` (convenções + Definition of Done) e os ADRs em `docs/adr/`
-   relacionados aos arquivos tocados.
+   relacionados aos arquivos tocados. Se o diff toca `backend/`, carregue também
+   a skill `voicecoach-arquitetura` — o checklist de PR dela é o insumo direto da
+   seção "Risco arquitetural".
 2. Analise o diff completo, não apenas os trechos alterados — uma mudança pode
    violar um invariante definido em outro lugar do arquivo.
 3. Reporte os achados em **três seções separadas**:
