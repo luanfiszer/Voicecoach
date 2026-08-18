@@ -160,4 +160,10 @@ O produto deste projeto é o meu conhecimento; o código é subproduto.
 | `docs/adr/` | Architecture Decision Records — decisões com alternativas e trade-offs |
 | `docs/backlog/` | Um card por arquivo, com objetivo de aprendizado obrigatório |
 | `docs/learnings/` | Post-mortems de erros, cada um gerando uma regra nova aqui |
-| `.claude/commands/` | Slash commands: `/card`, `/adr`, `/postmortem`, `/review`, `/explica` |
+| `.claude/commands/` | Slash commands: `/executa-card`, `/card`, `/adr`, `/postmortem`, `/review`, `/explica` |
+| `docs/referencias/` | Análises de projetos externos usados como referência, com o que foi aproveitado e o que foi recusado |
+
+> **Toda execução de card começa por `/executa-card <número>`** — ele carrega o
+> protocolo de sessão (ordem de leitura, premissas antes do plano, DoD item a
+> item, regra do explicador, convenção de commit). Quando um erro novo virar
+> regra, a regra entra lá também, não só aqui.
