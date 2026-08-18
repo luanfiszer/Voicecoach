@@ -17,6 +17,16 @@ env/
 .mypy_cache/
 .ruff_cache/
 
+# Node / JS (monorepo pnpm — ADR-0002)
+node_modules/
+dist/
+build/
+.expo/
+.turbo/
+
+# Build/run logs — nunca versionar (lição do monorepo MEDSoft)
+*.log
+
 # Generated audio
 temp_audio/
 *.mp3

@@ -37,4 +37,14 @@ Escreva um ADR sempre que a decisão:
 
 | ADR | Título | Status |
 |---|---|---|
-| — | (nenhum ainda) | — |
+| [0001](0001-descontinuar-whatsapp-em-favor-de-app-proprio.md) | Descontinuar WhatsApp/Twilio em favor de app mobile próprio + web companion | aceito |
+| [0002](0002-stack-de-cliente-expo-mais-web-separada.md) | Stack de cliente: Expo/RN (mobile) + web separada (Vite) em monorepo | aceito |
+| [0003](0003-interacao-v1-turn-based-preparada-para-v2-realtime.md) | Interação: V1 turn-based, desenhado para V2 realtime | aceito |
+| [0004](0004-persistencia-postgres-sqlalchemy-alembic.md) | Persistência: PostgreSQL + SQLAlchemy 2.0 (async) + Alembic | aceito |
+| [0005](0005-fila-e-worker-arq-sobre-redis.md) | Fila e worker: arq sobre Redis | aceito |
+| [0006](0006-storage-de-midia-s3-url-assinada.md) | Storage de mídia: S3-compatível (MinIO) com URL assinada e expiração | aceito |
+| [0007](0007-autenticacao-jwt-refresh-rotativo.md) | Autenticação: e-mail verificado, JWT curto + refresh rotativo | aceito (ajustado por 0010) |
+| [0008](0008-contrato-api-versionamento-e-tipos-gerados.md) | Contrato de API: REST /v1 aditivo + tipos TS gerados do OpenAPI | aceito |
+| [0009](0009-estrategia-de-modelos-de-ia.md) | Modelos de IA: forte para pedagogia, barato para auxiliares, via config | aceito (ajustado por 0010) |
+| [0010](0010-politica-de-custo-projeto-pessoal.md) | Política de custo: infra a dinheiro zero, gasto restrito à IA com teto mensal | aceito |
+| [0011](0011-stt-e-tts-locais-como-default.md) | STT e TTS locais como default de desenvolvimento; APIs por config | aceito |

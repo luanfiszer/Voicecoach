@@ -1,0 +1,11 @@
+{
+  "name": "voicecoach",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Monorepo do Voicecoach — apps/ e packages/ em pnpm workspaces; backend Python em backend/ (uv).",
+  "packageManager": "pnpm@11.2.2",
+  "engines": {
+    "node": ">=26"
+  },
+  "license": "UNLICENSED"
+}
