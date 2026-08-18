@@ -208,9 +208,31 @@ src/voicecoach/adapters/health.py:72: error: Argument "latency_ms" ... [arg-type
 Found 7 errors in 1 file (checked 16 source files)
 ```
 
-Sete erros para uma linha alterada — **seis deles nos chamadores**. É a
-demonstração empírica do `pass_filenames: false`: checar só o arquivo do commit
-teria mostrado 1 de 7.
+Sete erros para uma linha alterada.
+
+**Correção de uma afirmação errada desta mesma seção.** Na primeira redação eu
+escrevi que "seis deles estão nos chamadores" e que isso demonstrava o
+`pass_filenames: false`. Está errado: o `mypy` reportou `Found 7 errors in 1
+file` — os sete estão em `health.py`, o próprio arquivo editado. Aquilo mostra
+propagação **dentro** do arquivo, não entre arquivos, e portanto não prova nada
+sobre checar o projeto inteiro.
+
+A evidência correta exige quebrar algo que atravessa a fronteira. Renomeando o
+campo `up` do `DependencyStatus` (em `adapters/`):
+
+```
+tests/api/test_health.py:43: error: Unexpected keyword argument "up" ... [call-arg]
+  ... (mais 4)
+src/voicecoach/api/routes/health.py:53: error: "DependencyStatus" has no attribute "up"  [attr-defined]
+src/voicecoach/api/routes/health.py:61: error: "DependencyStatus" has no attribute "up"  [attr-defined]
+Found 14 errors in 3 files (checked 16 source files)
+```
+
+**Um arquivo alterado, 14 erros em 3 arquivos** — e os outros dois não foram
+tocados. Um hook que recebesse só os nomes do commit teria checado `health.py`,
+não encontrado nada de errado nele, e deixado passar a quebra em `api/` e nos
+testes. É isso que o `pass_filenames: false` compra: tipagem é propriedade do
+grafo de chamadas, não do arquivo.
 
 **O gate de cobertura, os dois anéis.** Com um módulo de domínio sem teste:
 
@@ -253,6 +275,28 @@ pelo código — o `forbidden` do ADR-0012 vigia import, e não existe import a
 vigiar. Foram os probes de cobertura (módulos reais em `domain/`) que
 exercitaram o contrato de camada e continuaram verdes, como deviam: eles usavam
 apenas `dataclasses`.
+
+### Regra do explicador — status honesto
+
+As 2 perguntas foram feitas (o `pass_filenames: false` do hook de mypy; o
+limiar de cobertura travado no valor real). O desenvolvedor **não respondeu** —
+pediu para seguir para o próximo card. O item da DoD, portanto, **não foi
+cumprido por verificação nem pelo caminho alternativo da explicação**: foi
+dispensado por decisão explícita do desenvolvedor, e fica registrado como tal
+em vez de marcado como verde.
+
+**É a terceira vez seguida.** CARD-001: perguntas feitas, desenvolvedor pediu a
+explicação em vez de responder. CARD-002: "não sei responder", fechado por
+explicação. CARD-003: dispensado. Três ocorrências não são coincidência — a
+regra do explicador, como está escrita, não está produzindo o que o CLAUDE.md
+diz ser o produto do projeto. **Gatilho:** rodar `/postmortem` sobre o próprio
+mecanismo antes do CARD-005, e ajustar a regra (por exemplo: perguntas mais
+curtas e no meio da implementação, e não um bloco no fim, quando a sessão já
+está longa).
+
+A pergunta 1, aliás, partia de uma leitura errada minha da saída do `mypy` —
+corrigida na seção de evidências acima. Errar a premissa da pergunta é mais um
+argumento para revisar o mecanismo.
 
 ### Dívidas registradas
 
