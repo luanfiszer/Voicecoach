@@ -1,0 +1,6 @@
+# Workspaces pnpm — ADR-0002.
+# O backend Python (backend/) fica FORA dos workspaces de propósito:
+# cada toolchain no seu diretório (uv em backend/, pnpm na raiz).
+packages:
+  - apps/*
+  - packages/*

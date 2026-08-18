@@ -1,0 +1,61 @@
+[project]
+name = "voicecoach"
+version = "0.1.0"
+description = "Backend do Voicecoach — professor de inglês por conversa de áudio."
+requires-python = ">=3.12"
+
+# Dependências mínimas do CARD-001. Cada porta traz a sua no card correspondente
+# (SQLAlchemy no de persistência, arq/redis no de fila, anthropic no de IA).
+dependencies = [
+    "fastapi>=0.115",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.5",
+]
+
+[dependency-groups]
+dev = [
+    "import-linter>=2.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/voicecoach"]
+
+# ---------------------------------------------------------------------------
+# Contratos de arquitetura — a regra de camada que o README declara em prosa,
+# aqui em forma executável (`uv run lint-imports`).
+#
+# Python não tem a barreira que o C# tem: lá, Domain.csproj simplesmente não
+# referencia Infrastructure.csproj e o compilador impede o acoplamento. Aqui
+# qualquer módulo importa qualquer módulo, então o contrato precisa ser um lint.
+# Equivalente mental: NetArchTest/ArchUnitNET rodando no build.
+# ---------------------------------------------------------------------------
+[tool.importlinter]
+root_packages = ["voicecoach"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Camadas apontam para dentro (domain não conhece ninguém)"
+type = "layers"
+layers = [
+    "api | worker",
+    "adapters",
+    "application",
+    "domain",
+]
+containers = ["voicecoach"]
+
+[[tool.importlinter.contracts]]
+name = "domain é puro: sem framework, sem SDK, sem IO"
+type = "forbidden"
+source_modules = ["voicecoach.domain"]
+forbidden_modules = ["fastapi", "pydantic"]
+
+[[tool.importlinter.contracts]]
+name = "application não conhece framework nem SDK de provider"
+type = "forbidden"
+source_modules = ["voicecoach.application"]
+forbidden_modules = ["fastapi"]
