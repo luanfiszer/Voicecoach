@@ -100,9 +100,12 @@ uma conversa real atravessando app, API, fila, STT local, Claude e TTS local.
   fixo de dev (auth real é Fase 3 — risco aceitável: tudo local, por convite).
 - Mobile: app Expo com tela de conversa, gravação com limite de duração,
   upload com retry, polling com backoff, playback.
-- **Critério de saída:** no aparelho físico, gravar uma frase em inglês e
-  ouvir a resposta pedagógica em < 30s, com o turn persistido no Postgres;
-  testes das camadas domain/application verdes no CI.
+- **Critério de saída:** no aparelho físico, gravar uma frase em inglês e:
+  **ver transcrição + feedback em ≤ ~6s** e **ouvir a resposta em ≤ ~15s**
+  (p50 na máquina de dev, com entrega progressiva — texto antes do áudio;
+  30s é teto de falha, não meta), com o turn persistido no Postgres; testes
+  das camadas domain/application verdes no CI. Medição ponta a ponta
+  registrada (CARD-012).
 - **Demo da fase:** a conversa no aparelho. A partir daqui o protótipo
   WhatsApp deixa de ser a demo do produto.
 - **Aprendizado:** SQLAlchemy 2.0 async + Alembic, `Protocol` como porta,

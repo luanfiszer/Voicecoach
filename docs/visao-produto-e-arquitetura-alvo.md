@@ -206,6 +206,13 @@ app: grava áudio (limita DURAÇÃO na captura — não MB)
 Idempotency-Key por tentativa de envio resolve o retry de rede móvel
 (o renascimento do achado F4 do diagnóstico).
 
+**Orçamento de latência do V1** (tudo local, custo zero): texto (transcrição
++ correções) visível em **≤ ~6s**; áudio completo em **≤ ~12–15s** p50. O
+status do Turn é por etapa com payload parcial — o app mostra o texto assim
+que o LLM termina, enquanto o TTS sintetiza. Se a medição (CARD-012) apontar
+o TTS como gargalo, a otimização seguinte é síntese por sentença (primeiro
+áudio liberado cedo). Conversa fluida de verdade é o V2 (ADR-0003).
+
 ### Persistência (ADR-0004)
 
 Postgres 16 + SQLAlchemy 2.0 (async) + Alembic. Modelo inicial:

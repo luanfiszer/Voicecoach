@@ -23,9 +23,12 @@ contrato completo: enviar áudio, acompanhar status, receber resultado.
   — lição §7.4); salva input no storage; cria Turn; enfileira; `202
   {turn_id}`. Chave repetida ⇒ mesmo turn_id, sem reprocessar (Redis
   SETNX+TTL).
-- `GET /v1/turns/{id}`: status + payload completo quando `completed`
-  (transcript, feedback, `reply_audio_url` assinada) — schemas pydantic
-  espelhando `TeacherFeedback`.
+- `GET /v1/turns/{id}`: status **por etapa** (`transcribing → thinking →
+  speaking → completed`) com **payload parcial progressivo**: transcript e
+  feedback ficam disponíveis assim que o LLM termina (etapa `speaking`),
+  antes do áudio — o app mostra texto cedo (orçamento de latência do
+  roadmap: texto ≤ ~6s). `reply_audio_url` assinada entra no `completed`.
+  Schemas pydantic espelhando `TeacherFeedback`.
 - `POST /v1/sessions` mínimo (abre sessão para o Student dev).
 - Exception handlers Problem Details (RFC 9457) — visão §D.
 - Geração `openapi-typescript` ligada de verdade no CI (placeholder do

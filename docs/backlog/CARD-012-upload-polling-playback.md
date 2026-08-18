@@ -21,8 +21,14 @@ travar a UI.
 - Client de API em `packages/api-client` (fetch tipado) consumido pelo app.
 - Upload multipart com `Idempotency-Key` (uuid gerado ao concluir a
   gravação — retry reusa a mesma chave); retry com backoff limitado.
-- Polling de `GET /v1/turns/{id}` com backoff (ex.: 1s→2s→4s, teto) e
-  timeout honesto; estados de UI: enviando → professor pensando → resposta.
+- Polling de `GET /v1/turns/{id}` **curto no início** (0,5–1s; backend é
+  local — backoff só após ~10s) e timeout honesto; **UI progressiva**:
+  transcrição + correções renderizam na etapa `speaking`, o áudio chega em
+  seguida. Estados: enviando → transcrevendo → professor pensando →
+  resposta em texto → áudio pronto.
+- **Medição ponta a ponta** (gravei → texto visível → áudio tocável) logada
+  no app em dev — valida o orçamento de latência da Fase 1 e aponta o
+  gargalo real antes de qualquer otimização.
 - Playback do áudio da URL assinada (expo-audio); tratar URL expirada
   (repedir o GET — ADR-0006).
 - Exibir também o texto da resposta (transcript + spoken_reply) — as
