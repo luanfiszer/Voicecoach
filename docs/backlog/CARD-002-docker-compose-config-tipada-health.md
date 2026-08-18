@@ -218,6 +218,59 @@ O contrato pegou a violação **transitiva** — `domain` alcançando `pydantic`
 *através* de `config` —, que é exatamente o buraco que o ADR-0013 existe para
 fechar.
 
+### Regra do explicador — status honesto
+
+As 2 perguntas foram feitas (o contrato novo do import-linter; o `@lru_cache` em
+`get_settings()`). O desenvolvedor respondeu **"não sei responder"**, então o
+item foi fechado pelo **caminho alternativo** do CLAUDE.md — "me explique até eu
+conseguir defender aquilo em entrevista" —, não pela verificação por resposta.
+Mesmo desfecho do CARD-001. As duas explicações, resumidas:
+
+1. **Proibir uma dependência ≠ proibir uma direção.** O contrato antigo
+   (`domain é puro`) pergunta "existe caminho de `domain` até *pydantic*?"; o
+   novo pergunta "existe caminho de `domain` até *`voicecoach.config`*?". Na
+   violação injetada, o antigo quebrou **por acidente**: viu
+   `domain -> config -> pydantic` e reclamou do pydantic — a proteção veio de o
+   `config.py` por acaso usar um pacote proibido. Dois cenários em que só o novo
+   barra: (a) o gatilho já escrito no ADR-0012 — se um ADR futuro permitir
+   pydantic no `domain`, `domain -> config -> pydantic` deixa de ser violação e
+   o domínio passa a ler configuração sem nenhum lint reclamar; (b) alguém
+   reescreve `config.py` com `os.getenv` + `dataclass` (o padrão do protótipo),
+   e aí `config` só importa stdlib — verde no contrato antigo, com o domínio
+   dependendo do ambiente do processo. **A frase:** contrato de dependência é
+   sobre *o que você usa* e quebra quando o alvo muda; contrato de direção é
+   sobre *quem você conhece* e independe do que o alvo faça por dentro. Camada é
+   uma afirmação sobre conhecimento, logo precisa do segundo. Paralelo .NET:
+   `Domain.csproj` não referenciar `Infrastructure.csproj` é direção; um
+   analyzer barrando `using Microsoft.Data.SqlClient` é dependência — se a
+   Infrastructure fosse reescrita sem SqlClient, o analyzer ficaria verde e a
+   referência continuaria errada.
+
+2. **`@lru_cache` guarda o resultado, não a entrada.** `get_settings()` não tem
+   argumentos, então há uma única entrada de cache, viva enquanto o processo
+   viver — e o pytest roda a suíte inteira num processo só. Se os testes usassem
+   `get_settings()`: o teste A popularia o cache; o teste B faria
+   `monkeypatch.setenv("DATABASE_URL", ...)` e receberia **o objeto do teste A**.
+   O monkeypatch funciona (a variável muda de verdade), mas ninguém vai lê-la de
+   novo: `Settings()` lê o ambiente no instante da construção e o objeto é um
+   retrato congelado daquele instante. **Por que rodar B sozinho não pega:**
+   sozinho ele é a primeira chamada, o cache está vazio, `Settings()` é
+   realmente construído e lê o valor já modificado. O defeito só existe na ordem
+   A→B — `pytest -k test_b` passa, `pytest` completo quebra, e a falha aponta
+   para o teste inocente. Por isso a fixture injeta `create_app(settings)` em vez
+   de chamar `get_settings()`: mesma razão pela qual se injeta em vez de usar
+   `static`. Paralelo .NET: registrar `IOptions<Settings>` num container
+   **estático** compartilhado entre testes — o xUnit isola por classe/collection,
+   aqui não há isolamento nenhum porque o cache vive no módulo, e módulo
+   importado é estado global do processo. Idioma Python sem paralelo em C#: um
+   decorator **substitui o objeto** (o `get_settings` do módulo é o wrapper
+   devolvido pelo `lru_cache`, com `.cache_clear()`/`.cache_info()` próprios),
+   enquanto um atributo em C# é metadado passivo.
+
+Foi oferecida a simplificação de remover o `@lru_cache` — hoje `create_app()` é
+seu único consumidor, e a memoização só ganha valor com o segundo (o worker, no
+CARD-009). O desenvolvedor optou por manter o código como está.
+
 ### Dívidas registradas
 
 - **Check do MinIO é o mais fraco dos três**: `/minio/health/live` não valida
