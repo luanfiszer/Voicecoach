@@ -108,8 +108,17 @@ O que ainda é TBD está marcado como tal, com o card que resolve.
 - **Camadas e o que é proibido em cada uma:** [ADR-0012](docs/adr/0012-regra-de-camada-como-contrato-executavel.md)
   e [ADR-0013](docs/adr/0013-configuracao-tipada-fora-das-camadas.md), verificados
   por `uv run lint-imports`. Resumo em `backend/README.md`.
-- **Padrão de erro/Result:** ainda **TBD** — sem ADR. Não inventar; surge no
-  primeiro card com caso de uso de verdade (CARD-005 em diante) e vira ADR ali.
+- **Padrão de erro:** decidido pela metade no CARD-005
+  ([ADR-0017](docs/adr/0017-erro-de-dominio-e-excecao-result-fica-para-o-caso-de-uso.md)).
+  **Invariante de domínio violada levanta exceção** (`DomainError` como raiz),
+  traduzida na borda para Problem Details. **`Result` para falha *esperada* de
+  caso de uso segue TBD**, com gatilho escrito: o primeiro desfecho que é normal
+  do negócio e não bug (quota estourada, `Idempotency-Key` repetida, convite já
+  usado). Naquele card decide-se e vira ADR — não inventar antes.
+- **Não persistir o que se consegue derivar**
+  ([ADR-0016](docs/adr/0016-ciclo-de-vida-do-turn-estado-grosso-e-etapa-derivada.md)):
+  a etapa exibida de um `Turn` e o "sessão ativa?" são calculados, não colunas.
+  Dado duplicado é dado que sai de sincronia.
 
 ---
 
@@ -164,7 +173,10 @@ Uma tarefa só está concluída quando **todos** os itens abaixo forem verdade:
       execução de um card **não** conta como ADR: card é registro de trabalho,
       ADR é registro de decisão
 - [ ] O card correspondente em `docs/backlog/` foi atualizado (status + pendências)
-- [ ] A **regra do explicador** foi cumprida (abaixo)
+- [ ] A **regra do explicador** foi cumprida (abaixo), com o desfecho de cada
+      pergunta registrado no card (respondida / dispensada por mim / em aberto).
+      Item fechado pelo agente com a própria explicação **não** conta
+      (origem: [LEARNING-0004])
 - [ ] Nenhuma regra deste CLAUDE.md foi violada
 
 > Os quality gates automatizados entraram no CARD-003 (P4). O que roda sozinho
@@ -174,14 +186,37 @@ Uma tarefa só está concluída quando **todos** os itens abaixo forem verdade:
 
 ## A regra do explicador
 
-Ao final de qualquer implementação, **antes de considerar a tarefa concluída**,
-o agente deve me fazer **2 perguntas** sobre o código que acabou de escrever.
+O produto deste projeto é o meu conhecimento; o código é subproduto. Esta regra
+existe para **verificar** isso — e verificação que o agente pode fechar sozinho
+não é verificação (reescrita no CARD-005; origem: [LEARNING-0004], depois de
+quatro fechamentos não-verdes seguidos).
 
-Se eu não souber responder, a tarefa **NÃO** está concluída: reescreva de forma
-mais simples ou me explique até eu conseguir defender aquele código em uma
-entrevista técnica.
+**1. Perguntar no ponto da decisão, não no fim.** Quando a implementação chegar
+a uma decisão não-óbvia — dependência nova, fronteira, idioma de Python sem
+paralelo em C#, gate que passa a morder —, o agente **para antes de escrever o
+código** e faz **uma** pergunta curta de previsão: *"o que você acha que
+acontece se…"*. Só depois implementa e explica. No máximo **2 por sessão**: as
+duas decisões mais caras de errar.
 
-O produto deste projeto é o meu conhecimento; o código é subproduto.
+**2. A pergunta é sobre consequência observável.** Prefira *"o que quebra, e com
+que mensagem, se eu remover X?"* a *"o que é Y?"*. Sempre que possível a
+resposta é conferida **rodando o comando na hora**: errar vira demonstração com
+evidência, e pergunta mal formulada pelo agente é desmascarada pela execução
+(aconteceu no CARD-003).
+
+**3. Quem fecha o item sou eu, não o agente.** Três desfechos, e o agente
+registra no card o que de fato ocorreu:
+
+- **respondida** → item verde;
+- **errada ou "não sei"** → o agente explica e **reformula a pergunta na mesma
+  sessão**, uma vez. Se ainda assim não fechar, vira dívida (abaixo);
+- **dispensada por mim** → registrada como **"dispensado pelo desenvolvedor"**,
+  nunca como cumprida nem como "parcial".
+
+Pergunta não fechada vira linha em `docs/perguntas-em-aberto.md` (pergunta, card
+de origem, data) e é **reapresentada na abertura da próxima sessão**, antes do
+plano. Dívida de aprendizado se cobra no começo de uma sessão, não no fim de uma
+longa.
 
 ---
 
@@ -192,6 +227,7 @@ O produto deste projeto é o meu conhecimento; o código é subproduto.
 | `docs/adr/` | Architecture Decision Records — decisões com alternativas e trade-offs |
 | `docs/backlog/` | Um card por arquivo, com objetivo de aprendizado obrigatório |
 | `docs/learnings/` | Post-mortems de erros, cada um gerando uma regra nova aqui |
+| `docs/perguntas-em-aberto.md` | Fila da regra do explicador: pergunta que não fechou, reapresentada na abertura da sessão seguinte |
 | `.claude/commands/` | Slash commands: `/executa-card`, `/card`, `/adr`, `/postmortem`, `/review`, `/explica` |
 | `.claude/skills/` | Skills de arquitetura: `voicecoach-arquitetura` (backend), derivada dos ADRs |
 | `docs/referencias/` | Análises de projetos externos usados como referência, com o que foi aproveitado e o que foi recusado |
