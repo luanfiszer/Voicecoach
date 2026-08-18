@@ -2,6 +2,11 @@
 #
 # Custo: R$ 0 — repositório público tem GitHub Actions gratuito e ilimitado
 # (ADR-0010). Nenhum serviço externo, nenhuma conta paga.
+# As actions são fixadas em versão EXATA, não em tag major móvel (@v7). Duas
+# razões: coerência com o resto do repositório (o compose fixa a tag da imagem,
+# o pre-commit fixa o `rev`), e porque `astral-sh/setup-uv` sequer publica tag
+# major acima de v7 — `@v10` não resolve, como o primeiro run deste workflow
+# provou.
 name: CI
 
 on:
@@ -24,10 +29,10 @@ jobs:
         working-directory: backend
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - name: Instala o uv
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
@@ -66,9 +71,9 @@ jobs:
         working-directory: backend
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
@@ -96,7 +101,7 @@ jobs:
         # deixa o JSON baixável. A geração de tipos TypeScript
         # (openapi-typescript) entra quando existir rota /v1 para tipar —
         # CARD-010. Ver ADR-0008.
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: openapi-schema
           path: backend/openapi.json
