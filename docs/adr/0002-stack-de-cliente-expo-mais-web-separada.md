@@ -78,3 +78,20 @@ com qual tecnologia.
 **Equivalente mental .NET:** dois frontends (MAUI + Blazor) consumindo a mesma
 API com DTOs gerados de um contrato — a decisão de não unificar UI é a mesma
 que se toma ao não forçar Blazor Hybrid em todo lugar.
+
+## Observação de campo (adicionada em 2026-08-17, não altera a decisão)
+
+Durante o CARD-001, o monorepo MEDSoft (empresa do desenvolvedor) foi analisado
+como referência. Ele **é** a Alternativa A em produção: Turborepo + pnpm com
+`apps/{web(Next.js), mobile(Expo)}` compartilhando UI via `react-native-web`.
+
+O preço dessa escolha está visível no repositório: três pacotes só para
+conciliar aparência entre plataformas (`ui`, `ui-override`, `ui-tokens`),
+arquivos `.web.tsx`/`.native.tsx` espalhados pelo código compartilhado, e um
+`CLAUDE.md` de 24 KB em que seções inteiras são *quirks* de plataforma
+("Platform-Specific Files", "Environment quirks", "Responsive / Breakpoints").
+
+Isso não muda a decisão — reforça-a com dado observado em vez de argumento.
+O que **foi** aproveitado do MEDSoft está no ADR-0012 (regra arquitetural como
+artefato executável). O layout `apps/*` + `packages/*` que eles usam coincide
+com o já decidido aqui.

@@ -48,3 +48,4 @@ Escreva um ADR sempre que a decisão:
 | [0009](0009-estrategia-de-modelos-de-ia.md) | Modelos de IA: forte para pedagogia, barato para auxiliares, via config | aceito (ajustado por 0010) |
 | [0010](0010-politica-de-custo-projeto-pessoal.md) | Política de custo: infra a dinheiro zero, gasto restrito à IA com teto mensal | aceito |
 | [0011](0011-stt-e-tts-locais-como-default.md) | STT e TTS locais como default de desenvolvimento; APIs por config | aceito |
+| [0012](0012-regra-de-camada-como-contrato-executavel.md) | Regra de camada como contrato executável (import-linter) | aceito |

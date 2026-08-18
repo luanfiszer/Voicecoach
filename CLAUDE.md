@@ -125,7 +125,13 @@ Uma tarefa só está concluída quando **todos** os itens abaixo forem verdade:
 
 - [ ] O código roda localmente sem erro no fluxo afetado
 - [ ] Há teste cobrindo o comportamento novo (quando a infraestrutura de testes existir — antes disso, o card deve registrar a dívida explicitamente)
-- [ ] Decisões arquiteturais relevantes viraram ADR em `docs/adr/`
+- [ ] Decisões arquiteturais relevantes viraram ADR em `docs/adr/` — **verificado
+      contra critério escrito, não de memória** (origem: [LEARNING-0003]): o
+      fechamento consulta a lista "Quando um ADR é OBRIGATÓRIO" de
+      `docs/adr/README.md` e **cita o critério** que se aplicou, ou registra por
+      escrito por que nenhum se aplica. Decisão descrita apenas na seção de
+      execução de um card **não** conta como ADR: card é registro de trabalho,
+      ADR é registro de decisão
 - [ ] O card correspondente em `docs/backlog/` foi atualizado (status + pendências)
 - [ ] A **regra do explicador** foi cumprida (abaixo)
 - [ ] Nenhuma regra deste CLAUDE.md foi violada
