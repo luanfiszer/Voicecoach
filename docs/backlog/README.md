@@ -8,7 +8,7 @@ roadmap). Ordem de execução: numérica, respeitando dependências.
 |---|---|---|---|---|---|---|
 | [001](CARD-001-monorepo-e-esqueleto-do-backend.md) | Monorepo e esqueleto do backend em camadas | 0 | infra | M | — | **concluído** |
 | [002](CARD-002-docker-compose-config-tipada-health.md) | Docker Compose, config tipada e health check | 0 | infra/backend | M | 001 | **concluído** |
-| [003](CARD-003-quality-gates-e-ci.md) | Quality gates: ruff, mypy, pytest, pre-commit, CI (P4) | 0 | infra | M | 001 | backlog |
+| [003](CARD-003-quality-gates-e-ci.md) | Quality gates: ruff, mypy, pytest, pre-commit, CI (P4) | 0 | infra | M | 001 | **concluído** |
 | [004](CARD-004-skill-de-arquitetura.md) | Skill de arquitetura derivada dos ADRs (P4) | 0 | infra | P | 001, 003 | backlog |
 | [005](CARD-005-dominio-minimo-e-migrations.md) | Domínio mínimo e migrations (Student, Session, Turn) | 1 | backend | M | 002, 003 | backlog |
 | [006](CARD-006-porta-e-adapter-stt-local.md) | Porta SpeechToText + faster-whisper local | 1 | backend/IA | P | 001 | backlog |

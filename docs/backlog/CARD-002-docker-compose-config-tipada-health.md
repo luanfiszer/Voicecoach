@@ -285,7 +285,10 @@ CARD-009). O desenvolvedor optou por manter o código como está.
   pre-commit e CI são o CARD-003. Não há cobertura mínima configurada.
 - **Sem teste de integração** contra os serviços reais (testcontainers) — os
   testes usam `dependency_overrides`. A evidência de integração desta sessão foi
-  manual, colada acima. **Gatilho:** CARD-003.
+  manual, colada acima. ~~**Gatilho:** CARD-003.~~ **Corrigido no CARD-003:** o
+  gatilho estava errado. Testcontainers não está no escopo do CARD-003 (que
+  monta os gates, não os testes de adapter); o primeiro adapter que justifica
+  integração real é o repositório do **CARD-005**.
 - **`Settings()` exige `# type: ignore[call-arg]`** — revisitar no CARD-003, com
   o plugin do pydantic para mypy.
 - **Config declarada só até onde o card pediu**: `INVITE_CODE` (ADR-0010),
