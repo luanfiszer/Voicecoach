@@ -140,10 +140,41 @@ fica pronto em **~6,6 s** contra um teto de 12–15 s; o texto em **~5,0 s** con
 - **A cascata LLM→TTS por sentença NÃO deve ser feita.** Economizaria ~1,3 s num
   orçamento com ~6 s de folga, ao custo de reabrir ADR-0016 e ADR-0006.
 - **O worker DEVE manter os modelos residentes.** Carregar por job custa **~6 s
-  por turn** (0,4 s de STT + 5,6 s de Kokoro) — mais que todo o resto do pipeline
-  somado. É decisão do CARD-009 e ainda é gratuita.
+  por turn** (0,42 s de STT + 5,63 s de Kokoro) — mais que todo o resto do
+  pipeline somado. Sem residência o pior caso vai a **12,69 s** e fura o teto de
+  12–15 s; com residência fica em **6,64 s**. Detalhado abaixo, na seção própria.
 - O incômodo original com a latência **não é o tempo das etapas**; é o desenho
   turn-based em si, que o ADR-0003 já nomeou e aceitou como degrau para o V2.
+
+### 6.6. Residência dos modelos no worker — a decisão mais concreta desta lista
+
+Esta é a única alavanca desta sessão que já está **medida, decidida e ainda
+gratuita**. Ela precisa sair do backlog como requisito, não como sugestão.
+
+**O que o backlog tem de garantir:**
+
+1. **Os modelos são carregados uma vez, na subida do worker**, não por job. Em
+   `arq` isso é o hook `on_startup`, que popula o `ctx` compartilhado entre jobs
+   — o equivalente mental é um singleton registrado no DI do host de um
+   `BackgroundService`, e não um `new` dentro do `ExecuteAsync`.
+2. **O readiness do worker (ADR-0014) precisa refletir isso.** Um worker que
+   subiu mas ainda está carregando modelos **não está pronto**, e hoje nada
+   modela essa diferença. Se o job chegar antes da carga terminar, ou ele espera
+   ou ele paga os 6 s que a decisão existe para evitar.
+3. **O custo de reinício passa a ser visível:** todo restart do worker custa
+   ~6 s de indisponibilidade. Isso entra no card como consequência aceita, e
+   muda o desenho de deploy (não se reinicia worker a cada mudança trivial).
+4. **Footprint de memória vira requisito documentado** (~1–2 GB residentes) —
+   é o número que decide o tamanho de qualquer máquina, hoje ou hospedada.
+5. **Se o `mlx-whisper` for escolhido, esta conta precisa ser refeita:** a carga
+   dele **não foi medida em separado** nesta sessão (o aquecimento foi
+   descartado junto). O grosso dos 6 s é o Kokoro de qualquer forma, mas o
+   número exato está em aberto.
+
+**Isto exige ADR** — critério 5 do `docs/adr/README.md` ("seria difícil de
+reverter": desfazer mexe no ciclo de vida do worker, no readiness e no deploy) e,
+discutivelmente, critério 2 (fronteira: quem é dono do ciclo de vida do modelo).
+Ele **não existe ainda** e está na lista do entregável 4.
 
 ### 7. `int8` é mais lento que `float32` neste hardware
 
@@ -259,6 +290,8 @@ Conferidos contra a lista "Quando um ADR é OBRIGATÓRIO" de
   escolhido — critério 2;
 - canal de cobrança e provedor de pagamento — critérios 1 e 3;
 - unidade da cota (minutos vs. turns) — critério 2, afeta o domínio;
+- **residência dos modelos no worker** (§6.6) — critério 5, e é o mais maduro
+  da lista: já tem número, já tem decisão, só falta o registro;
 - e, se o desenvolvedor reabrir o achado 8, o de STT/TTS no cliente.
 
 Escreva os ADRs ou proponha-os, conforme o desenvolvedor preferir — **pergunte**.
