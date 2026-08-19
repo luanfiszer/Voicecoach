@@ -91,7 +91,16 @@ escrito e nunca tinha sido feita.
 | `whisper-small.en-mlx` | **0,53 s** | **2,06 s** | 0,030 |
 | `whisper-base.en-mlx` | **0,20 s** | **0,79 s** | 0,011 |
 
-**2,4–2,8× mais rápido** que o `faster-whisper` no mesmo modelo, e libera a CPU —
+> ⚠️ **Correção de 2026-08-19, ao transformar os scripts em instrumento
+> reexecutável.** Ao rodar `benchmarks/stt_mlx.py` três vezes com insumo novo, o
+> `base.en` deu **0,78–0,79 s** no curto (RTF ~0,041), não os 0,20 s da primeira
+> medição — e o número é **estável nas três execuções**, logo não é ruído. O
+> `base.en` tem um custo quase fixo de ~0,75 s (0,78 s para 19 s de áudio,
+> 0,85 s para 64 s), que a duração não explica. **A linha do `base.en` acima
+> não está confirmada e não deve ser usada para decidir nada.** O `small.en`
+> reproduziu (0,53 → 0,59 s) e é o número em que se pode confiar.
+
+No `small.en` — o número confirmado — é **~2,5× mais rápido** que o `faster-whisper`, e libera a CPU —
 que num worker disputaria com o TTS. **Apple Silicon apenas:** numa máquina x86
 hospedada não roda. Não é trocar o default, é ter **dois adapters** — ADR novo.
 

@@ -76,10 +76,17 @@ próprio regular"*) não tem **nenhuma** das três condições satisfeitas.
 
 | | Hoje (medido) | Com cascata (estimado) |
 |---|---|---|
-| STT (`mlx-whisper base.en`) | 0,20 s | 0,20 s |
+| STT (`mlx-whisper small.en`) | 0,59 s | 0,59 s |
 | LLM | 1,86 s (JSON completo) | **~0,8 s** (até fechar a 1ª frase) |
 | TTS | 1,68 s (resposta toda) | **0,41 s** (1ª frase) |
-| **Até o primeiro áudio** | **3,74 s** | **~1,4 s** + transporte |
+| **Até o primeiro áudio** | **~4,1 s** | **~1,8 s** + transporte |
+
+> **Revisado em 2026-08-19.** A primeira versão desta tabela usava
+> `mlx-whisper base.en` a 0,20 s e chegava a ~1,4 s. Esse número **não
+> reproduziu** ao reexecutar o benchmark (0,78 s, estável em três execuções —
+> ver [medição §3.3](medicao-latencia.md)). A tabela passa a usar o `small.en`,
+> que reproduz e tem qualidade melhor. **O alvo continua dentro da faixa de
+> 1–2 s pedida, mas na parte alta dela.**
 
 ### De onde sai o ~0,8 s do LLM
 
@@ -140,7 +147,7 @@ playback, supressão de eco e cancelamento de geração em voo. Isso é V2 de
 verdade, e nenhum atalho o entrega.
 
 Vale ser explícito porque é a diferença entre "responde rápido" e "conversa": um
-sistema com 1,4 s de primeiro áudio **mas sem barge-in** ainda é walkie-talkie,
+sistema com ~1,8 s de primeiro áudio **mas sem barge-in** ainda é walkie-talkie,
 só que um walkie-talkie ágil.
 
 ---
@@ -149,7 +156,7 @@ só que um walkie-talkie ágil.
 
 **Não antecipar o V2. Adotar a cascata como meta explícita do V1.**
 
-Chega-se a ~1,4 s de primeiro áudio pagando dois ADRs reabertos, em vez de pagar
+Chega-se a ~1,8 s de primeiro áudio pagando dois ADRs reabertos, em vez de pagar
 reescrita de transporte, módulo nativo e a fundação que ainda não existe.
 
 Há um argumento de sequenciamento a favor: a cascata é exatamente a **costura 4**
@@ -166,7 +173,7 @@ tinha decidido fazer.
 
 ## 8. O que depende de decisão do desenvolvedor
 
-1. ~~Confirmar a meta~~ — **CONFIRMADO:** primeiro áudio em ~1,4 s, com
+1. ~~Confirmar a meta~~ — **CONFIRMADO:** primeiro áudio em ~1,8 s, com
    performance como regra de desempate ("se algo ceder, cede escopo, nunca
    latência"). Turno completo em 1–2 s segue impossível (§0).
 2. ~~Levantar o congelamento da ordem dos campos do JSON?~~ — **APROVADO em

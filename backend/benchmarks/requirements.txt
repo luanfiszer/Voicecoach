@@ -1,0 +1,13 @@
+# Dependências dos benchmarks — DELIBERADAMENTE FORA do pyproject.toml.
+#
+# Motivo: torch, mlx, spacy e transformers somam alguns GB e são instrumento de
+# medição, não dependência do produto. Colocá-las no projeto faria todo `uv
+# sync` — inclusive o do CI — baixar isso para rodar testes que não as usam.
+# Quando os adapters de IA existirem (CARDs 006/007/008), as bibliotecas que
+# eles realmente usarem entram no pyproject pela porta da frente.
+faster-whisper
+mlx-whisper ; sys_platform == "darwin" and platform_machine == "arm64"
+kokoro
+anthropic
+soundfile
+numpy

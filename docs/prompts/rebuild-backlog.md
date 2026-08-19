@@ -14,14 +14,14 @@ eixo de projeto que priorizava o aprendizado do desenvolvedor sobre a entrega.
 
 **Nada disso vale mais.** O alvo agora é:
 
-> **O aluno fala. Em ~1,4 segundos o professor começa a responder em áudio. E o
+> **O aluno fala. Em ~1,8 segundos o professor começa a responder em áudio. E o
 > aluno paga por isso.**
 
 Três mudanças de fundo, todas registradas em documento e nenhuma opinião sua:
 
 | Eixo | Antes | Agora |
 |---|---|---|
-| Latência | áudio completo em ≤ 12–15 s | **primeiro áudio em ~1,4 s** |
+| Latência | áudio completo em ≤ 12–15 s | **primeiro áudio em ~1,8 s** |
 | Modelo de negócio | projeto pessoal, custo zero | **produto cobrado por assinatura** |
 | Prioridade do projeto | aprendizado do desenvolvedor | **crescer o produto**, aprendendo por consequência |
 
@@ -36,7 +36,7 @@ que aparecer durante a reconstrução:
 > **Se algo tiver que ceder para caber, cede ESCOPO — nunca latência.**
 
 Na prática: um card que entregaria mais funcionalidade a 3,7 s perde para um card
-que entrega menos a 1,4 s. Funcionalidade adiada volta num card seguinte;
+que entrega menos a 1,8 s. Funcionalidade adiada volta num card seguinte;
 latência entregue errada vira retrabalho de arquitetura, porque o pipeline em
 cascata **não é um ajuste que se faz depois** — ele muda a forma dos CARDs 007 a
 012. É a diferença entre construir para streaming e converter para streaming.
@@ -46,17 +46,22 @@ corte **features**, não etapas do pipeline.
 
 ---
 
-## O que o alvo de 1,4 s significa tecnicamente
+## O que o alvo de ~1,8 s significa tecnicamente
 
 Isto não é aspiração: está medido e derivado em
 [`docs/analise-caminho-para-1-2s.md`](../analise-caminho-para-1-2s.md).
 
 | Etapa | Hoje (batch, medido) | Alvo (cascata) |
 |---|---|---|
-| STT (`mlx-whisper base.en`, 17,6 s de fala) | 0,20 s | 0,20 s |
+| STT (`mlx-whisper small.en`, ~19 s de fala) | 0,59 s | 0,59 s |
 | LLM | 1,86 s (JSON completo) | **~0,8 s** (até fechar a 1ª frase) |
 | TTS | 1,68 s (resposta inteira) | **0,41 s** (1ª frase) |
-| **Até o primeiro áudio** | **3,74 s** | **~1,4 s** |
+| **Até o primeiro áudio** | **~4,1 s** | **~1,8 s** |
+
+> Uma versão anterior deste prompt dizia 1,4 s, usando `mlx-whisper base.en` a
+> 0,20 s. Esse número **não reproduziu** ao reexecutar o benchmark (0,78 s,
+> estável em três execuções). A tabela usa o `small.en`, que reproduz e tem
+> qualidade melhor. **Trate 0,20 s como não confirmado.**
 
 O mecanismo é **a cascata**: o LLM responde em *streaming*, o parse extrai
 `spoken_reply` frase a frase, e cada frase vai para o TTS e para o aluno enquanto
@@ -66,11 +71,11 @@ o resto ainda está sendo gerado.
 
 1. **Isto não é realtime, e o V2 não deve ser antecipado.** A cascata não precisa
    de WebSocket, VAD, barge-in nem módulo nativo de áudio. Um agente com uma meta
-   de 1,4 s na mão tende a propor a pilha realtime inteira — o documento §2
+   de ~1,8 s na mão tende a propor a pilha realtime inteira — o documento §2
    explica em detalhe por que isso *adiciona* trabalho em vez de economizar:
    o V2 substitui transporte e orquestração, **não a fundação**, e hoje não
    existe V1 para pular.
-2. **1,4 s é o *primeiro áudio*, não o turno completo.** A resposta típica tem
+2. **~1,8 s é o *primeiro áudio*, não o turno completo.** A resposta típica tem
    **17 s de áudio** para tocar. Turno completo em 1–2 s é fisicamente impossível
    e nenhum card deve prometê-lo.
 
@@ -78,7 +83,7 @@ o resto ainda está sendo gerado.
 
 **Interrupção (barge-in).** O aluno falar por cima do professor exige VAD durante
 playback, supressão de eco e cancelamento de geração em voo. Isso é V2 de
-verdade. Um produto com 1,4 s de primeiro áudio **sem** barge-in ainda é um
+verdade. Um produto com ~1,8 s de primeiro áudio **sem** barge-in ainda é um
 walkie-talkie — só que ágil. Seja honesto sobre isso nos cards.
 
 ---
@@ -88,7 +93,7 @@ walkie-talkie — só que ágil. Seja honesto sobre isso nos cards.
 O desenvolvedor confirmou o alvo **e** desbloqueou o que a cascata exigia. Não há
 decisão pendente travando esta sessão:
 
-- ✅ **Alvo:** primeiro áudio em ~1,4 s, com performance como regra de desempate.
+- ✅ **Alvo:** primeiro áudio em ~1,8 s, com performance como regra de desempate.
 - ✅ **Ordem dos campos do JSON** — aprovada em 2026-08-19 e registrada no
   **[ADR-0022](../adr/0022-ordem-dos-campos-da-resposta-do-professor-e-contrato-de-latencia.md)**:
   `spoken_reply` passa a ser o **primeiro** campo, e a ordem é **contrato de
@@ -165,7 +170,7 @@ nenhum app. **Nada do produto funciona ponta a ponta.**
 Daí a armadilha: um backlog "voltado a crescimento" tende a inchar com features
 (streaks, gamificação, CEFR, social) sobre um produto que não roda. **Crescer o
 produto hoje é fazê-lo funcionar ponta a ponta e cobrar por isso.** Qualquer card
-que não sirva ao caminho *"aluno fala → ouve em ~1,4 s → paga"* precisa de
+que não sirva ao caminho *"aluno fala → ouve em ~1,8 s → paga"* precisa de
 justificativa explícita ou não entra.
 
 A tabela de gatilhos da **visão §F** continua valendo inteira. Se propuser algo
@@ -338,7 +343,7 @@ tratado conforme a emenda proposta. Cobrindo no mínimo:
 
 O sequenciamento atual (001 → 002/003 → 005 → 009 → 010 → 012) foi decidido com
 dependências pensadas. **Se mudar a ordem, mostre a dependência que justifica.**
-O entregável é um **caminho crítico até "o produto roda ponta a ponta em ~1,4 s e
+O entregável é um **caminho crítico até "o produto roda ponta a ponta em ~1,8 s e
 cobra"**, não uma lista.
 
 ### 4. Os ADRs que faltam
