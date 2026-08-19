@@ -29,6 +29,12 @@ perguntas que nunca tiveram resposta verificada.
 
 > **Q7** volta no CARD-006/007, onde nasce o primeiro *fake* de porta — este card
 > testou adapters contra Postgres real, então não houve fake para exercitá-la.
+>
+> **CARD-018 (2026-08-19): a fila não foi reapresentada na abertura** — o agente
+> leu o caminho errado, concluiu que este arquivo não existia e registrou isso no
+> card. Q9 era especialmente relevante (o card exercita igualdade de `@dataclass`
+> na comparação da coleção de trechos). **Q3, Q7 e Q9 são as que tocam o
+> CARD-006** e têm de abrir aquela sessão.
 
 ## Fechadas
 

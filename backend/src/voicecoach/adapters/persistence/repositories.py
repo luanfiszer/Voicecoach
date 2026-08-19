@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from sqlalchemy.orm import selectinload
+
 from voicecoach.adapters.persistence import mappers
 from voicecoach.adapters.persistence.models import SessionRow, StudentRow, TurnRow
 
@@ -72,7 +74,26 @@ class SqlAlchemySessionRepository:
 
 
 class SqlAlchemyTurnRepository:
-    """Implementa ``application.ports.repositories.TurnRepository``."""
+    """Implementa ``application.ports.repositories.TurnRepository``.
+
+    **Toda leitura de ``TurnRow`` carrega os trechos junto** (ADR-0023). Não é
+    otimização: no SQLAlchemy async **não existe lazy loading**. Quem carregasse
+    a linha sem pedir a coleção receberia um `Turn` que estoura ao ser mapeado —
+    `MissingGreenlet`, ou o `InvalidRequestError` explícito do
+    `lazy="raise_on_sql"` declarado no modelo.
+
+    É o contraste que morde para quem vem do EF Core: lá, esquecer o
+    ``.Include()`` custa um SELECT N+1 silencioso e o código continua correto.
+    Aqui, esquecer é erro em runtime — o que é pior de descobrir e melhor de
+    ter descoberto, porque carregamento vira decisão explícita por caso de uso
+    em vez de default herdado.
+    """
+
+    # `selectinload` emite um SELECT extra com `WHERE turn_id IN (...)`, em vez
+    # do JOIN do `joinedload`. Para coleção é a escolha certa: o JOIN
+    # multiplicaria as colunas do turn por trecho (produto cartesiano) e o
+    # `order_by` do relationship teria que competir com a ordenação da query.
+    _COM_TRECHOS = selectinload(TurnRow.audio_chunks)
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -81,7 +102,7 @@ class SqlAlchemyTurnRepository:
         self._session.add(mappers.turn_to_row(turn))
 
     async def get(self, turn_id: UUID) -> Turn | None:
-        row = await self._session.get(TurnRow, turn_id)
+        row = await self._session.get(TurnRow, turn_id, options=[self._COM_TRECHOS])
         return None if row is None else mappers.turn_from_row(row)
 
     async def update(self, turn: Turn) -> None:
@@ -90,8 +111,12 @@ class SqlAlchemyTurnRepository:
         Precisa existir porque a entidade não é o objeto mapeado: mudá-la em
         memória não sensibiliza sessão nenhuma. É o oposto do change tracking do
         EF Core — aqui, gravar é sempre um pedido explícito.
+
+        O eager load é tão obrigatório aqui quanto no ``get``: ``apply_turn``
+        precisa comparar os trechos já gravados com os da entidade para saber
+        quais acrescentar.
         """
-        row = await self._session.get(TurnRow, turn.id)
+        row = await self._session.get(TurnRow, turn.id, options=[self._COM_TRECHOS])
         if row is None:
             message = f"Turn {turn.id} não existe."
             raise RowNotFoundError(message)

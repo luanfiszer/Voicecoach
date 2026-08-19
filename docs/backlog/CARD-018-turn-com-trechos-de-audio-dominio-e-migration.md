@@ -1,7 +1,7 @@
 # CARD-018 — Turn com trechos de áudio: domínio, invariantes e migration
 
 - **ID:** CARD-018 · **Épico:** Fase 1 — Fatia vertical em cascata
-- **Plataforma:** backend · **Esforço:** P · **Status:** backlog
+- **Plataforma:** backend · **Esforço:** P · **Status:** **concluído** (2026-08-19)
 - **Dependências:** CARD-005 (concluído), ADR-0023
 
 ## Contexto
@@ -81,3 +81,166 @@ Tentação de persistir `stage` como coluna "para facilitar a query operacional"
 agora")* — relacionamento 1-N no SQLAlchemy 2.0 async com coleção ordenada:
 `relationship(order_by=...)`, `selectinload` e por que a coleção não carrega
 sozinha no async (o contraste com o lazy loading do EF).
+
+---
+
+## Execução (2026-08-19)
+
+Branch `card-018-turn-com-trechos-de-audio`. Prompt de sessão:
+[`docs/prompts/card-018-turn-com-trechos.md`](../prompts/card-018-turn-com-trechos.md).
+
+### O que foi entregue
+
+| Arquivo | O quê |
+|---|---|
+| `domain/turn.py` | `TurnStage` (enum derivada), `TurnAudioChunk` (`frozen=True`), `Turn.audio_chunks`, `append_audio_chunk`, `stage`, `delivered_partially` |
+| `domain/errors.py` | `OutOfOrderAudioChunkError(DomainError)` |
+| `adapters/persistence/models.py` | `TurnAudioChunkRow` com PK composta `(turn_id, index)`; relationship com `order_by` + `cascade="all, delete-orphan"` + `lazy="raise_on_sql"` |
+| `adapters/persistence/mappers.py` | `chunk_to_row`/`chunk_from_row`, coleção nos 3 sentidos, `_append_new_chunks`, `StaleTurnError` |
+| `adapters/persistence/repositories.py` | `selectinload` em `get` **e** `update` |
+| `alembic/versions/4600614d460b_*.py` | tabela `turn_audio_chunks`; **`turns` não foi tocada** |
+| `tests/domain/test_turn.py` | +16 testes |
+| `tests/adapters/test_persistence.py` | +6 testes |
+
+**Decisão fora do card:** `StaleTurnError` em `mappers.py`. Como `apply_turn` só
+**acrescenta** trechos, uma entidade defasada não escreveria nada e a divergência
+com o banco ficaria invisível. Gatilho para trocar por locking otimista de
+verdade: o CARD-009 passar a ter mais de um escritor por turn.
+
+### Critérios de aceite, um a um
+
+**1. Tabela de derivação (4 casos, incluindo trecho-sem-`reply_text`)** ✅
+
+```
+tests/domain/test_turn.py::test_etapa_e_transcribing_enquanto_nao_ha_artefato_nenhum
+tests/domain/test_turn.py::test_etapa_e_thinking_com_transcricao_e_sem_trecho
+tests/domain/test_turn.py::test_etapa_e_speaking_com_trecho_e_reply_text_ainda_nulo
+tests/domain/test_turn.py::test_etapa_e_completed_com_o_audio_inteiro
+```
+
+O terceiro é o caso que só existe na cascata: afirma `turn.reply_text is None` e
+`stage is SPEAKING`. Sob a tabela do ADR-0016 esse teste seria impossível.
+
+**2. `fail()` com 2 trechos preserva os 2 e marca entrega parcial** ✅
+`test_falha_nao_apaga_o_que_o_aluno_ja_ouviu` conta (`len(...) == 2`), não
+inspeciona status. Repetido do outro lado do mapeamento em
+`test_falha_depois_da_entrega_preserva_os_trechos_no_banco`.
+
+**3. Turn `completed` recusa trecho novo** ✅
+`test_turn_completo_recusa_trecho_novo` — `InvalidStateTransitionError`
+(subclasse de `DomainError`, ADR-0017) com `action="append_audio_chunk"` e
+`state="completed"`.
+
+**4. Índice repetido ou furado falha no domínio E no banco** ✅ (dois testes)
+- Domínio: `test_indice_repetido_ou_furado_e_recusado` (parametrizado em
+  `0, 2, 5, -1`), com `assert len(turn.audio_chunks) == 1` provando que a
+  coleção não foi tocada.
+- Banco: `test_indice_repetido_e_recusado_pelo_banco` — `INSERT` cru colidindo
+  na PK composta levanta `IntegrityError`.
+
+**5. Cobertura de `domain` ≥ 90%** ✅ — ficou em **100%**:
+
+```
+$ uv run coverage report --include="*/domain/*,*/application/*" --fail-under=90
+src/voicecoach/domain/errors.py                       13      0      0      0   100%
+src/voicecoach/domain/turn.py                         99      0     18      0   100%
+TOTAL                                                152      0     24      0   100%
+```
+
+### Gates (todos verdes, de `backend/`)
+
+```
+$ uv run ruff format --check src tests   → 31 files already formatted
+$ uv run ruff check src tests            → All checks passed!
+$ uv run mypy                            → Success: no issues found in 31 source files
+$ uv run lint-imports                    → Contracts: 4 kept, 0 broken.
+$ uv run pytest --cov --cov-fail-under=80
+  59 passed in 3.86s
+  Required test coverage of 80% reached. Total coverage: 91.01%
+```
+
+**Prova de que o `lint-imports` morde** (o código novo não o faria morder
+sozinho). Injetado em `domain/turn.py`:
+
+```python
+from sqlalchemy.orm import relationship
+from voicecoach.adapters.persistence.models import TurnAudioChunkRow
+```
+
+```
+$ uv run lint-imports ; echo "EXIT REAL: $?"
+Camadas apontam para dentro (domain não conhece ninguém) BROKEN
+domain é puro: sem framework, sem SDK, sem IO BROKEN
+application não conhece framework nem SDK de provider BROKEN
+Contracts: 1 kept, 3 broken.
+EXIT REAL: 1
+```
+
+Revertido em seguida; `Contracts: 4 kept, 0 broken`. Nenhuma dependência nova
+entrou neste card — `sqlalchemy` e `alembic` já estavam instaladas **e** já
+estavam nas listas `forbidden` desde o CARD-005.
+
+### Item de ADR da DoD (critério escrito, LEARNING-0003)
+
+Conferido contra "Quando um ADR é OBRIGATÓRIO" (`docs/adr/README.md`):
+
+- **Critério 6 — contraria uma convenção estabelecida:** ✅ **aplica-se** →
+  [**ADR-0028**](../adr/0028-derivacao-da-etapa-do-turn-mora-no-dominio.md).
+  O ADR-0016 §4 e a skill mandavam derivar a etapa na borda (`api/schemas`); o
+  ADR-0023 reescreveu a tabela e ficou silencioso sobre o **lugar**. A decisão
+  (derivar no `domain`) foi levada ao desenvolvedor antes da primeira linha de
+  código e escolhida por ele. O §4 do ADR-0016 foi anotado como revogado.
+- **Critérios 2 (fronteira) e 5 (difícil de reverter):** aplicam-se ao formato
+  persistido, mas **já estão registrados no ADR-0023**, que nomeia a tabela
+  `turn_audio_chunks` e cita esses dois critérios no cabeçalho. Este card
+  implementa aquele ADR; não gera um segundo registro da mesma decisão.
+- **Critérios 1, 3 e 4:** não se aplicam — sem dependência nova, sem custo
+  recorrente novo, sem exposição de mídia (é o ADR-0024).
+
+### Regra do explicador — desfecho
+
+**Falha de processo desta sessão, registrada como tal.** O agente afirmou na
+abertura que `docs/perguntas-em-aberto.md` não existia e concluiu que não havia
+fila a reapresentar. **O arquivo existe e tinha 8 perguntas abertas.** A causa:
+o `cat docs/perguntas-em-aberto.md` foi executado com o diretório de trabalho
+ainda em `backend/` (herdado de um comando anterior), então procurou em
+`backend/docs/` e devolveu "no such file". O agente aceitou o resultado
+negativo sem conferir o caminho — mesma classe do LEARNING-0003 (verificar
+contra o artefato, não contra a primeira leitura que apareceu).
+
+O que isso custou: a reapresentação da fila **não aconteceu** na abertura, e
+duas perguntas do passivo tocavam este card —
+
+- **Q9** (igualdade de `@dataclass`), que este card **exercita diretamente**:
+  `test_trechos_fazem_roundtrip_na_ordem_de_playback` compara `recarregado ==
+  turn` justamente para que a coleção inteira entre na comparação de uma vez;
+- **Q7** (`Protocol` e o momento em que se descobre que um fake não satisfaz a
+  porta), que o próprio arquivo marca como "volta no CARD-006/007".
+
+Nenhuma das duas foi reapresentada. **As duas seguem abertas** e vão para a
+abertura do CARD-006.
+
+| # | Pergunta (no ponto da decisão) | Desfecho |
+|---|---|---|
+| Q1 | Onde mora a derivação de `stage` — `domain` ou borda —, dado que o ADR-0023 reescreveu a tabela e não repetiu o "na borda" do ADR-0016 §4? Perguntada **antes** de escrever `domain/turn.py` | **respondida** — escolheu `domain` (opção A), ciente de que isso obrigava a escrever o ADR-0028 |
+| Q2 | *"O que quebra, e com que mensagem, se o `get()` não usar `selectinload`?"* — múltipla escolha, perguntada **antes** de escrever `mappers.py`/`repositories.py` | **respondida, correta**: "(c), com `MissingGreenlet`" |
+
+Q2 foi conferida rodando, com o repositório deliberadamente ainda **sem**
+`selectinload`:
+
+```
+E  sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called;
+   can't call await_only() here. Was IO attempted in an unexpected place?
+```
+
+Nenhuma pergunta ficou em aberto; `docs/perguntas-em-aberto.md` segue inexistente.
+
+### Dívidas explícitas
+
+| Dívida | Gatilho / dono |
+|---|---|
+| A skill `voicecoach-arquitetura` ainda não reflete os **ADRs 0024–0027**. Neste card só foram corrigidas as linhas que **contradiziam** o código (etapa na borda, `speaking` vindo de `reply_text`, referências ao ADR-0016), com as três entradas no log do `REFERENCE.md` | CARD-004 |
+| `StaleTurnError` é guarda de defasagem, **não** locking otimista: não há versionamento de linha | CARD-009, se houver mais de um escritor por turn |
+| `TurnStage` e `TurnStatus` são duas enums parecidas, com `completed` em ambas — confusão previsível, mitigada só por docstring | registrado como consequência negativa do ADR-0028 |
+| A derivação ainda não é consumida por ninguém: `api/schemas` só vai projetar `turn.stage` no CARD-010 | CARD-010 |
+| `lazy="raise_on_sql"` no relationship é convenção nova do repositório, adotada com evidência mas sem ADR (escolha local e reversível — não bate nenhum critério da lista) | reavaliar se virar padrão para outros relacionamentos |

@@ -74,7 +74,7 @@ fronteira é um lint.
 | Entrypoint que consome a fila | `worker/` | ADR-0005 |
 | Leitura de env, segredo, budget | `config.py` (pydantic-settings) — passado **por parâmetro** ao núcleo | ADR-0013 |
 | Migration | `alembic/` — `env.py` resolve a URL da config ou da injetada pelo teste; nunca do `.ini` | ADR-0004 |
-| Ciclo de vida de um `Turn` | estado grosso em `domain`; a **etapa** é derivada dos artefatos, na borda | ADR-0016 |
+| Ciclo de vida de um `Turn` | estado grosso em `domain`; o áudio da resposta é uma **sequência de trechos** (`TurnAudioChunk`); a **etapa** é propriedade calculada da entidade, e a borda só projeta | ADR-0023, ADR-0028 |
 | Sinalizar invariante violada | exceção de `domain/errors.py` (`DomainError`), traduzida na borda | ADR-0017 |
 | Montagem/escolha de adapter concreto | composition root (`api/app.py`, entrypoint do worker) | ADR-0012 |
 
@@ -98,12 +98,20 @@ Cada proibição tem contrato executável ou ADR por trás.
   configuração, não deploy (ADR-0009).
 - **`float` para dinheiro** — sempre `Decimal` (ADR-0013).
 - **Persistir o que se consegue derivar.** A etapa do `Turn` (`transcribing`,
-  `thinking`, `speaking`) e o "está ativa?" da `Session` **não** são colunas: são
-  função dos artefatos e do `ended_at`. Dado duplicado é dado que sai de
-  sincronia (ADR-0016).
+  `thinking`, `speaking`), o `delivered_partially` e o "está ativa?" da `Session`
+  **não** são colunas: são função dos artefatos e do `ended_at`. Dado duplicado é
+  dado que sai de sincronia (ADR-0023). A ordem de avaliação da etapa é contrato
+  (ADR-0023 item 4): **trecho de áudio antes de `transcript`** — na cascata o
+  primeiro áudio existe antes de `reply_text` fechar.
+- **Acrescentar valor à enum `TurnStatus`.** Ela é `queued → processing →
+  completed | failed` e não cresce: `speaking` ali quebraria o contrato aditivo
+  do ADR-0008. A granularidade fina vive em `TurnStage`, que é derivado
+  (ADR-0023).
+- **Calcular a etapa fora do `domain`.** `api/schemas`, o worker e o emissor de
+  SSE **projetam** `turn.stage`; nenhum deles refaz os `if` (ADR-0028).
 - **`DateTime` sem `timezone=True`** em coluna de tempo — a quota reseta por
   dia-calendário em fuso fixo, e isso é impossível sobre timestamp ingênuo
-  (ADR-0016 + CARD-015).
+  (ADR-0023 + CARD-015).
 - **Usar `Result` para invariante de domínio** — invariante violada é bug do
   chamador e levanta exceção; `Result` está reservado para falha *esperada* de
   caso de uso, e sua forma ainda é TBD (ADR-0017).

@@ -15,7 +15,7 @@ O diagnóstico card a card, a ordem e as decisões estão em
 | [003](CARD-003-quality-gates-e-ci.md) | Quality gates: ruff, mypy, pytest, pre-commit, CI | 0 | infra | M | 001 | **concluído** |
 | [004](CARD-004-skill-de-arquitetura.md) | Skill de arquitetura derivada dos ADRs | 0 | infra | P | 001, 003 | **concluído** |
 | [005](CARD-005-dominio-minimo-e-migrations.md) | Domínio mínimo e migrations (Student, Session, Turn) | 1 | backend | M | 002, 003 | **concluído** |
-| [018](CARD-018-turn-com-trechos-de-audio-dominio-e-migration.md) | **Turn com trechos de áudio: domínio, invariantes e migration** | 1 | backend | P | 005, ADR-0023 | backlog |
+| [018](CARD-018-turn-com-trechos-de-audio-dominio-e-migration.md) | **Turn com trechos de áudio: domínio, invariantes e migration** | 1 | backend | P | 005, ADR-0023 | **concluído** |
 | [006](CARD-006-porta-e-adapter-stt-local.md) | Porta SpeechToText + adapters `mlx-whisper` e `faster-whisper` | 1 | backend/IA | M | 001, ADR-0027 | backlog |
 | [007](CARD-007-porta-e-adapter-teacher-llm.md) | **TeacherLlm em streaming + parse incremental frase a frase** | 1 | backend/IA | **G** | 002, 006, ADR-0022 | backlog |
 | [008](CARD-008-adapter-tts-local-e-storage.md) | TTS por sentença + MediaStorage por trecho (Kokoro vs Piper) | 1 | backend/IA | M | 002, 006, 018 | backlog |

@@ -15,8 +15,18 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Interval, String, Text, Uuid
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import (
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    Interval,
+    String,
+    Text,
+    Uuid,
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from voicecoach.domain.turn import TurnStatus
 
@@ -71,7 +81,13 @@ class TurnRow(Base):
     A quantidade de colunas nulas é intencional: nulo aqui significa "esta etapa
     ainda não aconteceu", e é exatamente isso que permite **derivar** a etapa
     exibida ao app em vez de gravá-la num campo que pode divergir do payload
-    (ADR-0016).
+    (ADR-0023).
+
+    Note o que **não** está aqui: nenhuma coluna `stage` e nenhuma
+    `delivered_partially`. As duas são propriedades calculadas da entidade — é a
+    regra do ADR-0023 (herdada do 0016) de não persistir o que se consegue
+    derivar. A tentação de gravar `stage` "para facilitar a query operacional" é
+    nomeada como risco no CARD-018 justamente porque parece razoável.
     """
 
     __tablename__ = "turns"
@@ -109,3 +125,49 @@ class TurnRow(Base):
         _Timestamp, default=None
     )
     completed_at: Mapped[datetime | None] = mapped_column(_Timestamp, default=None)
+
+    # `order_by` fixa a ordem de playback na própria definição do relacionamento:
+    # quem carregar a coleção recebe os trechos ordenados sem lembrar de pedir.
+    # Ordenar por `index` e não por `created_at` é decisão do ADR-0023 — dois
+    # trechos podem ficar prontos no mesmo milissegundo.
+    #
+    # `cascade="all, delete-orphan"` diz que o trecho não vive sem o turn: é
+    # entidade filha do agregado, e o delete de conta do CARD-017 não deve
+    # precisar saber que esta tabela existe.
+    audio_chunks: Mapped[list[TurnAudioChunkRow]] = relationship(
+        order_by="TurnAudioChunkRow.index",
+        lazy="raise_on_sql",
+        cascade="all, delete-orphan",
+    )
+
+
+class TurnAudioChunkRow(Base):
+    """Um trecho de áudio da resposta (ADR-0023).
+
+    **Chave primária composta `(turn_id, index)`**, e não um id surrogate: o par
+    já é a identidade natural do trecho, e a PK composta entrega de graça a
+    unicidade que a invariante de índice denso exige do lado do banco. Um id
+    próprio seria uma coluna a mais sem pergunta que ela responda — e a entidade
+    de domínio não tem id de trecho para mapear nele.
+
+    Por que a mesma regra existe nos dois lados: a do domínio protege de lógica
+    errada (o worker se enganou na conta), a do banco protege de duas escritas
+    concorrentes que passaram pela do domínio cada uma no seu processo.
+    """
+
+    __tablename__ = "turn_audio_chunks"
+
+    turn_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("turns.id", ondelete="CASCADE"), primary_key=True
+    )
+    # `index` é palavra não-reservada no Postgres, logo vale como nome de coluna.
+    # Mantido igual ao nome do domínio (ADR-0023) para não abrir tradução entre
+    # entidade e linha onde não há necessidade.
+    index: Mapped[int] = mapped_column(Integer, primary_key=True)
+    storage_key: Mapped[str] = mapped_column(String(512))
+    # `Float` (double precision) e não Decimal: duração de playback não é
+    # dinheiro — a proibição de float do ADR-0013 é sobre valor monetário, e
+    # aqui erro de arredondamento em microssegundos não tem consequência.
+    duration_seconds: Mapped[float] = mapped_column(Float)
+    text: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(_Timestamp)

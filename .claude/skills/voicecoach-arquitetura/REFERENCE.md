@@ -265,5 +265,8 @@ tabela é alteração que ninguém vai conseguir auditar depois.
 | 2026-08-18 | `Result` deixou de ser TBD **pela metade**: invariante violada é exceção | ADR-0017. O CARD-005 precisava recusar transições hoje; decidir o retorno de casos de uso que ainda não existem seria decidir sobre código imaginário |
 | 2026-08-18 | `testcontainers` deixou de ser "planejado" na tabela de testes | ADR-0018, CARD-005 — o gatilho registrado no CARD-003 (primeiro adapter de persistência) chegou |
 | 2026-08-18 | `sqlalchemy` e `alembic` entraram nas listas `forbidden` de `domain` e `application` | ADR-0012, no mesmo commit da dependência. Demonstrado que sem isso o gate fica verde com a violação dentro |
+| 2026-08-19 | Ciclo de vida do `Turn`: o áudio da resposta virou sequência de trechos, e a ordem de avaliação da etapa inverteu | ADR-0023 (substitui 0016), CARD-018. A skill dizia que `speaking` vinha de `reply_text` — na cascata o primeiro áudio existe **antes** dele, e a regra passou a mentir |
+| 2026-08-19 | A derivação da etapa saiu da borda e foi para o `domain` | ADR-0028, CARD-018. A skill mandava derivar em `api/schemas` (herdado do ADR-0016 §4); com worker e SSE também precisando da etapa, a borda produziria uma segunda implementação dentro do próprio servidor |
+| 2026-08-19 | **Dívida:** a skill ainda não reflete os ADRs 0024–0027 (mídia por trecho, worker residente, SSE, adapter duplo de STT) | Corrigidas aqui só as linhas que **contradiziam** o código do CARD-018. A varredura completa é do CARD-004 |
 
 *Esta skill cresce pelos postmortems (`docs/learnings/`), não por antecipação.*
