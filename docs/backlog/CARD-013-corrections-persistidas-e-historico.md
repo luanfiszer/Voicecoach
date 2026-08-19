@@ -62,3 +62,15 @@ formaliza depois.
 Relacionamentos no SQLAlchemy 2.0 async: `relationship` + `selectinload` vs
 lazy loading (que não existe de graça no async), e a decisão consciente de
 carregamento por caso de uso — o contraste com o Include do EF.
+
+## Ajuste da reconstrução (2026-08-19)
+
+**Mantido, e movido para depois da proteção de margem** (era Fase 2, agora vem
+após CARD-014/015). O motivo é sequenciamento, não mérito: o produto precisa
+sobreviver comercialmente antes de ficar mais pedagógico, e a margem no usuário
+pesado é de 1,49× (análise de custo §5).
+
+**Um cuidado novo:** ao evoluir o contrato do prompt para `corrections[]`
+tipadas, a **ordem dos campos do [ADR-0022](../adr/0022-ordem-dos-campos-da-resposta-do-professor-e-contrato-de-latencia.md)
+não se mexe** — `spoken_reply` continua primeiro. É o tipo de regra que se perde
+numa reescrita de prompt, e o teste do CARD-007 é o que a segura.

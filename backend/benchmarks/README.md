@@ -1,0 +1,105 @@
+# Benchmarks
+
+Instrumentos da sessão de medição de 2026-08-19. Os resultados e a leitura deles
+estão em [`docs/medicao-latencia.md`](../../docs/medicao-latencia.md); aqui está
+só como reproduzir.
+
+Eles existem porque **benchmark que não se reexecuta vira folclore em três
+meses**. Em particular, dois números do projeto dependem de rodá-los de novo:
+
+- a escolha de modelo do STT, hoje **bloqueada** por falta de áudio de aprendiz;
+- o veredito de latência **numa máquina hospedada**, que os números atuais
+  (Apple M4) não cobrem.
+
+## Por que não estão sob `uv run`
+
+As dependências estão em `requirements.txt`, **fora do `pyproject.toml`**. Elas
+somam alguns GB (torch, mlx, spacy, transformers) e são instrumento, não
+produto — no `pyproject` fariam todo `uv sync`, inclusive o do CI, baixá-las
+para rodar testes que não as usam.
+
+```bash
+cd backend/benchmarks
+uv venv --python 3.12
+uv pip install --python .venv -r requirements.txt
+```
+
+`mypy` e `import-linter` não alcançam esta pasta (o alvo deles é `src tests`).
+`ruff format` e `ruff check` **alcançam** — estes scripts passam nos mesmos
+gates que o resto do backend.
+
+### Dependência de sistema: `espeak-ng` (só para o TTS)
+
+O Kokoro **não roda out-of-the-box**. Três armadilhas, todas encontradas na
+sessão e todas relevantes para o Dockerfile do CARD-008:
+
+1. o binário que vem no wheel do `espeakng-loader` tem o caminho de dados da
+   máquina de CI compilado dentro, e falha com
+   `'/Users/runner/.../phontab': No such file or directory`;
+2. o conserto é apontar o `EspeakWrapper` para um `espeak-ng` de sistema
+   **depois** do `import kokoro` — a `misaki` reatribui a biblioteca no import
+   dela, sobrescrevendo o que se configure antes;
+3. o Kokoro puxa spaCy e exige o modelo `en_core_web_sm`, não declarado.
+
+```bash
+brew install espeak-ng          # ou o pacote equivalente da distribuição
+uv pip install --python .venv \
+  https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+```
+
+Em Linux, aponte `ESPEAK_LIB` e `ESPEAK_DATA` para os caminhos da distribuição.
+
+## O insumo de áudio NÃO está no repositório
+
+`english_teacher_bot/temp_audio/` está no `.gitignore`, e `*.wav` também. **De um
+clone limpo não é possível reproduzir os números exatos** — só o método.
+
+```bash
+.venv/bin/python make_inputs.py <pasta-com-audio>
+```
+
+Isso grava `inputs/curto.wav` e `inputs/longo.wav` e imprime o SHA-256 de cada
+um. **Anote os hashes**: números só se comparam entre si quando o insumo é
+byte-idêntico.
+
+> ⚠️ O insumo usado em 2026-08-19 foi saída de TTS sintético — inglês nativo,
+> sem sotaque, sem hesitação. É o **caso trivial** do Whisper, e por isso as 16
+> variantes deram 100% de concordância. Esses arquivos medem latência
+> honestamente e **não medem qualidade**. Para decidir modelo é preciso áudio de
+> aprendiz brasileiro real.
+
+## Os scripts
+
+| Script | O que mede | Custa dinheiro? |
+|---|---|---|
+| `make_inputs.py` | — (constrói os insumos) | não |
+| `stt_faster_whisper.py` | carga do modelo e transcrição: modelo × `beam_size` × VAD × quantização | não |
+| `stt_mlx.py` | o mesmo com `mlx-whisper` — **só Apple Silicon** | não |
+| `tts_kokoro.py` | carga do pipeline e síntese: resposta inteira vs. uma frase | não |
+| `llm_haiku.py` | tempo até o primeiro token vs. até o JSON completo | **~US$ 0,05** |
+| `llm_cache_threshold.py` | prefixo mínimo cacheável, e o custo de um prefixo volátil | **~US$ 0,10** |
+
+Os dois últimos exigem `ANTHROPIC_API_KEY` no ambiente e respeitam
+`TEACHER_MODEL` (default `claude-haiku-4-5`, conforme ADR-0010).
+
+Resultados vão para `results/*.json` (ignorado pelo git).
+
+## O protocolo, que é o que dá valor aos números
+
+Está em `_common.py` e vale para todos:
+
+- **insumo fixo**, com hash conhecido;
+- **primeira execução descartada** — ela carrega caches e aquece o modelo, e não
+  é latência de turno;
+- **p50 e p95 por posição**, nunca média. Com n=5, interpolar percentil é falsa
+  precisão: o p95 de cinco amostras é o maior valor, e é honesto dizer isso;
+- **modelo carregado uma vez por configuração**, reaproveitado entre repetições
+  — é o cenário "residente no worker";
+- **carga do modelo medida à parte**, porque responde outra pergunta.
+
+## O que estes benchmarks NÃO cobrem
+
+Componentes isolados. **Somar as tabelas não dá a latência de um turn.** Fica de
+fora: serialização e cópia de áudio entre etapas, contenção de CPU entre STT e
+TTS, GIL, pickup da fila, upload do cliente e latência de descoberta. Esse número
+só existe depois do worker (CARD-009), e o CARD-012 já o exige.

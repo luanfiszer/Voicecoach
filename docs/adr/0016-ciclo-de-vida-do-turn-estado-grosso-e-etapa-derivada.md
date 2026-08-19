@@ -1,7 +1,12 @@
 # ADR-0016 — Ciclo de vida do Turn: estado grosso persistido, etapa derivada dos artefatos
 
-- **Status:** aceito
+- **Status:** **substituído por [ADR-0023](0023-ciclo-de-vida-do-turn-com-entrega-em-cascata.md)** (2026-08-19)
 - **Data:** 2026-08-18
+
+> O princípio deste ADR — *não persista o que você consegue derivar* — continua
+> valendo e foi reafirmado pelo sucessor. O que caiu foi a premissa de que cada
+> artefato é um objeto produzido inteiro: com a cascata, o áudio da resposta
+> vira uma sequência de trechos e a tabela de derivação da §Decisão inverte.
 
 ## Contexto
 

@@ -55,3 +55,14 @@ cobre MinIO; revalidar no provedor se um dia migrar.
 Lifecycle de object storage como mecanismo de compliance (retenção que se
 cumpre sozinha vs cron caseiro) e degradação honesta de contrato quando um
 recurso referenciado deixa de existir.
+
+## Ajuste da reconstrução (2026-08-19)
+
+O [ADR-0024](../adr/0024-midia-por-trecho-chave-url-assinada-e-retencao-assimetrica.md)
+substituiu o ADR-0006 e mudou o escopo deste card: a retenção agora é
+**assimétrica** — trecho (1 dia), áudio inteiro (90 dias), input (7 dias). São
+três regras de lifecycle, não duas.
+
+Acrescenta-se um caso de degradação honesta: **trecho expirado com `full`
+presente** ⇒ o cliente toca o áudio inteiro, sem erro. Só quando os dois somem é
+que o áudio vira indisponível.

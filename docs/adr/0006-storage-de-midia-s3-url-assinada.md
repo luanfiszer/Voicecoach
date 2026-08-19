@@ -1,7 +1,12 @@
 # ADR-0006 — Storage de mídia: S3-compatível (MinIO local) com URL assinada e expiração
 
-- **Status:** aceito
+- **Status:** **substituído por [ADR-0024](0024-midia-por-trecho-chave-url-assinada-e-retencao-assimetrica.md)** (2026-08-19)
 - **Data:** 2026-08-17
+
+> S3 como contrato, bucket privado, URL assinada de TTL curto e retenção
+> explícita continuam valendo — o sucessor os herda. O que caiu foi *um objeto
+> de áudio por turn*: com a cascata, a resposta vira N trechos, e chave, emissão
+> de URL e retenção mudam com isso.
 
 ## Contexto
 

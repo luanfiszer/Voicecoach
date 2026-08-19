@@ -55,3 +55,19 @@ na UX (estados mínimos), nunca no fluxo de permissão.
 O modelo mental do RN vs React web: componentes nativos (View/Text/Pressable
 vs div/button), o ciclo de permissões de plataforma, e hooks sobre recursos
 nativos (expo-audio) — onde o "é só React" termina.
+
+## Ajuste da reconstrução (2026-08-19)
+
+**O card sobrevive praticamente intacto** — gravação, permissões e limite de
+duração não mudam com a cascata. Dois acréscimos:
+
+- **Por que agora:** é o único card do caminho crítico que não depende de nada
+  do backend e pode correr em paralelo com 006–010. Deixá-lo para o fim
+  atrasaria a medição ponta a ponta, que é o que valida o alvo de 1,8 s.
+- **Um requisito novo, vindo do [ADR-0026](../adr/0026-entrega-progressiva-por-sse-com-polling-como-contrato-de-recuo.md):**
+  ao montar o app, verificar **dentro do Expo Go** se o consumo de SSE é viável
+  (`react-native-sse` ou `fetch` com streaming). Descobrir isso no CARD-012, com
+  a fatia inteira pronta, é caro; aqui custa meia hora. Se exigir dev build, o
+  CARD-012 já entra sabendo qual recuo vai usar.
+- A skill `voicecoach-cliente` continua nascendo aqui, e agora destila também o
+  ADR-0026 (transporte) e o ADR-0024 (URL de trecho expirada).
