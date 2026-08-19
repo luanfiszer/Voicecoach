@@ -58,3 +58,4 @@ Escreva um ADR sempre que a decisão:
 | [0019](0019-limiar-global-de-cobertura-com-folga-agora-que-o-nucleo-morde.md) | Limiar global de cobertura com folga, agora que o anel do núcleo morde | aceito |
 | [0020](0020-prompt-caching-no-adapter-do-professor.md) | Prompt caching no adapter do professor, com o prompt tratado como prefixo estável | **substituído por ADR-0021** |
 | [0021](0021-prompt-caching-adiado-o-limiar-medido-nao-e-alcancado.md) | Prompt caching adiado: o limiar medido (4.096 tok) não é alcançado por uma conversa real | aceito |
+| [0022](0022-ordem-dos-campos-da-resposta-do-professor-e-contrato-de-latencia.md) | A ordem dos campos da resposta do professor é contrato de latência, não estilo | aceito |

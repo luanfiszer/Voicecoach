@@ -2,7 +2,7 @@
 
 - **Data:** 2026-08-19
 - **Origem:** sessão de medição de latência, depois que a meta mudou
-- **Status:** análise — **decisão pendente do desenvolvedor** (§8)
+- **Status:** análise — **alvo e pré-requisitos aprovados** em 2026-08-19 (§8)
 - **Depende de:** [`medicao-latencia.md`](medicao-latencia.md) (todos os números
   medidos), [ADR-0003](adr/0003-interacao-v1-turn-based-preparada-para-v2-realtime.md)
 
@@ -126,8 +126,8 @@ nova o SSE volta à mesa.
 - **Reabre o [ADR-0006](adr/0006-storage-de-midia-s3-url-assinada.md)** — chaves e
   URLs assinadas passam a ser por chunk, não por turn.
 - **Exige reordenar os campos do JSON** para `spoken_reply` vir antes de `tip` e
-  `translation_pt`. Isso está na **zona congelada** que só o desenvolvedor
-  levanta (§8).
+  `translation_pt` — **aprovado**, ver [ADR-0022](adr/0022-ordem-dos-campos-da-resposta-do-professor-e-contrato-de-latencia.md).
+  O congelamento do prompt segue valendo para conteúdo, tom e tamanho.
 - **Provavelmente empurra polling → SSE**, com a superfície de transporte que a
   visão §F tinha cortado.
 - **Complica o caminho triste:** falha no meio da cascata deixa um turn com áudio
@@ -166,14 +166,17 @@ tinha decidido fazer.
 
 ## 8. O que depende de decisão do desenvolvedor
 
-1. **Confirmar a meta:** "primeiro áudio em 1–2 s" (viável) e não "turno completo
-   em 1–2 s" (impossível — §0).
-2. **Levantar o congelamento da ordem dos campos do JSON?** Sem isso a cascata
-   não funciona. A ordem não é conteúdo pedagógico, mas mexe no arquivo do
-   prompt — a linha é do desenvolvedor.
-3. **Aceitar reabrir ADR-0016 e ADR-0006?**
+1. ~~Confirmar a meta~~ — **CONFIRMADO:** primeiro áudio em ~1,4 s, com
+   performance como regra de desempate ("se algo ceder, cede escopo, nunca
+   latência"). Turno completo em 1–2 s segue impossível (§0).
+2. ~~Levantar o congelamento da ordem dos campos do JSON?~~ — **APROVADO em
+   2026-08-19.** Registrado no [ADR-0022](adr/0022-ordem-dos-campos-da-resposta-do-professor-e-contrato-de-latencia.md):
+   `spoken_reply` passa a ser o primeiro campo, e a ordem vira contrato de
+   latência. O congelamento segue valendo para conteúdo e tamanho da resposta.
+3. **Aceitar reabrir ADR-0016 e ADR-0006?** — consequência necessária da
+   cascata; ADR novo que substitui, nunca edição.
 
-Enquanto as três não forem respondidas, **nada disto vira card**.
+A decisão 3 é processo, não escolha: **a cascata está destravada.**
 
 ## 9. Impacto no backlog — proposto, NÃO aplicado
 

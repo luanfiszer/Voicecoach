@@ -83,23 +83,25 @@ walkie-talkie — só que ágil. Seja honesto sobre isso nos cards.
 
 ---
 
-## As duas decisões pendentes que travam parte do trabalho
+## O que já está decidido — não reabra
 
-O desenvolvedor confirmou o alvo. Duas consequências dele **precisam de um "ok"
-explícito na abertura da sessão**, antes de você escrever os cards que dependem
-delas:
+O desenvolvedor confirmou o alvo **e** desbloqueou o que a cascata exigia. Não há
+decisão pendente travando esta sessão:
 
-1. **Reordenar os campos do JSON do professor** para `spoken_reply` vir antes de
-   `tip` e `translation_pt`. **Sem isso a cascata não funciona** — a primeira
-   frase falada só sai depois de o modelo gerar tudo que vem antes dela. O prompt
-   do professor está congelado até o eval (Fase 4), mas a *ordem dos campos* não
-   é conteúdo pedagógico. A linha é do desenvolvedor: pergunte e siga.
-2. **Reabrir ADR-0016 e ADR-0006.** São consequência necessária (o áudio deixa de
-   ser um objeto só). Pela regra do projeto isso é **ADR novo que substitui**,
-   nunca edição do antigo.
+- ✅ **Alvo:** primeiro áudio em ~1,4 s, com performance como regra de desempate.
+- ✅ **Ordem dos campos do JSON** — aprovada em 2026-08-19 e registrada no
+  **[ADR-0022](../adr/0022-ordem-dos-campos-da-resposta-do-professor-e-contrato-de-latencia.md)**:
+  `spoken_reply` passa a ser o **primeiro** campo, e a ordem é **contrato de
+  latência**, não estilo. Leia esse ADR antes de escrever o CARD-007 — ele traz
+  um **risco técnico ainda aberto** que aquele card tem de fechar: ordem de
+  chaves em JSON gerado por LLM é aderência a prompt, **não garantia**. Se a
+  ordem não se preservar no streaming, a decisão não muda — muda o mecanismo.
+- ✅ **Reabrir ADR-0016 e ADR-0006** é consequência necessária, e é processo:
+  ADR novo que substitui, nunca edição do antigo.
 
-Se ele vetar (1), a cascata morre e o alvo volta a ~3,7 s. Nesse caso **pare e
-peça nova direção** em vez de reconstruir o backlog para um alvo que não existe.
+**O congelamento do prompt continua valendo para conteúdo, tom, regras
+pedagógicas e tamanho da resposta.** O ADR-0022 abriu uma exceção estreita, só
+para forma de serialização. Não a use como precedente para mexer no resto.
 
 ---
 
