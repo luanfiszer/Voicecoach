@@ -32,3 +32,24 @@ class InvalidStateTransitionError(DomainError):
         self.action = action
         self.state = state
         super().__init__(f"{entity}: não é possível '{action}' no estado '{state}'.")
+
+
+class OutOfOrderAudioChunkError(DomainError):
+    """Trecho de áudio chegou com índice repetido ou furado (ADR-0023).
+
+    Não é ``InvalidStateTransitionError``: o estado do Turn está correto — o que
+    está errado é a **posição** do trecho na sequência. A distinção importa
+    porque as duas falhas pedem reações diferentes de quem chama (a primeira é
+    "cheguei tarde demais", esta é "perdi um trecho no caminho").
+
+    Índice denso é o que sustenta o playback: o cliente toca 0, 1, 2… em ordem,
+    e um furo significaria silêncio no meio da frase do professor.
+    """
+
+    def __init__(self, *, expected: int, received: int) -> None:
+        self.expected = expected
+        self.received = received
+        super().__init__(
+            f"Turn: trecho de áudio fora de ordem — esperado índice {expected}, "
+            f"recebido {received}."
+        )

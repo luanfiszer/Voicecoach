@@ -1,14 +1,19 @@
 """``Turn`` — um ciclo aluno-fala → professor-responde (visão §A).
 
-O ciclo de vida segue o **ADR-0016**: o estado persistido é grosso
+O ciclo de vida segue o **ADR-0023**, que substituiu o ADR-0016. O que
+sobreviveu do antigo é o princípio: o estado persistido é grosso
 (``queued → processing → completed | failed``) e responde uma pergunta só —
-*o trabalho terminou, e como terminou?*. A **etapa** que o app mostra
-("transcrevendo", "professor pensando", "áudio a caminho") **não** é campo:
-é derivada dos artefatos já produzidos, na borda (CARD-010).
+*o trabalho terminou, e como terminou?*. O que caiu foi a premissa de que cada
+artefato é **um** objeto produzido inteiro.
 
-Por que assim: com a etapa gravada num campo próprio, status e payload viram
-duas fontes da mesma verdade e podem divergir — nada impediria
-``status='speaking'`` com ``reply_text`` nulo. Derivando, esse estado é
+Com a entrega em cascata, o áudio da resposta é uma **sequência ordenada de
+trechos** (``TurnAudioChunk``): o professor começa a falar enquanto o LLM ainda
+está gerando o resto. Consequência que inverte a leitura antiga — **existe áudio
+tocando com ``reply_text`` ainda nulo**.
+
+Por que a etapa continua não sendo campo: com ela gravada, status e payload
+viram duas fontes da mesma verdade e podem divergir — nada impediria
+``stage='speaking'`` sem trecho nenhum. Derivando, esse estado é
 **irrepresentável**.
 
 Uma honestidade sobre a enum: ``completed`` é, a rigor, derivável de
@@ -20,21 +25,30 @@ seria pior de consultar do que uma que cobre todos.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import StrEnum
 from uuid import UUID
 
-from voicecoach.domain.errors import InvalidStateTransitionError
+from voicecoach.domain.errors import (
+    InvalidStateTransitionError,
+    OutOfOrderAudioChunkError,
+)
 
 
 class TurnStatus(StrEnum):
-    """Estado de execução do Turn (ADR-0016).
+    """Estado de execução do Turn (ADR-0023).
 
     ``StrEnum`` (Python 3.11+) é uma enum cujos membros **são** strings: o valor
     vai para o banco e para o JSON sem conversão manual, e ainda assim o mypy
     cobra o tipo. Em C# você precisaria de um conversor ou de um
     ``[JsonStringEnumConverter]`` para o mesmo efeito.
+
+    A enum **não ganha valor** com a cascata, e isso é deliberado: acrescentar
+    ``speaking`` aqui quebraria o contrato aditivo do ADR-0008 (cliente antigo
+    que trate os casos de forma exaustiva) e recriaria a duplicação que o
+    ADR-0016 rejeitou. A granularidade fina vive em ``TurnStage``, que é
+    derivado e por isso pode crescer sem migration.
     """
 
     QUEUED = "queued"
@@ -43,19 +57,64 @@ class TurnStatus(StrEnum):
     FAILED = "failed"
 
 
+class TurnStage(StrEnum):
+    """Etapa exibida ao aluno — **derivada**, nunca persistida (ADR-0023).
+
+    O vocabulário é o mesmo do ADR-0016; o que mudou foi a ordem em que os
+    artefatos aparecem. ``queued`` não está aqui de propósito: nenhuma tela
+    distingue "na fila" de "transcrevendo", e expor isso vazaria mecânica de
+    infraestrutura no contrato.
+    """
+
+    TRANSCRIBING = "transcribing"
+    THINKING = "thinking"
+    SPEAKING = "speaking"
+    COMPLETED = "completed"
+
+
+@dataclass(frozen=True)
+class TurnAudioChunk:
+    """Um trecho de áudio da resposta, já tocável pelo aluno (ADR-0023).
+
+    ``frozen=True`` torna a instância imutável (o compilador gera ``__hash__`` e
+    faz atribuição levantar erro) — o equivalente de um ``record`` com
+    propriedades ``init``-only. É o que se quer aqui: um trecho já entregue não
+    tem por que mudar, e a falha posterior do turn não o apaga.
+
+    ``index`` é 0-based e denso, e a ordenação é por ele — **nunca** por
+    ``created_at``. O instante de criação é medição (é o que dá ao CARD-012 o
+    "quando o aluno pôde ouvir a primeira palavra"); a ordem é contrato de
+    playback, e dois trechos podem ficar prontos no mesmo milissegundo.
+
+    ``duration_seconds`` carrega a unidade no nome, ao contrário de
+    ``Turn.audio_duration`` (um ``timedelta``). A diferença é intencional e vem
+    do ADR-0023: a duração do trecho serve ao agendamento de playback no
+    cliente, que fala em segundos fracionários, e não é insumo de quota — quem
+    soma minutos falados é o áudio do **aluno**.
+    """
+
+    index: int
+    storage_key: str
+    duration_seconds: float
+    text: str
+    created_at: datetime
+
+
 @dataclass
 class Turn:
     """Um turno da conversa, com os artefatos que o pipeline vai produzindo.
 
     Cada artefato vem com o instante em que ficou pronto. Esses timestamps não
-    são enfeite: são o que permite derivar a etapa (ADR-0016), medir a latência
+    são enfeite: são o que permite derivar a etapa (ADR-0023), medir a latência
     ponta a ponta que o CARD-012 exige, e detectar o "demorou mais que o normal"
     da tela de timeout.
 
-    Sobre o áudio da resposta: ``reply_audio_ref`` nulo **com**
-    ``synthesized_at`` preenchido significa "o áudio existiu e expirou" — que é
-    diferente de "nunca houve áudio" (ambos nulos). É o que sustenta a regra
-    "áudio expirado ≠ Turn inválido: transcrição e correções permanecem"
+    Sobre o áudio da resposta: ``reply_audio_ref`` aponta para o **áudio inteiro
+    concatenado**, gravado ao completar o turn — é ele que o histórico reproduz
+    e que a retenção longa guarda depois que os trechos expiram (ADR-0024).
+    Nulo **com** ``synthesized_at`` preenchido significa "o áudio existiu e
+    expirou" — diferente de "nunca houve áudio" (ambos nulos). É o que sustenta
+    a regra "áudio expirado ≠ Turn inválido: transcrição e correções permanecem"
     (CARD-017), sem precisar de campo novo.
     """
 
@@ -82,6 +141,14 @@ class Turn:
     reply_audio_ref: str | None = None
     synthesized_at: datetime | None = None
 
+    # `field(default_factory=list)` e não `= []`: num `@dataclass`, o default é
+    # avaliado UMA vez, na definição da classe, e uma lista literal viraria
+    # estado compartilhado por todas as instâncias — dois Turns diferentes com a
+    # mesma lista de trechos. C# não tem essa armadilha porque `= new()` num
+    # inicializador de propriedade roda por instância. O `default_factory` é a
+    # forma de dizer "chame isto a cada construção".
+    audio_chunks: list[TurnAudioChunk] = field(default_factory=list)
+
     failure_reason: str | None = None
     failed_at: datetime | None = None
 
@@ -100,6 +167,41 @@ class Turn:
             message = "Turn: a duração do áudio precisa ser positiva."
             raise ValueError(message)
 
+    # -- etapa derivada -----------------------------------------------------
+
+    @property
+    def stage(self) -> TurnStage:
+        """A etapa que o app mostra, calculada dos artefatos (ADR-0023, item 4).
+
+        **A ordem de avaliação é o contrato**, e é onde o bug nasce: checar
+        ``transcript`` antes dos trechos devolveria ``thinking`` com o professor
+        já falando. A cascata inverteu a tabela do ADR-0016 — o primeiro trecho
+        de áudio existe **antes** de ``reply_text`` fechar, e por isso
+        ``reply_text`` deixou de ser a condição de ``speaking``.
+
+        Um turn ``failed`` não tem etapa própria: ele devolve a etapa em que
+        parou, que é o que a tela de erro precisa dizer ("falhou enquanto o
+        professor pensava"). É o ADR-0016 §6 preservado — o motivo e o ponto da
+        falha saem de graça da tabela, sem campo extra.
+        """
+        if self.reply_audio_ref is not None:
+            return TurnStage.COMPLETED
+        if self.audio_chunks:
+            return TurnStage.SPEAKING
+        if self.transcript is not None:
+            return TurnStage.THINKING
+        return TurnStage.TRANSCRIBING
+
+    @property
+    def delivered_partially(self) -> bool:
+        """O turn falhou **depois** de o aluno já ter ouvido alguma coisa.
+
+        Derivado, não persistido (ADR-0023, item 5): falhar tendo entregue duas
+        frases não é o mesmo desfecho que falhar antes de entregar qualquer
+        coisa, e a diferença muda o que a tela diz ao aluno.
+        """
+        return self.status is TurnStatus.FAILED and bool(self.audio_chunks)
+
     # -- transições ---------------------------------------------------------
 
     def start_processing(self, now: datetime) -> None:
@@ -115,13 +217,59 @@ class Turn:
         self.transcribed_at = now
 
     def attach_reply(self, reply_text: str, now: datetime) -> None:
-        """O professor (LLM) respondeu."""
+        """O ``spoken_reply`` do professor fechou por completo.
+
+        Atenção ao significado novo (ADR-0023, item 7): sob o ADR-0016 isto
+        queria dizer "o texto ficou disponível ao cliente". Não quer mais — o
+        texto agora sai por trecho, junto com o áudio, e este método marca o fim
+        da geração, não o começo da entrega.
+        """
         self._require(TurnStatus.PROCESSING, action="attach_reply")
         self.reply_text = reply_text
         self.replied_at = now
 
+    def append_audio_chunk(
+        self,
+        *,
+        index: int,
+        storage_key: str,
+        duration_seconds: float,
+        text: str,
+        now: datetime,
+    ) -> TurnAudioChunk:
+        """Acrescenta um trecho já sintetizado e tocável (ADR-0023).
+
+        É o **único** caminho de escrita da coleção. Duas invariantes:
+
+        1. **Só em ``processing``.** Depois de ``completed`` ou ``failed`` o
+           turn acabou, e um trecho que chega atrasado é bug de orquestração —
+           não se acrescenta em silêncio a um turno que o aluno já viu fechar.
+        2. **Índice denso e crescente.** O próximo índice é sempre o tamanho
+           atual da coleção; repetido ou furado levanta
+           ``OutOfOrderAudioChunkError``.
+
+        O ``index`` vem de fora, e não é calculado aqui, porque quem grava no
+        storage precisa dele **antes** para montar a chave
+        ``reply/{index:03d}.mp3`` do ADR-0024. Calcular internamente tornaria o
+        furo irrepresentável — o que soa bom, mas só moveria o erro para a
+        divergência silenciosa entre a chave gravada e a posição na sequência.
+        """
+        self._require(TurnStatus.PROCESSING, action="append_audio_chunk")
+        expected = len(self.audio_chunks)
+        if index != expected:
+            raise OutOfOrderAudioChunkError(expected=expected, received=index)
+        chunk = TurnAudioChunk(
+            index=index,
+            storage_key=storage_key,
+            duration_seconds=duration_seconds,
+            text=text,
+            created_at=now,
+        )
+        self.audio_chunks.append(chunk)
+        return chunk
+
     def attach_reply_audio(self, reply_audio_ref: str, now: datetime) -> None:
-        """O TTS terminou de sintetizar."""
+        """O áudio inteiro concatenado ficou pronto no storage."""
         self._require(TurnStatus.PROCESSING, action="attach_reply_audio")
         self.reply_audio_ref = reply_audio_ref
         self.synthesized_at = now
@@ -129,12 +277,17 @@ class Turn:
     def complete(self, now: datetime) -> None:
         """Fecha o Turn: tudo que o app precisa mostrar já existe.
 
-        Note que os três ``attach_*`` acima **não** exigem ordem entre si. É
-        deliberado (ADR-0003 + ADR-0016): no V2 realtime as etapas deixam de ser
+        Note que os ``attach_*`` acima **não** exigem ordem entre si. É
+        deliberado (ADR-0003 + ADR-0023): no V2 realtime as etapas deixam de ser
         sequenciais — STT incremental e TTS em stream se sobrepõem — e uma
         entidade que exigisse a ordem do V1 não sobreviveria à transição, que é
         justamente o que o ADR-0003 promete preservar. A ordem quem garante é o
         pipeline do worker (CARD-009), não a entidade.
+
+        Pela mesma razão, completar **não** exige trecho nenhum: a cascata é
+        como o worker do V1 trabalha, não uma invariante da entidade. O que se
+        exige é ``reply_audio_ref`` — o áudio inteiro, que é o que o histórico
+        reproduz.
         """
         self._require(TurnStatus.PROCESSING, action="complete")
         if self.transcript is None or self.reply_text is None:
@@ -158,6 +311,12 @@ class Turn:
         Aceita a partir de ``queued`` **e** de ``processing``: um Turn pode
         morrer antes de alguém pegá-lo da fila (o worker caiu), e é isso que dá
         dono ao "demorou mais que o normal" da tela de timeout.
+
+        **Falhar não apaga trecho** (ADR-0023, item 6). É a invariante mais
+        fácil de quebrar sem que nenhum teste de status perceba: o aluno já
+        ouviu duas frases, e o registro tem de continuar dizendo que ele ouviu.
+        Quem quiser saber se isso aconteceu pergunta a
+        ``delivered_partially`` — que é derivado exatamente disto.
         """
         if self.status in (TurnStatus.COMPLETED, TurnStatus.FAILED):
             raise InvalidStateTransitionError(

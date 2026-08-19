@@ -20,6 +20,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from testcontainers.community.postgres import PostgresContainer
 
@@ -27,6 +28,7 @@ from voicecoach.adapters.persistence.engine import (
     create_engine,
     create_session_factory,
 )
+from voicecoach.adapters.persistence.mappers import StaleTurnError
 from voicecoach.adapters.persistence.repositories import (
     RowNotFoundError,
     SqlAlchemySessionRepository,
@@ -44,7 +46,7 @@ from voicecoach.application.ports.repositories import (
 )
 from voicecoach.domain.session import Session
 from voicecoach.domain.student import Student
-from voicecoach.domain.turn import TurnStatus
+from voicecoach.domain.turn import Turn, TurnStatus
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 # A mesma imagem do docker-compose.yml, com a tag fixada (ADR-0010/0018).
@@ -246,3 +248,141 @@ async def test_student_novo_faz_roundtrip(db_session: AsyncSession) -> None:
 
 def test_id_do_student_dev_e_estavel() -> None:
     assert UUID("00000000-0000-0000-0000-000000000001") == DEV_STUDENT_ID
+
+
+# -- trechos de áudio da resposta (ADR-0023) ---------------------------------
+
+
+async def _turn_em_processamento(repository: TurnRepository, sessao: Session) -> Turn:
+    turn = sessao.start_turn(
+        turn_id=uuid4(),
+        input_audio_ref="dev/entrada.m4a",
+        audio_duration=timedelta(seconds=14),
+        now=NOW,
+    )
+    turn.start_processing(NOW)
+    await repository.add(turn)
+    return turn
+
+
+def _fala(turn: Turn, index: int) -> None:
+    turn.append_audio_chunk(
+        index=index,
+        storage_key=f"aluno/sessao/{turn.id}/reply/{index:03d}.mp3",
+        duration_seconds=1.25 + index,
+        text=f"frase {index}",
+        now=NOW + timedelta(milliseconds=400 * index),
+    )
+
+
+async def test_trechos_fazem_roundtrip_na_ordem_de_playback(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """A coleção volta ordenada por `index` — contrato de playback do ADR-0023."""
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    turn = await _turn_em_processamento(repository, sessao_persistida)
+    _fala(turn, 0)
+    _fala(turn, 1)
+    _fala(turn, 2)
+
+    await repository.update(turn)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    recarregado = await repository.get(turn.id)
+
+    assert recarregado is not None
+    assert [chunk.index for chunk in recarregado.audio_chunks] == [0, 1, 2]
+    assert recarregado.audio_chunks[1].storage_key.endswith("reply/001.mp3")
+    assert recarregado.audio_chunks[1].duration_seconds == 2.25
+    # Igualdade por valor do @dataclass: cobre a coleção inteira de uma vez.
+    assert recarregado == turn
+
+
+async def test_update_acrescenta_trecho_sem_reinserir_os_anteriores(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """A cascata grava trecho a trecho: cada `update` é um append, não um replace."""
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    turn = await _turn_em_processamento(repository, sessao_persistida)
+    _fala(turn, 0)
+    await repository.update(turn)
+    await db_session.commit()
+
+    _fala(turn, 1)
+    await repository.update(turn)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    recarregado = await repository.get(turn.id)
+
+    assert recarregado is not None
+    assert len(recarregado.audio_chunks) == 2
+    assert recarregado.audio_chunks[0].text == "frase 0"
+
+
+async def test_indice_repetido_e_recusado_pelo_banco(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """A mesma invariante do domínio, do outro lado — contra escrita concorrente.
+
+    O domínio protege de lógica errada; a chave primária composta protege de dois
+    processos que passaram cada um pela verificação do seu próprio lado.
+    """
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    turn = await _turn_em_processamento(repository, sessao_persistida)
+    _fala(turn, 0)
+    await repository.update(turn)
+    await db_session.commit()
+
+    with pytest.raises(IntegrityError):
+        await db_session.execute(
+            text(
+                "INSERT INTO turn_audio_chunks "
+                "(turn_id, index, storage_key, duration_seconds, text, created_at) "
+                "VALUES (:turn_id, 0, 'colidido.mp3', 1.0, 'colisão', :now)"
+            ),
+            {"turn_id": turn.id, "now": NOW},
+        )
+    await db_session.rollback()
+
+
+async def test_falha_depois_da_entrega_preserva_os_trechos_no_banco(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """Critério de aceite do CARD-018, verificado do outro lado do mapeamento."""
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    turn = await _turn_em_processamento(repository, sessao_persistida)
+    _fala(turn, 0)
+    _fala(turn, 1)
+    turn.fail("tts timeout", NOW)
+
+    await repository.update(turn)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    recarregado = await repository.get(turn.id)
+
+    assert recarregado is not None
+    assert recarregado.status is TurnStatus.FAILED
+    assert len(recarregado.audio_chunks) == 2
+    assert recarregado.delivered_partially
+
+
+async def test_gravar_sobre_estado_defasado_e_erro_de_adapter(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """Entidade com menos trechos que a linha não grava em silêncio."""
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    turn = await _turn_em_processamento(repository, sessao_persistida)
+    _fala(turn, 0)
+    await repository.update(turn)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    defasado = await repository.get(turn.id)
+    assert defasado is not None
+    defasado.audio_chunks.clear()  # simula quem carregou antes do trecho existir
+
+    with pytest.raises(StaleTurnError):
+        await repository.update(defasado)
