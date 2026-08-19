@@ -46,7 +46,7 @@ Escreva um ADR sempre que a decisão:
 | [0007](0007-autenticacao-jwt-refresh-rotativo.md) | Autenticação: e-mail verificado, JWT curto + refresh rotativo | aceito (ajustado por 0010) |
 | [0008](0008-contrato-api-versionamento-e-tipos-gerados.md) | Contrato de API: REST /v1 aditivo + tipos TS gerados do OpenAPI | aceito |
 | [0009](0009-estrategia-de-modelos-de-ia.md) | Modelos de IA: forte para pedagogia, barato para auxiliares, via config | aceito (ajustado por 0010) |
-| [0010](0010-politica-de-custo-projeto-pessoal.md) | Política de custo: infra a dinheiro zero, gasto restrito à IA com teto mensal | aceito |
+| [0010](0010-politica-de-custo-projeto-pessoal.md) | Política de custo: infra a dinheiro zero, gasto restrito à IA com teto mensal | aceito (base de projeção revista por [`analise-custo-e-precificacao.md`](../analise-custo-e-precificacao.md) §3) |
 | [0011](0011-stt-e-tts-locais-como-default.md) | STT e TTS locais como default de desenvolvimento; APIs por config | aceito |
 | [0012](0012-regra-de-camada-como-contrato-executavel.md) | Regra de camada como contrato executável (import-linter) | aceito |
 | [0013](0013-configuracao-tipada-fora-das-camadas.md) | Configuração tipada com pydantic-settings, fora das camadas e proibida no núcleo | aceito |
@@ -56,3 +56,5 @@ Escreva um ADR sempre que a decisão:
 | [0017](0017-erro-de-dominio-e-excecao-result-fica-para-o-caso-de-uso.md) | Invariante de domínio violada é exceção; `Result` fica para o caso de uso | aceito |
 | [0018](0018-teste-de-adapter-contra-postgres-real-com-testcontainers.md) | Teste de adapter contra Postgres real, com testcontainers | aceito |
 | [0019](0019-limiar-global-de-cobertura-com-folga-agora-que-o-nucleo-morde.md) | Limiar global de cobertura com folga, agora que o anel do núcleo morde | aceito |
+| [0020](0020-prompt-caching-no-adapter-do-professor.md) | Prompt caching no adapter do professor, com o prompt tratado como prefixo estável | **substituído por ADR-0021** |
+| [0021](0021-prompt-caching-adiado-o-limiar-medido-nao-e-alcancado.md) | Prompt caching adiado: o limiar medido (4.096 tok) não é alcançado por uma conversa real | aceito |
