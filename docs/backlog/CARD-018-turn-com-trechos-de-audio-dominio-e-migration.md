@@ -199,8 +199,26 @@ Conferido contra "Quando um ADR é OBRIGATÓRIO" (`docs/adr/README.md`):
 
 ### Regra do explicador — desfecho
 
-Fila de `docs/perguntas-em-aberto.md`: **o arquivo não existia**, logo não havia
-pergunta a reapresentar na abertura. Nada a fechar de sessões anteriores.
+**Falha de processo desta sessão, registrada como tal.** O agente afirmou na
+abertura que `docs/perguntas-em-aberto.md` não existia e concluiu que não havia
+fila a reapresentar. **O arquivo existe e tinha 8 perguntas abertas.** A causa:
+o `cat docs/perguntas-em-aberto.md` foi executado com o diretório de trabalho
+ainda em `backend/` (herdado de um comando anterior), então procurou em
+`backend/docs/` e devolveu "no such file". O agente aceitou o resultado
+negativo sem conferir o caminho — mesma classe do LEARNING-0003 (verificar
+contra o artefato, não contra a primeira leitura que apareceu).
+
+O que isso custou: a reapresentação da fila **não aconteceu** na abertura, e
+duas perguntas do passivo tocavam este card —
+
+- **Q9** (igualdade de `@dataclass`), que este card **exercita diretamente**:
+  `test_trechos_fazem_roundtrip_na_ordem_de_playback` compara `recarregado ==
+  turn` justamente para que a coleção inteira entre na comparação de uma vez;
+- **Q7** (`Protocol` e o momento em que se descobre que um fake não satisfaz a
+  porta), que o próprio arquivo marca como "volta no CARD-006/007".
+
+Nenhuma das duas foi reapresentada. **As duas seguem abertas** e vão para a
+abertura do CARD-006.
 
 | # | Pergunta (no ponto da decisão) | Desfecho |
 |---|---|---|
