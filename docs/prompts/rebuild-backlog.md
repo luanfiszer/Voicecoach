@@ -71,14 +71,17 @@ comprovar que ele entendeu), não a **verificação de engenharia**.
 3. **`docs/medicao-latencia.md`** — os números medidos (STT, LLM e TTS), o
    **veredito do orçamento na §6**, e principalmente a §3.4 e a §7 (o que os
    números **não** decidem).
-4. **`docs/adr/0021-...md`** — a decisão nova em vigor. O **ADR-0020 está
+4. **`docs/analise-caminho-para-1-2s.md`** — a meta de latência que o
+   desenvolvedor levantou depois da medição, o que ela custa, e as **três
+   decisões pendentes** que travam qualquer card sobre o assunto.
+5. **`docs/adr/0021-...md`** — a decisão nova em vigor. O **ADR-0020 está
    substituído**; leia-o só como histórico.
-5. `docs/backlog/README.md` e os CARDs **001–017** — o que existe hoje.
-6. `docs/visao-produto-e-arquitetura-alvo.md`, em especial §A (MVP), §D
+6. `docs/backlog/README.md` e os CARDs **001–017** — o que existe hoje.
+7. `docs/visao-produto-e-arquitetura-alvo.md`, em especial §A (MVP), §D
    (arquitetura alvo) e §F (anti-overengineering, com os gatilhos).
-7. ADRs **0001, 0002, 0003, 0006, 0007, 0008, 0010, 0011, 0016** — o que já está
+8. ADRs **0001, 0002, 0003, 0006, 0007, 0008, 0010, 0011, 0016** — o que já está
    decidido e você não pode contradizer sem ADR novo.
-8. `docs/roadmap.md` — o sequenciamento em fatia vertical e por que ele é assim.
+9. `docs/roadmap.md` — o sequenciamento em fatia vertical e por que ele é assim.
 
 ---
 
@@ -137,8 +140,13 @@ Medido ponta a ponta por componente (medição §6): mesmo no **pior** caso o á
 fica pronto em **~6,6 s** contra um teto de 12–15 s; o texto em **~5,0 s** contra
 6 s. Consequências que o backlog precisa absorver:
 
-- **A cascata LLM→TTS por sentença NÃO deve ser feita.** Economizaria ~1,3 s num
-  orçamento com ~6 s de folga, ao custo de reabrir ADR-0016 e ADR-0006.
+- **A cascata LLM→TTS por sentença está EM ABERTO** — leia
+  [`docs/analise-caminho-para-1-2s.md`](../analise-caminho-para-1-2s.md) antes de
+  concluir qualquer coisa sobre ela. Contra o orçamento de 12–15 s ela é
+  desnecessária (economiza ~1,3 s numa folga de ~6 s). Mas o desenvolvedor
+  levantou uma meta nova — **primeiro áudio em 1–2 s** — e sob essa meta ela vira
+  a alavanca principal (~3,74 s → ~1,4 s). **A meta ainda não foi confirmada e
+  três decisões estão pendentes** (§8 daquele documento). Não decida por ele.
 - **O worker DEVE manter os modelos residentes.** Carregar por job custa **~6 s
   por turn** (0,42 s de STT + 5,63 s de Kokoro) — mais que todo o resto do
   pipeline somado. Sem residência o pior caso vai a **12,69 s** e fura o teto de
