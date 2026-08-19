@@ -52,3 +52,10 @@ concreto, extrair componente na segunda repetição.
 Renderização de listas no RN (FlatList vs map, keys, performance básica) e
 composição de componentes com TypeScript estrito sobre os tipos gerados —
 o contrato do backend dirigindo a UI.
+
+## Ajuste da reconstrução (2026-08-19)
+
+**Mantido**, com um ajuste de ordem de apresentação: com a cascata, o áudio
+começa **antes** do feedback estar pronto (ADR-0022 pôs `spoken_reply` primeiro).
+A tela não pode assumir que texto e áudio chegam juntos — o card de correção
+entra na tela enquanto o professor ainda fala.
