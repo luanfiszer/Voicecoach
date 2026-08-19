@@ -1,4 +1,4 @@
-essa# ADR-0016 — Ciclo de vida do Turn: estado grosso persistido, etapa derivada dos artefatos
+# ADR-0016 — Ciclo de vida do Turn: estado grosso persistido, etapa derivada dos artefatos
 
 - **Status:** aceito
 - **Data:** 2026-08-18
