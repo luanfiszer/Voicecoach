@@ -1,4 +1,4 @@
-# Prompt — Sessão de reconstrução do backlog: a virada de eixo para produto
+# Prompt — Reconstrução do backlog em torno do alvo de produto
 
 - **Tipo:** prompt de sessão, para ser entregue a um agente
 - **Escrito em:** 2026-08-19, na sessão de medição de latência
@@ -6,252 +6,228 @@
 
 ---
 
+## O alvo — leia isto antes de qualquer outra coisa
 
-## Por que esta sessão existe
+O backlog atual (CARDs 001–017) foi escrito para um produto **turn-based de
+walkie-talkie**, com orçamento de latência de 12–15 s, sem cobrança, e sob um
+eixo de projeto que priorizava o aprendizado do desenvolvedor sobre a entrega.
 
-O eixo do projeto mudou. Até aqui o `CLAUDE.md` declarava, com todas as letras,
-que **o produto era o aprendizado do desenvolvedor e o código era subproduto**.
-Não é mais. A prioridade agora é **crescer o produto**, com aprendizado
-acontecendo por consequência de construir, não por cerimônia que o verifica.
+**Nada disso vale mais.** O alvo agora é:
 
-O backlog atual (CARDs 001–017) foi escrito sob o eixo antigo. Ele não está
-errado — está **desalinhado**. Esta sessão o reconstrói sob o eixo novo.
+> **O aluno fala. Em ~1,4 segundos o professor começa a responder em áudio. E o
+> aluno paga por isso.**
 
-Uma sessão anterior de medição de latência produziu três artefatos que mudam o
-que o backlog deveria conter. Eles são o insumo desta sessão e estão listados em
-"O que ler".
+Três mudanças de fundo, todas registradas em documento e nenhuma opinião sua:
+
+| Eixo | Antes | Agora |
+|---|---|---|
+| Latência | áudio completo em ≤ 12–15 s | **primeiro áudio em ~1,4 s** |
+| Modelo de negócio | projeto pessoal, custo zero | **produto cobrado por assinatura** |
+| Prioridade do projeto | aprendizado do desenvolvedor | **crescer o produto**, aprendendo por consequência |
+
+Esta sessão reconstrói o backlog para esse alvo. Ela **não escreve código**.
 
 ---
 
-## A mudança de premissa — declare o conflito antes de qualquer coisa
+## O que o alvo de 1,4 s significa tecnicamente
 
-**O `CLAUDE.md` ainda diz o contrário do que esta sessão assume.** Isso é
-conflito de fonte de verdade, não detalhe. Trate assim:
+Isto não é aspiração: está medido e derivado em
+[`docs/analise-caminho-para-1-2s.md`](../analise-caminho-para-1-2s.md).
 
-1. **Não edite o `CLAUDE.md` por conta própria.** Ele é a constituição; a emenda
-   é do desenvolvedor.
-2. **Produza a emenda como proposta**, em diff, junto com os cards. Ela precisa
-   dizer o que sai, o que fica e o que muda de status. No mínimo isto está em
-   jogo:
-   - a seção **OBJETIVO** ("prioridade dupla… 1. meu aprendizado real, 2.
-     qualidade de engenharia. Velocidade de entrega NÃO é prioridade");
-   - a **regra do explicador** inteira e o arquivo
-     `docs/perguntas-em-aberto.md`;
-   - o item da **Definition of Done** que exige o desfecho da regra do
-     explicador registrado no card;
-   - o campo **"Objetivo de aprendizado"**, hoje obrigatório em todo card
-     (`docs/backlog/CARD-000-template.md`).
-3. **Enquanto a emenda não for aceita, o `CLAUDE.md` vigente vence.** Se você
-   precisar violar uma regra dele para entregar esta sessão, **pare e pergunte**.
+| Etapa | Hoje (batch, medido) | Alvo (cascata) |
+|---|---|---|
+| STT (`mlx-whisper base.en`, 17,6 s de fala) | 0,20 s | 0,20 s |
+| LLM | 1,86 s (JSON completo) | **~0,8 s** (até fechar a 1ª frase) |
+| TTS | 1,68 s (resposta inteira) | **0,41 s** (1ª frase) |
+| **Até o primeiro áudio** | **3,74 s** | **~1,4 s** |
 
-### O que NÃO é cerimônia e deve sobreviver à virada
+O mecanismo é **a cascata**: o LLM responde em *streaming*, o parse extrai
+`spoken_reply` frase a frase, e cada frase vai para o TTS e para o aluno enquanto
+o resto ainda está sendo gerado.
 
-Um agente apressado vai confundir "menos cerimônia de aprendizado" com "menos
-rigor". São coisas diferentes. **Estes ficam, e ficam mais importantes, não
-menos:**
+### Duas fronteiras que você NÃO deve cruzar
 
-- **Os quality gates do ADR-0015 e ADR-0019** — `ruff`, `mypy --strict`,
-  `lint-imports`, `pytest --cov`. Produto que cresce quebra mais, não menos.
-- **Os ADRs**, com o critério escrito de `docs/adr/README.md`. Decisão sem
-  registro é decisão que se reabre toda semana.
-- **A arquitetura em camadas com portas** (ADR-0012, ADR-0003) — ela existe
-  porque permite trocar provider, e trocar provider virou alavanca de custo.
-- **Os post-mortems** (`docs/learnings/`). Erro repetido é o único inaceitável.
+1. **Isto não é realtime, e o V2 não deve ser antecipado.** A cascata não precisa
+   de WebSocket, VAD, barge-in nem módulo nativo de áudio. Um agente com uma meta
+   de 1,4 s na mão tende a propor a pilha realtime inteira — o documento §2
+   explica em detalhe por que isso *adiciona* trabalho em vez de economizar:
+   o V2 substitui transporte e orquestração, **não a fundação**, e hoje não
+   existe V1 para pular.
+2. **1,4 s é o *primeiro áudio*, não o turno completo.** A resposta típica tem
+   **17 s de áudio** para tocar. Turno completo em 1–2 s é fisicamente impossível
+   e nenhum card deve prometê-lo.
 
-O que sai é a **verificação pedagógica** (perguntar ao desenvolvedor para
-comprovar que ele entendeu), não a **verificação de engenharia**.
+### O que a cascata NÃO entrega, e precisa estar escrito no backlog
+
+**Interrupção (barge-in).** O aluno falar por cima do professor exige VAD durante
+playback, supressão de eco e cancelamento de geração em voo. Isso é V2 de
+verdade. Um produto com 1,4 s de primeiro áudio **sem** barge-in ainda é um
+walkie-talkie — só que ágil. Seja honesto sobre isso nos cards.
+
+---
+
+## As duas decisões pendentes que travam parte do trabalho
+
+O desenvolvedor confirmou o alvo. Duas consequências dele **precisam de um "ok"
+explícito na abertura da sessão**, antes de você escrever os cards que dependem
+delas:
+
+1. **Reordenar os campos do JSON do professor** para `spoken_reply` vir antes de
+   `tip` e `translation_pt`. **Sem isso a cascata não funciona** — a primeira
+   frase falada só sai depois de o modelo gerar tudo que vem antes dela. O prompt
+   do professor está congelado até o eval (Fase 4), mas a *ordem dos campos* não
+   é conteúdo pedagógico. A linha é do desenvolvedor: pergunte e siga.
+2. **Reabrir ADR-0016 e ADR-0006.** São consequência necessária (o áudio deixa de
+   ser um objeto só). Pela regra do projeto isso é **ADR novo que substitui**,
+   nunca edição do antigo.
+
+Se ele vetar (1), a cascata morre e o alvo volta a ~3,7 s. Nesse caso **pare e
+peça nova direção** em vez de reconstruir o backlog para um alvo que não existe.
+
+---
+
+## A mudança de eixo do projeto — e o conflito com o `CLAUDE.md`
+
+**O `CLAUDE.md` ainda declara que o produto é o aprendizado do desenvolvedor e o
+código é subproduto.** Isso não vale mais, mas o arquivo é a constituição e a
+emenda é dele, não sua.
+
+1. **Não edite o `CLAUDE.md`.** Produza a emenda **em diff**, junto com os cards.
+2. Está em jogo, no mínimo: a seção **OBJETIVO**; a **regra do explicador** e o
+   `docs/perguntas-em-aberto.md`; o item da **Definition of Done** que exige o
+   desfecho do explicador no card; e o campo **"Objetivo de aprendizado"**, hoje
+   obrigatório em `docs/backlog/CARD-000-template.md` (proposta: substituir por
+   **"Por que agora"**, amarrando o card ao caminho de produto).
+3. **Enquanto a emenda não for aceita, o `CLAUDE.md` vigente vence.** Se precisar
+   violá-lo para entregar, **pare e pergunte**.
+
+### O que NÃO é cerimônia e sobrevive à virada
+
+Não confunda "menos cerimônia de aprendizado" com "menos rigor". **Ficam, e ficam
+mais importantes:** os quality gates (ADR-0015/0019 — `ruff`, `mypy --strict`,
+`lint-imports`, `pytest --cov`); os ADRs com o critério escrito de
+`docs/adr/README.md`; a arquitetura em camadas com portas (ADR-0012/0003 — ela
+existe porque permite trocar provider, e trocar provider virou alavanca de custo
+e de latência); os post-mortems.
+
+Sai a **verificação pedagógica**. Fica a **verificação de engenharia**.
 
 ---
 
 ## O que ler, nesta ordem
 
-1. `CLAUDE.md` — inteiro, sabendo que a seção OBJETIVO está em disputa.
-2. **`docs/analise-custo-e-precificacao.md`** — a economia unitária. É o
-   documento mais importante desta sessão.
-3. **`docs/medicao-latencia.md`** — os números medidos (STT, LLM e TTS), o
-   **veredito do orçamento na §6**, e principalmente a §3.4 e a §7 (o que os
-   números **não** decidem).
-4. **`docs/analise-caminho-para-1-2s.md`** — a meta de latência que o
-   desenvolvedor levantou depois da medição, o que ela custa, e as **três
-   decisões pendentes** que travam qualquer card sobre o assunto.
-5. **`docs/adr/0021-...md`** — a decisão nova em vigor. O **ADR-0020 está
-   substituído**; leia-o só como histórico.
+1. **`docs/analise-caminho-para-1-2s.md`** — o alvo, o mecanismo, o custo, as
+   fronteiras. É o documento que define esta sessão.
+2. **`docs/medicao-latencia.md`** — todos os números medidos. Preste atenção
+   especial à **§3.4** e à **§7** (o que os números **não** decidem).
+3. **`docs/analise-custo-e-precificacao.md`** — a economia unitária, as margens e
+   o achado da unidade da cota.
+4. `docs/adr/0021-...` — decisão em vigor sobre caching. O **ADR-0020 está
+   substituído**; leia só como histórico.
+5. `CLAUDE.md` — inteiro, sabendo que a seção OBJETIVO está em disputa.
 6. `docs/backlog/README.md` e os CARDs **001–017** — o que existe hoje.
-7. `docs/visao-produto-e-arquitetura-alvo.md`, em especial §A (MVP), §D
-   (arquitetura alvo) e §F (anti-overengineering, com os gatilhos).
-8. ADRs **0001, 0002, 0003, 0006, 0007, 0008, 0010, 0011, 0016** — o que já está
-   decidido e você não pode contradizer sem ADR novo.
+7. `docs/visao-produto-e-arquitetura-alvo.md` — §A (MVP), §D (arquitetura) e §F
+   (anti-overengineering, com os gatilhos). **O orçamento de latência da §D está
+   obsoleto**; o resto vale.
+8. ADRs **0001, 0002, 0003, 0005, 0006, 0008, 0010, 0011, 0014, 0016** — o que
+   está decidido e você não contradiz sem ADR novo.
 9. `docs/roadmap.md` — o sequenciamento em fatia vertical e por que ele é assim.
 
 ---
 
-## O que mudou de fato — os achados que reordenam o backlog
+## O estado real do código — a armadilha central
 
-Não são opiniões desta sessão; estão registrados nos documentos acima.
+**Existe:** domínio (`Turn`, `Session`, `Student`), portas de repositório,
+adapters de persistência, migrations, health check, quality gates, CI.
 
-### 1. Cobrar virou premissa — e ainda não está confirmada
+**Não existe:** nenhum adapter de IA, nenhum worker, nenhum endpoint de Turn,
+nenhum app. **Nada do produto funciona ponta a ponta.**
 
-`docs/analise-custo-e-precificacao.md` §0 registra que **monetizar contradiz o
-objetivo escrito** e que não há nenhum registro anterior de intenção comercial no
-repositório. A premissa agora é: **o produto vai ser cobrado**. Confirme isso com
-o desenvolvedor **antes** de escrever cards de cobrança — e se ele confirmar,
-isso muda o documento de visão, não só o backlog.
+Daí a armadilha: um backlog "voltado a crescimento" tende a inchar com features
+(streaks, gamificação, CEFR, social) sobre um produto que não roda. **Crescer o
+produto hoje é fazê-lo funcionar ponta a ponta e cobrar por isso.** Qualquer card
+que não sirva ao caminho *"aluno fala → ouve em ~1,4 s → paga"* precisa de
+justificativa explícita ou não entra.
 
-### 2. 100% do custo variável é o LLM
-
-Com STT e TTS locais, cada turn custa ~US$ 0,004, meio a meio entre entrada e
-saída de tokens. Infra é irrelevante na escala. **Comissão de loja (15–30%) é ~4×
-o custo de IA.** Consequência direta: o canal de cobrança é decisão arquitetural
-de primeira ordem, e o app web (ADR-0002) deixa de ser companion e vira
-candidato a canal de receita.
-
-### 3. A margem quebra no usuário pesado
-
-A 900 turns/mês a margem cai para **1,49×** o custo; acima disso dá prejuízo. O
-**CARD-015 (quotas + kill switch) passa de higiene a bloqueante de lançamento
-comercial**. Ele está hoje na Fase 5 do roadmap; é cedo demais para lançar sem
-ele.
-
-### 4. A unidade da cota diverge do driver de custo — 3× (medido)
-
-O domínio já modelou a cota em **minutos falados**
-(`backend/src/voicecoach/domain/turn.py`, campo `audio_duration`), mas o custo é
-**por turn**: 100 turns curtos custam **3× mais** que 20 turns longos com os
-mesmos 10 minutos falados. (Medido: a fala longa gera resposta 2,7× maior, o que
-reduz a divergência de 5× estimado para 3× real.) Decidir isto é escopo do
-CARD-015 e afeta o domínio.
-
-### 5. A escolha de modelo do STT NÃO pode ser feita com os dados atuais
-
-`docs/medicao-latencia.md` §3.4: todas as 16 variantes deram 100% de concordância,
-inclusive a mais barata — porque o áudio de teste era TTS nativo sintético, o
-caso trivial. **Latência está medida; qualidade não.** O CARD-006 precisa de um
-insumo com voz real de aprendiz antes de fixar modelo.
-
-### 6. `mlx-whisper` é 2,4–2,8× mais rápido, e é Apple Silicon apenas
-
-Medido. Não é "trocar o default" — é ter **dois adapters**, com o default
-dependendo de onde o worker executa. Isso é ADR novo (critério 2, fronteira),
-ainda não escrito.
-
-### 6.5. O orçamento de latência é FOLGADO — duas alavancas mudaram de status
-
-Medido ponta a ponta por componente (medição §6): mesmo no **pior** caso o áudio
-fica pronto em **~6,6 s** contra um teto de 12–15 s; o texto em **~5,0 s** contra
-6 s. Consequências que o backlog precisa absorver:
-
-- **A cascata LLM→TTS por sentença está EM ABERTO** — leia
-  [`docs/analise-caminho-para-1-2s.md`](../analise-caminho-para-1-2s.md) antes de
-  concluir qualquer coisa sobre ela. Contra o orçamento de 12–15 s ela é
-  desnecessária (economiza ~1,3 s numa folga de ~6 s). Mas o desenvolvedor
-  levantou uma meta nova — **primeiro áudio em 1–2 s** — e sob essa meta ela vira
-  a alavanca principal (~3,74 s → ~1,4 s). **A meta ainda não foi confirmada e
-  três decisões estão pendentes** (§8 daquele documento). Não decida por ele.
-- **O worker DEVE manter os modelos residentes.** Carregar por job custa **~6 s
-  por turn** (0,42 s de STT + 5,63 s de Kokoro) — mais que todo o resto do
-  pipeline somado. Sem residência o pior caso vai a **12,69 s** e fura o teto de
-  12–15 s; com residência fica em **6,64 s**. Detalhado abaixo, na seção própria.
-- O incômodo original com a latência **não é o tempo das etapas**; é o desenho
-  turn-based em si, que o ADR-0003 já nomeou e aceitou como degrau para o V2.
-
-### 6.6. Residência dos modelos no worker — a decisão mais concreta desta lista
-
-Esta é a única alavanca desta sessão que já está **medida, decidida e ainda
-gratuita**. Ela precisa sair do backlog como requisito, não como sugestão.
-
-**O que o backlog tem de garantir:**
-
-1. **Os modelos são carregados uma vez, na subida do worker**, não por job. Em
-   `arq` isso é o hook `on_startup`, que popula o `ctx` compartilhado entre jobs
-   — o equivalente mental é um singleton registrado no DI do host de um
-   `BackgroundService`, e não um `new` dentro do `ExecuteAsync`.
-2. **O readiness do worker (ADR-0014) precisa refletir isso.** Um worker que
-   subiu mas ainda está carregando modelos **não está pronto**, e hoje nada
-   modela essa diferença. Se o job chegar antes da carga terminar, ou ele espera
-   ou ele paga os 6 s que a decisão existe para evitar.
-3. **O custo de reinício passa a ser visível:** todo restart do worker custa
-   ~6 s de indisponibilidade. Isso entra no card como consequência aceita, e
-   muda o desenho de deploy (não se reinicia worker a cada mudança trivial).
-4. **Footprint de memória vira requisito documentado** (~1–2 GB residentes) —
-   é o número que decide o tamanho de qualquer máquina, hoje ou hospedada.
-5. **Se o `mlx-whisper` for escolhido, esta conta precisa ser refeita:** a carga
-   dele **não foi medida em separado** nesta sessão (o aquecimento foi
-   descartado junto). O grosso dos 6 s é o Kokoro de qualquer forma, mas o
-   número exato está em aberto.
-
-**Isto exige ADR** — critério 5 do `docs/adr/README.md` ("seria difícil de
-reverter": desfazer mexe no ciclo de vida do worker, no readiness e no deploy) e,
-discutivelmente, critério 2 (fronteira: quem é dono do ciclo de vida do modelo).
-Ele **não existe ainda** e está na lista do entregável 4.
-
-### 7. `int8` é mais lento que `float32` neste hardware
-
-1,48 s → 1,18 s ao **abandonar** a quantização. O CARD-006 não deve adotar `int8`
-por hábito.
-
-### 7.5. O Kokoro traz três dependências escondidas — risco novo no CARD-008
-
-O TTS **não roda out-of-the-box** (medição §4.3): o `espeakng-loader` publica um
-binário com caminho de dados de CI compilado dentro; o conserto exige
-`espeak-ng` de sistema apontado **depois** do import; e o Kokoro puxa spaCy com
-um modelo (`en_core_web_sm`) não declarado. Isso é dependência de sistema
-não-Python — vai para o Dockerfile, não para o `pyproject.toml`. É argumento para
-**avaliar o Piper antes de fixar o Kokoro**.
-
-### 7.6. O prompt caching foi medido e derrubado
-
-O ADR-0020 (escrito e substituído no mesmo dia) assumia limiar de ~1.024 tokens.
-**Medido: 4.096.** Uma conversa deste produto não o alcança, então o caching
-**não engata**. O ADR-0021 registra a decisão de adiar e o gatilho para reabrir.
-Consequência direta no backlog: **o CARD-007 não implementa caching**, mas o
-**CARD-014 (`UsageEvent`) continua tendo de registrar as três contagens de
-entrada** — é o instrumento que detecta a mudança de regime.
-
-Consequência na economia: sem essa alavanca, o custo projetado sobe de
-US$ 0,002 para **US$ 0,0031/turn**, e a margem do usuário engajado cai para
-**3,0×** — no fio da meta. Isso **reforça** o achado 3.
-
-### 8. ⚠️ Uma rejeição que expirou junto com o eixo antigo
-
-`docs/analise-custo-e-precificacao.md` §11 avalia **rodar STT e TTS no aparelho
-do aluno** — o que zeraria o compute de servidor e o tráfego de áudio nos dois
-sentidos, deixando só o LLM como custo, e cortaria latência de forma dramática.
-
-Ela foi rejeitada com **dois** argumentos. O primeiro (contraria ADR-0003 e
-ADR-0011) continua de pé. O segundo era: *"esvazia a prioridade nº 1 do projeto,
-porque tira do backend exatamente o que os CARDs 006–009 existem para ensinar"*.
-
-**Esse segundo argumento morreu com a virada de eixo.** O texto do §11 diz
-literalmente que é *"a decisão certa para uma startup e a errada para este
-projeto hoje"* — e o projeto acabou de virar o primeiro caso.
-
-**Não decida isso sozinho.** Reapresente a alternativa ao desenvolvedor com os
-números atualizados e o trade-off honesto (economia e latência de um lado;
-retrabalho de CARDs 006/008/009, superfície de cliente muito maior, tamanho do
-modelo no aparelho, bateria e qualidade de voz do outro). É provavelmente a
-decisão mais cara desta sessão.
+A tabela de gatilhos da **visão §F** continua valendo inteira. Se propuser algo
+que ela cortou, mostre que o gatilho foi atingido.
 
 ---
 
-## A armadilha central — leia antes de planejar
+## Os achados medidos que reordenam o backlog
 
-**Um backlog voltado a crescimento tende a inchar.** O erro previsível aqui é
-transformar "focar no produto" em vinte cards de features (streaks, gamificação,
-níveis CEFR, compartilhamento social, onboarding com IA) e enterrar a fatia
-vertical que ainda **não fecha**.
+Nenhum é opinião; todos estão nos documentos acima.
 
-O estado real do código: existem domínio, persistência, migrations e health
-check. **Não existem** adapters de IA, worker, endpoints de Turn, nem app. Nada
-do produto funciona ponta a ponta ainda.
+### A. Latência
 
-Portanto: **crescer o produto hoje significa terminar a fatia vertical, não
-adicionar features a um produto que não roda.** Qualquer card novo que não sirva
-ao caminho "aluno fala → aluno ouve resposta → aluno paga" precisa de
-justificativa explícita ou não entra.
+1. **A cascata é o mecanismo central** (§ acima). Ela redesenha CARDs 007, 008,
+   009, 010 e 012 — não é um ajuste, é o eixo do pipeline.
+2. **O worker DEVE manter os modelos residentes.** Carregar por job custa **~6 s
+   por turn** (0,42 s de STT + 5,63 s de Kokoro) — mais que todo o resto somado.
+   Detalhado na seção própria abaixo.
+3. **`mlx-whisper` é 2,4–2,8× mais rápido que `faster-whisper`**, e é **Apple
+   Silicon apenas**. Não é trocar o default: é ter **dois adapters**, com o
+   default dependendo de onde o worker roda.
+4. **`int8` é mais lento que `float32` neste hardware** (1,48 s → 1,18 s ao
+   *abandonar* a quantização). Não adote `int8` por hábito.
+5. **A escolha de modelo do STT está BLOQUEADA.** As 16 variantes deram 100% de
+   concordância porque o áudio de teste era TTS sintético — o caso trivial.
+   Latência está medida; **qualidade não**. O CARD-006 precisa de insumo com voz
+   real de aprendiz antes de fixar modelo.
+6. **O Kokoro traz três dependências escondidas** (medição §4.3): `espeakng-loader`
+   com caminho de CI compilado dentro do binário; conserto exige `espeak-ng` de
+   sistema apontado **depois** do import; e spaCy com `en_core_web_sm` não
+   declarado. É dependência de sistema — vai para o Dockerfile, não para o
+   `pyproject.toml`. **Argumento para avaliar o Piper antes de fixar o Kokoro.**
 
-A tabela de gatilhos da **visão §F (anti-overengineering)** continua valendo
-inteira. Se você propuser algo que ela cortou, é preciso mostrar que o gatilho
-dela foi atingido.
+### B. Custo e negócio
+
+7. **100% do custo variável é o LLM** (~US$ 0,004/turn), meio a meio entre
+   entrada e saída. Infra é irrelevante na escala.
+8. **Comissão de loja (15–30%) é ~4× o custo de IA.** O canal de cobrança é
+   decisão arquitetural de primeira ordem, e o app web (ADR-0002) deixa de ser
+   companion e vira candidato a canal de receita.
+9. **A margem quebra no usuário pesado:** 4,4× no casual, **3,0× no engajado**,
+   **1,49× no pesado**. O **CARD-015 (quotas + kill switch) passa de higiene a
+   bloqueante de lançamento comercial** — hoje ele está na Fase 5, tarde demais.
+10. **A unidade da cota diverge do driver de custo em 3×.** O domínio modelou
+    cota em **minutos falados** (`Turn.audio_duration`), mas o custo é **por
+    chamada ao LLM**: 100 turns curtos custam 3× mais que 20 turns longos com os
+    mesmos 10 minutos. Escopo do CARD-015; afeta o domínio.
+11. **Prompt caching não engata** — limiar medido de **4.096 tokens**, que uma
+    conversa deste produto não alcança (ADR-0021). O CARD-007 **não** implementa
+    caching, mas o **CARD-014 (`UsageEvent`) continua tendo de registrar as três
+    contagens de entrada** — é o instrumento que detecta a mudança de regime.
+12. **Cobrar é premissa que contradiz o objetivo escrito** e ainda não foi
+    formalizada em documento de visão. Confirme com o desenvolvedor antes de
+    escrever cards de cobrança.
+
+### C. Residência dos modelos no worker — a decisão mais madura da lista
+
+Já medida, já decidida, ainda gratuita. O backlog tem de garantir:
+
+1. **Carga uma vez, na subida do worker** — em `arq`, o hook `on_startup`
+   populando o `ctx` compartilhado. O equivalente mental é um singleton no DI do
+   host de um `BackgroundService`, não um `new` dentro do `ExecuteAsync`.
+2. **O readiness (ADR-0014) precisa distinguir "subiu" de "pronto".** Worker que
+   pega job durante a carga paga os ~6 s que a decisão existe para evitar.
+3. **Todo restart custa ~6 s de indisponibilidade** — consequência aceita, que
+   muda o desenho de deploy.
+4. **~1–2 GB residentes viram requisito documentado** — é o número que dimensiona
+   qualquer máquina, hoje ou hospedada.
+5. **Se o `mlx-whisper` vencer, a conta muda:** a carga dele **não foi medida em
+   separado**. O grosso dos 6 s é o Kokoro de qualquer forma.
+
+**Exige ADR** — critério 5 ("difícil de reverter": mexe em ciclo de vida do
+worker, readiness e deploy). Não existe ainda.
+
+### D. O que os números NÃO cobrem
+
+- **Custo de composição:** serialização e cópia de áudio entre etapas, contenção
+  de CPU entre STT e TTS, GIL, pickup da fila, upload do cliente, latência de
+  descoberta. Só existe depois do CARD-009; o CARD-012 já o exige.
+- **Máquina hospedada:** tudo foi medido num Apple M4. Em x86 sem Neural Engine
+  o `mlx-whisper` **não roda** e os demais números não transferem.
 
 ---
 
@@ -259,68 +235,84 @@ dela foi atingido.
 
 ### 1. Diagnóstico do backlog atual, card a card
 
-Uma tabela com os 17 cards e, para cada um: **mantém como está / reescreve /
-reprioriza / divide / mata**, com uma linha de motivo ancorada num dos achados
-acima ou num ADR. Card que você não vai tocar também aparece, dizendo por quê.
+Tabela com os 17 cards e, para cada um: **mantém / reescreve / reprioriza /
+divide / mata**, com uma linha de motivo ancorada num achado ou ADR. Card que
+você não vai tocar também aparece, dizendo por quê.
 
 ### 2. O backlog reconstruído
 
-Cards no formato de `docs/backlog/CARD-000-template.md`, **com o campo "Objetivo
-de aprendizado" tratado conforme a emenda proposta** (se o desenvolvedor mantiver
-o campo, preencha-o; se remover, proponha o que ocupa o lugar — sugestão: um
-campo **"Por que agora"** amarrando o card ao caminho de produto).
+No formato de `docs/backlog/CARD-000-template.md`, com o campo de aprendizado
+tratado conforme a emenda proposta. Cobrindo no mínimo:
 
-Cobrindo no mínimo:
+**Pipeline em cascata** (o coração desta reconstrução):
 
-- **fechar a fatia vertical** (adapters de IA, worker, endpoints, app) —
-  ajustada pelos achados 5, 6 e 7;
-- **cobrança**: planos, assinatura, entitlements, canal (loja vs. web), webhooks
-  de pagamento. **Não existe nenhum card disso hoje**;
-- **cota e kill switch** repriorizados como bloqueantes (achados 3 e 4);
-- **telemetria de custo** — o `UsageEvent` do CARD-014 é pré-requisito do kill
-  switch e do item 5 do ADR-0020, e provavelmente está tarde demais na ordem;
-- **telemetria de `usage`** no CARD-007/014 conforme ADR-0021 — **sem**
-  implementar caching, mas registrando as três contagens de entrada.
+- **CARD-006 (STT)** — adapter batch; **dois adapters** (`mlx-whisper` e
+  `faster-whisper`) com seleção por config; escolha de modelo **bloqueada** até
+  haver áudio de aprendiz; não assumir `int8`.
+- **CARD-007 (LLM)** — resposta em **streaming** e **parse incremental** que
+  libere `spoken_reply` frase a frase. Este é o card tecnicamente mais difícil da
+  reconstrução: extrair um campo de um JSON que ainda está sendo gerado. Avalie
+  explicitamente as opções (structured outputs com streaming; reordenar o schema
+  e usar parser tolerante; duas chamadas separadas) e **registre o trade-off** —
+  não escolha em silêncio.
+- **CARD-008 (TTS + storage)** — síntese **por sentença**, storage e URL assinada
+  **por chunk**; avaliar Piper contra Kokoro à luz do achado 6.
+- **CARD-009 (worker)** — pipeline como **cascata**, não cadeia sequencial;
+  modelos residentes (seção C); e o **caminho triste do turn parcialmente
+  entregue** — falha depois de o aluno já ter ouvido dois trechos. O
+  `Turn.fail()` atual não modela isso.
+- **CARD-010 (endpoints)** — entrega **progressiva**. Avaliar SSE contra polling:
+  polling entrega áudio em chunks de forma desconfortável, e a §F tinha cortado
+  WebSocket com gatilho — SSE é mais barato e o gatilho mudou.
+- **CARD-012 (cliente)** — **playback encadeado** dos chunks, sem buraco audível
+  entre frases; medição ponta a ponta.
 
-### 3. A ordem, com as dependências explícitas
+**Comercial** (não existe nenhum card disso hoje):
+
+- planos, assinatura, entitlements, webhooks de pagamento;
+- **canal de cobrança** (loja vs. web) — vale 11–26 pontos de margem;
+- **CARD-015 repriorizado como bloqueante**, com a unidade da cota decidida;
+- **CARD-014 (`UsageEvent`)** antecipado — é pré-requisito do kill switch.
+
+### 3. A ordem, com dependências explícitas
 
 O sequenciamento atual (001 → 002/003 → 005 → 009 → 010 → 012) foi decidido com
-dependências pensadas. **Se você mudar a ordem, mostre a dependência que
-justifica** — não reordene por intuição. Um caminho crítico até "o produto roda
-ponta a ponta e cobra" é o entregável, não uma lista.
+dependências pensadas. **Se mudar a ordem, mostre a dependência que justifica.**
+O entregável é um **caminho crítico até "o produto roda ponta a ponta em ~1,4 s e
+cobra"**, não uma lista.
 
 ### 4. Os ADRs que faltam
 
-Conferidos contra a lista "Quando um ADR é OBRIGATÓRIO" de
-`docs/adr/README.md`, **citando o critério**. Os que já se sabe que faltam:
+Conferidos contra "Quando um ADR é OBRIGATÓRIO" de `docs/adr/README.md`,
+**citando o critério**:
 
-- adapter duplo de STT (`mlx-whisper` vs `faster-whisper`) e como o default é
-  escolhido — critério 2;
-- canal de cobrança e provedor de pagamento — critérios 1 e 3;
-- unidade da cota (minutos vs. turns) — critério 2, afeta o domínio;
-- **residência dos modelos no worker** (§6.6) — critério 5, e é o mais maduro
-  da lista: já tem número, já tem decisão, só falta o registro;
-- e, se o desenvolvedor reabrir o achado 8, o de STT/TTS no cliente.
+- **substituir ADR-0016** — ciclo de vida do Turn com áudio parcial;
+- **substituir ADR-0006** — mídia em chunks, chaves e URLs assinadas por trecho;
+- **transporte de entrega progressiva** (SSE vs. polling) — critério 2;
+- **residência dos modelos no worker** (seção C) — critério 5, o mais maduro;
+- **adapter duplo de STT** e como o default é escolhido — critério 2;
+- **canal de cobrança e provedor de pagamento** — critérios 1 e 3;
+- **unidade da cota** (minutos vs. turns) — critério 2, afeta o domínio.
 
-Escreva os ADRs ou proponha-os, conforme o desenvolvedor preferir — **pergunte**.
+Escreva ou apenas proponha, conforme o desenvolvedor preferir — **pergunte**.
 
 ### 5. A emenda ao `CLAUDE.md`, em diff
 
-Como descrito na seção de premissa. Proposta, não aplicada.
+Proposta, não aplicada.
 
 ---
 
 ## Restrições
 
-- **Não edite o `CLAUDE.md`** sem aceite explícito. Proponha em diff.
-- **Não escreva código de produção** nesta sessão. É sessão de backlog.
-- **Não contrarie ADR aceito em silêncio.** Se um achado derruba um ADR, o
-  caminho é ADR novo que o substitui, com o status do antigo atualizado — nunca
-  editar o antigo.
+- **Não escreva código de produção.** É sessão de backlog.
+- **Não edite o `CLAUDE.md`** sem aceite explícito.
+- **Não contrarie ADR aceito em silêncio.** ADR novo que substitui, com o status
+  do antigo atualizado — nunca edição do antigo.
+- **Não antecipe o V2** (realtime, VAD, barge-in, WebSocket, módulo nativo). O
+  gatilho do ADR-0003 continua escrito e nenhuma das três condições foi atingida.
 - **Não trate a premissa de cobrança como confirmada** até o desenvolvedor
-  confirmar (achado 1).
-- **Custo zero de infra** continua valendo (ADR-0010) até que um ADR novo o
-  mude. Nada de propor cloud paga como se fosse dado.
+  confirmar (achado 12).
+- **Custo zero de infra** (ADR-0010) continua valendo até que um ADR novo mude.
 - Branch própria; `main` é protegida. Commit **nunca** leva trailer
   `Co-Authored-By` ([LEARNING-0001](../learnings/0001-commit-com-coautoria-indesejada-do-agente.md)).
   **Não pushe nem abra PR sem perguntar.**
@@ -333,12 +325,13 @@ Como descrito na seção de premissa. Proposta, não aplicada.
 
 ## O que este prompt deliberadamente não faz
 
-- **Não manda cortar rigor.** A virada é de eixo, não de padrão. Gates, ADRs,
-  camadas e post-mortems ficam.
-- **Não presume que o backlog atual está ruim.** A maior parte dele
-  provavelmente sobrevive com ajuste. Reescrever tudo seria repetir o erro que
-  esta sessão quer corrigir, com o sinal trocado.
-- **Não decide sobre monetização, canal de cobrança, nem sobre o achado 8.**
-  Todas são decisões do desenvolvedor, informadas por você.
-- **Não deixa o agente inventar features.** Crescer o produto, hoje, é fazê-lo
-  funcionar ponta a ponta e cobrar por isso.
+- **Não manda cortar rigor.** A virada é de eixo, não de padrão.
+- **Não presume que o backlog atual está ruim.** Boa parte sobrevive com ajuste;
+  a cascata é o que força reescrita real, e só nos cards 007–012.
+- **Não decide** sobre monetização, canal de cobrança, unidade de cota, nem sobre
+  mover STT/TTS para o aparelho (opção registrada em
+  `analise-custo-e-precificacao.md` §11, cuja rejeição expirou com a virada de
+  eixo e que **precisa ser reapresentada ao desenvolvedor**, não decidida por
+  você).
+- **Não deixa inventar features.** Crescer o produto, hoje, é fazê-lo funcionar
+  ponta a ponta, rápido, e cobrar.
