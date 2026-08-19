@@ -117,6 +117,58 @@ inglês nativo sintético, sem sotaque, disfluência, pausa ou ruído.
 > decidem latência; não decidem qualidade. **Gatilho:** regravar com voz real de
 > aprendiz e repetir §3.2/§3.3 antes de fixar o modelo.
 
+### 3.5 Decodificação do áudio — a etapa que as tabelas acima escondem
+
+- **Medido em:** 2026-08-19, no CARD-006 · **Instrumento:** `benchmarks/stt_decode.py`
+
+As tabelas §3.2 e §3.3 leem o WAV com `soundfile` **fora** da medição. Isso é
+correto para a pergunta delas (quanto custa transcrever) e **enganoso** para o
+orçamento: o adapter recebe do storage os bytes que o celular gravou — AAC ou
+Opus, não PCM — e alguém paga a decodificação.
+
+Insumo: os mesmos `curto`/`longo`, gravados agora também em AAC 64 kbps (o que
+o Expo grava por padrão nos dois SOs) e Ogg/Opus 24 kbps (o formato do protótipo
+de WhatsApp), todos derivados do mesmo PCM. n = 11, primeira execução
+descartada, bytes já em memória.
+
+| Insumo | Formato | Tamanho | p50 | % de 1,8 s |
+|---|---|---|---|---|
+| `curto` (19,1 s) | WAV PCM16 | 596 KB | 5,0 ms | 0,28% |
+| `curto` (19,1 s) | **AAC 64k** | 151 KB | **6,0 ms** | **0,33%** |
+| `curto` (19,1 s) | Opus 24k | 52 KB | 24,0 ms | 1,33% |
+| `longo` (63,7 s) | WAV PCM16 | 1.992 KB | 7,0 ms | 0,39% |
+| `longo` (63,7 s) | AAC 64k | 502 KB | 14,0 ms | 0,78% |
+| `longo` (63,7 s) | Opus 24k | 175 KB | 73,0 ms | 4,06% |
+
+**Leitura.** No caso real — turno de ~20 s em AAC — a decodificação custa
+**6 ms, 0,3% do orçamento e 1% do próprio STT**. É ruído, e por isso a decisão
+de decodificar **dentro do adapter** (ADR-0029) não precisa de contrapartida.
+
+Três coisas que o número mostra e que a intuição erra:
+
+1. **O formato importa 5 vezes, e quem o escolhe é o cliente.** Opus é o único
+   que chega a aparecer. Isso vira requisito de captura para o CARD-011: gravar
+   em AAC, não em Opus.
+2. **Decodificar no servidor é a opção barata, não a cara.** A alternativa
+   "cliente manda PCM" não elimina o custo, move ele para a rede: 596 KB contra
+   151 KB são ~445 KB a mais de upload, ~0,7 s em 4G. Trocar 6 ms de CPU por
+   700 ms de rede seria a pior troca possível neste orçamento.
+3. **`ffmpeg` como subprocesso perde nos dois eixos** — paga o *spawn* do
+   processo e vira dependência de sistema. É o caminho que
+   `mlx_whisper.transcribe()` toma sozinho quando recebe um caminho de arquivo,
+   e a razão pela qual a porta trafega bytes (ADR-0029).
+
+> **Ressalva de insumo.** Os arquivos em `benchmarks/inputs/` **mudaram** desde
+> a medição de §3.2/§3.3: hoje são `curto.wav` 19,08 s (`b2e8fe4e…`) e
+> `longo.wav` 63,74 s (`5e73aeb4…`), contra os 17,57 s (`b8dc14b0…`) e 62,54 s
+> (`c0d9289e…`) registrados em §2. As tabelas de STT **não reproduzem byte a
+> byte** hoje. As razões entre configurações continuam válidas; os valores
+> absolutos, remeça antes de citar.
+
+> **Fora do escopo desta medição:** baixar o objeto do storage. Os tempos acima
+> pressupõem os bytes já em memória, e o download é uma linha maior e separada
+> (CARD-009).
+
 ---
 
 ## 4. TTS — Kokoro

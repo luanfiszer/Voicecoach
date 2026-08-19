@@ -63,8 +63,9 @@ Escreva um ADR sempre que a decisão:
 | [0024](0024-midia-por-trecho-chave-url-assinada-e-retencao-assimetrica.md) | Mídia por trecho: chave, URL assinada junto do evento e retenção assimétrica | aceito (substitui 0006) |
 | [0025](0025-modelos-residentes-no-worker-e-readiness-que-distingue-pronto.md) | Modelos de IA residentes no worker, e um readiness que distingue "subiu" de "pronto" | aceito |
 | [0026](0026-entrega-progressiva-por-sse-com-polling-como-contrato-de-recuo.md) | Entrega progressiva do turn por SSE, com o polling preservado como contrato de recuo | aceito |
-| [0027](0027-adapter-duplo-de-stt-com-default-resolvido-pela-plataforma.md) | Adapter duplo de STT (`mlx-whisper` e `faster-whisper`), com default resolvido pela plataforma | aceito |
+| [0027](0027-adapter-duplo-de-stt-com-default-resolvido-pela-plataforma.md) | Adapter duplo de STT (`mlx-whisper` e `faster-whisper`), com default resolvido pela plataforma | aceito (complementado por 0029) |
 | [0028](0028-derivacao-da-etapa-do-turn-mora-no-dominio.md) | A derivação da etapa do Turn mora no domínio, não na borda | aceito (revoga o §4 do 0016) |
+| [0029](0029-o-que-atravessa-a-porta-de-stt-sao-bytes-codificados.md) | O que atravessa a porta de STT são bytes codificados; decodificar é do adapter | aceito (complementa 0027) |
 
 ## ADRs pendentes de decisão de produto
 

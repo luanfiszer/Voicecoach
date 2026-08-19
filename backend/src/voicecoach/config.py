@@ -13,10 +13,28 @@ não quando o módulo é importado — ver `get_settings()`.
 from __future__ import annotations
 
 from decimal import Decimal
+from enum import StrEnum
 from functools import lru_cache
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class SttProvider(StrEnum):
+    """Qual adapter de STT o processo usa (ADR-0027, item 2).
+
+    O valor vem de `STT_PROVIDER`. O pydantic valida contra os membros desta
+    enum: um valor inválido derruba a construção da `Settings` com a lista dos
+    aceitos — fail-fast de configuração, sem `if` espalhado depois.
+
+    `AUTO` é o default e **não** é um adapter: é a instrução "resolva pela
+    plataforma no boot". A resolução mora em `adapters/stt/factory.py`.
+    """
+
+    AUTO = "auto"
+    MLX = "mlx"
+    FASTER_WHISPER = "faster_whisper"
+    OPENAI = "openai"
 
 
 class Settings(BaseSettings):
@@ -58,6 +76,26 @@ class Settings(BaseSettings):
     # --- Modelos de IA (ADR-0009, ajustado pelo ADR-0010) --------------------
     teacher_model: str = "claude-haiku-4-5"
     assistant_model: str = "claude-haiku-4-5"
+
+    # --- STT (ADR-0011, ADR-0027) --------------------------------------------
+    # `auto` resolve pela plataforma no boot: mlx em Apple Silicon (0,59 s no
+    # small.en), faster-whisper no resto (1,18 s). Escolha explícita
+    # incompatível FALHA na subida — nunca cai para o outro adapter, porque
+    # fallback silencioso esconderia uma regressão de 2x atrás de um log.
+    stt_provider: SttProvider = SttProvider.AUTO
+
+    # Dois campos e não um: os adapters NÃO compartilham a string do modelo. No
+    # faster-whisper é o nome do modelo CTranslate2; no mlx é o repositório do
+    # Hugging Face com os pesos já convertidos. Um campo só obrigaria uma
+    # tradução entre os dois, que é justamente o tipo de "esperteza" que
+    # esconde erro de configuração.
+    #
+    # `small.en` é o default e a escolha de modelo está BLOQUEADA (ADR-0027,
+    # item 7) até existir insumo com voz real de aprendiz: latência está
+    # medida, qualidade não. Trocar por `base.en` NÃO é a otimização óbvia que
+    # parece — remedido, ele ficou mais LENTO no mlx.
+    stt_model_faster_whisper: str = "small.en"
+    stt_model_mlx: str = "mlx-community/whisper-small.en-mlx"
 
     # --- Proteção de custo (ADR-0010, visão §D) ------------------------------
     # Decimal, não float: dinheiro em binário de ponto flutuante acumula erro.

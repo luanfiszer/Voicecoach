@@ -27,7 +27,12 @@ from voicecoach.config import get_settings
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # `disable_existing_loggers=False` NÃO é detalhe: o default do template do
+    # Alembic é `True`, e ele DESATIVA todo logger já criado no processo. Rodar
+    # migration em processo (é o que os testes de adapter fazem, ADR-0018)
+    # silenciava, por exemplo, o log de escolha do adapter de STT — descoberto
+    # no CARD-006 por um teste que passava sozinho e falhava na suíte.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

@@ -35,6 +35,14 @@ temp_audio/
 *.mp3
 *.ogg
 *.wav
+*.m4a
+*.opus
+
+# Exceção: o insumo de teste do STT (CARD-006). São 72 KB de voz SINTÉTICA
+# (saída de `tts-1`), não de pessoa real — sem dado pessoal envolvido. Fica
+# versionado porque sem ele o critério de aceite do adapter de STT só é
+# verificável na máquina de quem gravou o áudio.
+!backend/tests/fixtures/stt/*.wav
 
 # OS / editor
 .DS_Store

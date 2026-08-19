@@ -21,6 +21,25 @@ dependencies = [
     "httpx>=0.27",
     "sqlalchemy[asyncio]>=2.0",
     "alembic>=1.13",
+    # CARD-006 (ADR-0027 / ADR-0029):
+    #   faster-whisper — STT local em CPU (CTranslate2). É o default em x86 e o
+    #                    ÚNICO caminho que o CI consegue exercitar. Traz o PyAV,
+    #                    que é quem decodifica AAC/Opus sem `ffmpeg` no PATH.
+    #   numpy          — o áudio decodificado é um ndarray. Usado por nome nas
+    #                    anotações dos adapters, então declarado por nome.
+    "faster-whisper>=1.0",
+    "numpy>=2.0",
+]
+
+# `mlx-whisper` é dependência OPCIONAL, não base (ADR-0027, item 4): ela só
+# existe em Apple Silicon. Instalar com `uv sync --extra mlx`; o marker impede
+# que uma máquina x86 sequer tente resolvê-la.
+#
+# Equivalente mental .NET: um pacote referenciado dentro de uma `Condition` de
+# RID no .csproj — presente no build de arm64-osx, ausente nos demais.
+[project.optional-dependencies]
+mlx = [
+    "mlx-whisper>=0.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 [dependency-groups]
@@ -49,7 +68,13 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "--strict-markers --strict-config"
+# `-m "not slow"` DESELECIONA por padrão os testes que carregam modelo de IA de
+# verdade: eles baixam pesos na primeira execução (36-99 s medidos) e o caminho
+# `mlx` nem existe no CI. Para rodá-los à mão: `uv run pytest -m slow`.
+addopts = "--strict-markers --strict-config -m 'not slow'"
+markers = [
+    "slow: toca modelo de IA real; deselecionado por padrão (ver addopts)",
+]
 
 # ---------------------------------------------------------------------------
 # ruff — lint e format (ADR-0015)
@@ -109,6 +134,24 @@ show_error_codes = true
 # alternativa (afrouxar o modo global) trocaria um erro conhecido por cegueira
 # em todo o resto. Gatilho para remover: asyncpg passar a publicar py.typed.
 module = ["asyncpg.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Mesmo caso do asyncpg, agora nas bibliotecas de STT (CARD-006):
+#
+#   faster_whisper — verificado: o wheel NÃO contém `py.typed`, então o mypy
+#                    trata o pacote como sem anotações e o import vira erro.
+#                    Gatilho para remover: faster-whisper passar a publicar
+#                    py.typed.
+#   mlx_whisper    — além de não publicar py.typed, é EXTRA OPCIONAL: numa
+#                    máquina x86 o pacote nem está instalado, e sem este
+#                    override o `mypy` do CI falharia num import que, lá, é
+#                    legitimamente inexistente. Gatilho para remover: o dia em
+#                    que publicar py.typed E deixar de ser Apple-only.
+#
+# Override PONTUAL por módulo, nunca afrouxamento do `strict` global: a
+# alternativa trocaria dois erros conhecidos por cegueira em todo o resto.
+module = ["faster_whisper.*", "mlx_whisper.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------
@@ -180,6 +223,14 @@ forbidden_modules = [
     # encontrou com o pydantic.
     "sqlalchemy",
     "alembic",
+    # STT entra no CARD-006 (ADR-0027/0029). `numpy` e `av` estão aqui junto das
+    # bibliotecas de IA porque são o vazamento mais fácil de cometer sem querer:
+    # o áudio decodificado é um ndarray, e bastaria anotá-lo numa assinatura de
+    # porta para o núcleo passar a depender de numpy.
+    "faster_whisper",
+    "mlx_whisper",
+    "numpy",
+    "av",
 ]
 
 [[tool.importlinter.contracts]]
@@ -201,6 +252,14 @@ forbidden_modules = [
     # de banco (ADR-0004 + ADR-0012).
     "sqlalchemy",
     "alembic",
+    # A porta `SpeechToText` mora aqui e é exatamente onde a biblioteca de STT
+    # tentaria vazar. `numpy` é o caso não-óbvio: sem ele nesta lista, tipar a
+    # porta como `transcribe(audio: NDArray[np.float32])` passaria verde e
+    # amarraria a aplicação ao formato interno do adapter (ADR-0029).
+    "faster_whisper",
+    "mlx_whisper",
+    "numpy",
+    "av",
 ]
 
 # `voicecoach.config` mora fora das cinco camadas (ADR-0013), então o contrato
