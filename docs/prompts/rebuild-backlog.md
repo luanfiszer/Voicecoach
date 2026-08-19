@@ -27,6 +27,23 @@ Três mudanças de fundo, todas registradas em documento e nenhuma opinião sua:
 
 Esta sessão reconstrói o backlog para esse alvo. Ela **não escreve código**.
 
+### A regra de desempate
+
+O desenvolvedor declarou que **performance não é negociável na primeira
+entrega**. Isso não é ênfase — é ordem de precedência, e resolve todo conflito
+que aparecer durante a reconstrução:
+
+> **Se algo tiver que ceder para caber, cede ESCOPO — nunca latência.**
+
+Na prática: um card que entregaria mais funcionalidade a 3,7 s perde para um card
+que entrega menos a 1,4 s. Funcionalidade adiada volta num card seguinte;
+latência entregue errada vira retrabalho de arquitetura, porque o pipeline em
+cascata **não é um ajuste que se faz depois** — ele muda a forma dos CARDs 007 a
+012. É a diferença entre construir para streaming e converter para streaming.
+
+Corolário para o corte de escopo do MVP: se a fatia vertical não couber inteira,
+corte **features**, não etapas do pipeline.
+
 ---
 
 ## O que o alvo de 1,4 s significa tecnicamente
@@ -228,6 +245,47 @@ worker, readiness e deploy). Não existe ainda.
   descoberta. Só existe depois do CARD-009; o CARD-012 já o exige.
 - **Máquina hospedada:** tudo foi medido num Apple M4. Em x86 sem Neural Engine
   o `mlx-whisper` **não roda** e os demais números não transferem.
+
+---
+
+## O estado dos ADRs — auditoria feita, não repita o trabalho
+
+**Editar ou apagar ADR está proibido** pela regra do próprio projeto
+(`docs/adr/README.md`): ADR aceito registra *por que se decidiu aquilo com a
+informação daquele momento*, não o que é verdade hoje. Quando uma decisão cai,
+escreve-se um **sucessor** e marca-se o antigo como substituído. Foi assim com o
+ADR-0020 hoje.
+
+Auditoria dos 21 ADRs contra o alvo novo:
+
+| ADR | Situação |
+|---|---|
+| 0001 WhatsApp descontinuado | ✅ vale |
+| 0002 Expo + web separada | ✅ vale, e **ganha peso**: a web vira candidata a canal de receita |
+| **0003 V1 turn-based → V2 realtime** | ✅ **vale e é reforçado.** Não substitua. A cascata é a **costura 4** que ele já mandava pagar ("pipeline como passos componíveis… o V2 rearranja os mesmos passos em modo streaming"). Fazer a cascata **cumpre** o ADR-0003, não o contraria |
+| 0004 Postgres/SQLAlchemy/Alembic | ✅ vale |
+| 0005 arq sobre Redis | ✅ vale, **ganha requisito**: carga de modelos no `on_startup` |
+| **0006 storage S3 com URL assinada** | ⚠️ **precisa de sucessor** — mídia deixa de ser um objeto por turn e vira chunks |
+| 0007 auth JWT + refresh | ✅ vale |
+| 0008 contrato /v1 aditivo | ✅ vale, e **restringe**: a entrega progressiva não pode quebrar cliente antigo que trate o payload de forma exaustiva |
+| 0009 estratégia de modelos de IA | ✅ vale |
+| 0010 política de custo | ⚠️ **em tensão** com a premissa de cobrança (ainda não confirmada). A base de projeção já foi revista. Só vira sucessor se o desenvolvedor formalizar a monetização |
+| 0011 STT/TTS locais | ✅ vale, mas **incompleto**: não cobre o adapter duplo `mlx-whisper`/`faster-whisper` |
+| 0012 regra de camada executável | ✅ vale |
+| 0013 configuração tipada | ✅ vale |
+| **0014 health check** | ⚠️ **precisa de extensão**: o readiness do worker tem de distinguir "subiu" de "pronto" (modelos carregados) |
+| 0015 quality gates | ✅ vale |
+| **0016 ciclo de vida do Turn** | ⚠️ **precisa de sucessor** — áudio parcial quebra a premissa de que a etapa é derivável de artefatos completos |
+| 0017 erro de domínio / Result | ✅ vale, e **ganha um caso de uso**: falha depois de entrega parcial |
+| 0018 testcontainers | ✅ vale |
+| 0019 limiar de cobertura | ✅ vale |
+| 0020 prompt caching | ⛔ já substituído pelo 0021 |
+| 0021 caching adiado | ✅ vigente |
+
+**Leitura:** de 21 ADRs, **dois precisam de sucessor** (0006 e 0016), **um precisa
+de extensão** (0014), **um está em tensão** aguardando decisão de produto (0010) e
+**um está incompleto** (0011). O resto sobrevive intacto — inclusive o 0003, que é
+o que mais parecia ameaçado e é justamente o que autoriza a cascata.
 
 ---
 

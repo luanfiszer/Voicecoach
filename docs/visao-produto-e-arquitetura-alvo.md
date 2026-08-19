@@ -206,6 +206,12 @@ app: grava áudio (limita DURAÇÃO na captura — não MB)
 Idempotency-Key por tentativa de envio resolve o retry de rede móvel
 (o renascimento do achado F4 do diagnóstico).
 
+> ⚠️ **O orçamento abaixo está OBSOLETO** (2026-08-19). Ele foi medido e
+> considerado folgado, e o alvo passou a ser **primeiro áudio em ~1,4 s** por
+> meio de síntese em cascata. Ver [`analise-caminho-para-1-2s.md`](analise-caminho-para-1-2s.md)
+> e [`medicao-latencia.md`](medicao-latencia.md). O texto original fica como
+> registro do que se acreditava antes de medir.
+
 **Orçamento de latência do V1** (tudo local, custo zero): texto (transcrição
 + correções) visível em **≤ ~6s**; áudio completo em **≤ ~12–15s** p50. O
 status do Turn é por etapa com payload parcial — o app mostra o texto assim
