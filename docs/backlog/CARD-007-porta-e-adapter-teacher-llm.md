@@ -2,7 +2,7 @@
 
 - **ID:** CARD-007 · **Épico:** Fase 1 — Fatia vertical em cascata
 - **Plataforma:** backend/IA · **Esforço:** **G — quebre se não couber numa sessão**
-- **Status:** backlog
+- **Status:** **concluído** (2026-08-21) · branch `card-007-porta-e-adapter-teacher-llm`
 - **Dependências:** CARD-002 (config), CARD-006 (padrão de porta), ADR-0022
 
 ## Contexto
@@ -138,3 +138,125 @@ falhar, C — e cada queda vira nota no ADR-0022, que já previu esta bifurcaç�
 Geradores assíncronos (`async def` + `yield`, `async for`) e o que significa
 "nada roda até alguém iterar" — o `IAsyncEnumerable` do C# com a diferença de
 cancelamento; e pydantic como fronteira anti-corrupção para saída de LLM.
+
+---
+
+## Execução — 2026-08-21
+
+### O spike, antes de qualquer código de produção
+
+Rodado com `benchmarks/llm_streaming_spike.py`, prompt real, `claude-haiku-4-5`,
+3 execuções úteis após 1 de aquecimento. **Quatro** opções, não três — a quarta
+(`output_config.format`) é GA e não existia quando o card foi escrito.
+
+```
+modelo=claude-haiku-4-5  prompt=v1.md sha256:5903387004506a55
+fala   sha256:924904ef26e86901 (291 chars)
+
+A: ttft=0.88s  1a-fala=0.88s  total=3.72s  spoken_reply-primeiro=True   ordem-estavel=True
+B: ttft=1.01s  1a-fala=1.04s  total=3.55s  spoken_reply-primeiro=False  ordem-estavel=False
+C: ttft=0.55s  1a-fala=0.55s  total=1.65s  spoken_reply-primeiro=True   ordem-estavel=True
+D: ttft=1.04s  1a-fala=1.35s  total=3.64s  spoken_reply-primeiro=True   ordem-estavel=True
+
+custo desta execução: US$ 0.0335 (15624 tok entrada, 3571 saída)
+```
+
+**O achado.** A rodada 3 da opção B:
+
+```
+['<não parseou: \'{"has_mistakes": true, "original": "So yesterday I was talki\'>']
+```
+
+O modelo reordenou as chaves, com o prompt pedindo a ordem explicitamente. O
+risco que o ADR-0022 registrou em aberto aconteceu em 1 de 3 execuções — e é a
+razão de a opção B estar morta. **Escolhida a opção A**, virou
+[ADR-0030](../adr/0030-saida-estruturada-em-streaming-por-tool-use-com-deltas-granulares.md).
+
+### Três premissas do card que a verificação desmentiu
+
+| O card afirmava | Verificado em 2026-08-21 |
+|---|---|
+| *"`jiter` já está na árvore de dependências (o `pydantic-core` a usa)"* | **Falso.** `ModuleNotFoundError`. O `pydantic-core` embute o *crate* Rust, não o módulo Python. É dependência nova (0.16.0) |
+| SDK `anthropic` (protótipo em 0.34.0) | **1.0.0**, publicado em 2026-08-20 — e **não estava instalado** no backend: `benchmarks/llm_haiku.py` importava uma lib que o `pyproject.toml` não declarava |
+| Três opções de saída estruturada | **Quatro.** `output_config={"format": …}` é GA, sem beta header, e ficou em segundo lugar na medição |
+
+### Critérios de aceite, um a um
+
+| Critério | Evidência |
+|---|---|
+| 1ª `SpokenSentence` antes de o JSON fechar | `test_primeira_sentenca_sai_antes_de_o_json_fechar` — stream que **nunca** emite `}`; o teste assere `SpokenSentence(text="Hi there, how are you today?")`. Se o adapter esperasse o objeto, não sairia nada |
+| Teste falha se `spoken_reply` deixar de ser a 1ª chave | `test_teacher_prompt.py` — 6 testes, incluindo a ordem completa no prompt **e** no `input_schema` da tool |
+| Resposta fora do schema → `LlmError`, sem texto cru | `test_resposta_fora_do_schema_vira_llm_error` (4 casos) + `test_resposta_sem_tool_use_vira_llm_error` |
+| Sentenças já emitidas não são desditas | `test_sentencas_ja_emitidas_nao_sao_desditas_pelo_erro` |
+| Geração cancelada ao abandonar a iteração | `test_abandonar_a_iteracao_fecha_o_stream` — `aclose()` → `GeneratorExit` → saída do `async with` → `__aexit__` registrado |
+| Adapter sem estado entre chamadas | `test_adapter_nao_guarda_estado_entre_duas_chamadas` + `test_adapter_so_guarda_configuracao` (inspeciona `vars()`) |
+| **Medição do tempo até a 1ª sentença** | §8.2 da medição: **0,76 s** (curta) e **0,68 s** (longa), medidos **através do adapter de produção**. Insumo hasheado no script |
+
+### Gates
+
+```
+uv run ruff format --check src tests   → format OK
+uv run ruff check src tests            → All checks passed!
+uv run mypy                            → Success: no issues found in 54 source files
+uv run lint-imports                    → Contracts: 4 kept, 0 broken.
+uv run pytest --cov --cov-fail-under=80 → 122 passed, 5 deselected; total 92,78%
+uv run coverage report --include="*/domain/*,*/application/*" --fail-under=90 → 100%
+uv run pytest -m slow …integration     → 2 passed (chamou a API real)
+```
+
+Suíte: **80 → 122** testes. Cobertura global **91,85% → 92,78%**; núcleo em 100%.
+
+### O gate morde — par completo, como no CARD-006
+
+Mesma violação (`import anthropic` em `voicecoach/application/ports/__init__.py`),
+duas configurações:
+
+```
+1) 'anthropic' NA lista forbidden:
+   voicecoach.application is not allowed to import anthropic:
+   -   voicecoach.application.ports -> anthropic (l.3)
+
+2) mesma violação, 'anthropic' FORA da lista:
+   application não conhece framework nem SDK de provider KEPT
+   Contracts: 4 kept, 0 broken.
+```
+
+Entraram no `forbidden` de `domain` **e** `application`, no mesmo commit que as
+instalou: `anthropic`, `jiter` e **`httpx2`** — este último porque é o cliente
+HTTP real do SDK 1.x e `httpx` na lista não o cobre (lição da Q8, CARD-005).
+
+### Item de ADR da DoD — critério citado (LEARNING-0003)
+
+Conferido contra `docs/adr/README.md` § "Quando um ADR é OBRIGATÓRIO":
+
+- **Critério 1 (dependência externa):** `anthropic` 1.x e `jiter` → **ADR-0030**
+- **Critério 3 (custo recorrente):** o mecanismo escolhido acrescenta ~400 tokens
+  de entrada por chamada; a alternativa C dobraria a entrada → **ADR-0030**
+- **Critério 2 (fronteira):** a porta devolve um **fluxo de eventos**, e não o
+  `TeacherFeedback` que a visão §D previa → **ADR-0031**
+- **Critério 6 (contraria convenção estabelecida):** o card pedia validação com
+  pydantic estrito; o ADR-0008 e a skill reservam pydantic à borda `api/`.
+  Resolvido a favor da regra de camada, registrado no **ADR-0030, item 4**
+
+### Regra do explicador — desfecho de cada pergunta
+
+| Pergunta | Desfecho |
+|---|---|
+| **Q7** (`Protocol` e o momento em que um fake não satisfaz a porta) — reapresentada na abertura | **em aberto.** Não respondida nem dispensada; o desenvolvedor pediu para seguir. Continua em `docs/perguntas-em-aberto.md` |
+| **Q9** (igualdade de `@dataclass`) — reapresentada na abertura | **em aberto**, mesma razão |
+| **Q10** (`jiter.partial_mode=True` sobre buffer truncado), feita **antes** de escrever o parser | **errada** → demonstrada com as três chamadas no terminal → **reformulada uma vez** (quais trechos podem ir ao TTS com `trailing-strings`) → **respondida corretamente** (`Só "Hi there."`). **Fechada** |
+
+> O desenvolvedor pediu explicitamente, no meio da sessão, que não houvesse mais
+> perguntas. Q7 e Q9 **não** foram fechadas por explicação do agente
+> (LEARNING-0004): seguem na fila para a abertura do CARD-008.
+
+### Dívidas explícitas
+
+| Dívida | Onde resolve |
+|---|---|
+| **Política fina de retry/backoff.** Hoje só existe o `max_retries=2` default do SDK e o timeout de uma tentativa; não há backoff próprio nem classificação de erro retentável | Card próprio, gatilho: primeira falha de provedor observada em uso real |
+| **`# type: ignore[arg-type]` na fábrica.** O `AsyncAnthropic` não satisfaz estruturalmente o `Protocol` mínimo do adapter (o `stream()` do SDK é uma pilha de overloads). Coberto pelo teste `slow`, que chama a API real | Gatilho: o SDK publicar um Protocol público de `messages` |
+| **O prompt ainda diz "WhatsApp" e usa markup do WhatsApp** (`~til~`, `*asterisco*`). É conteúdo **congelado** até a Fase 4 (ADR-0022), e o canal será descontinuado (ADR-0001) | Fase 4 (eval), junto com a revisão do prompt |
+| **Uma linha nova no prompt**: *"The keys MUST appear in exactly the order shown above."* É instrução sobre ordem de serialização, dentro da exceção estreita do ADR-0022 — mas é uma linha a mais no prompt congelado. Registrada por honestidade | Fase 4 |
+| **`config.py` não tem política de `max_history_items`.** O histórico entra inteiro pela porta; quem apara é o chamador, que ainda não existe | CARD-009 |
+| **Não há adapter alternativo de LLM** (o card previa "esqueletos" como corte). Uma porta bem desenhada já permite a troca manual — Parte F da visão | Sem gatilho previsto |

@@ -29,6 +29,15 @@ dependencies = [
     #                    anotações dos adapters, então declarado por nome.
     "faster-whisper>=1.0",
     "numpy>=2.0",
+    # CARD-007 (ADR-0030/0031):
+    #   anthropic — SDK oficial do provedor do professor. A 1.x trocou o HTTP
+    #               para `httpx2` e removeu temperature/top_p/top_k; o helper
+    #               `messages.stream()` é quem entrega os eventos já tipados.
+    #   jiter     — parser JSON em Rust que aceita entrada TRUNCADA
+    #               (`partial_mode`). NÃO vem de graça com o pydantic-core: ele
+    #               embute o crate Rust, não o módulo Python (verificado).
+    "anthropic>=1,<2",
+    "jiter>=0.16",
 ]
 
 # `mlx-whisper` é dependência OPCIONAL, não base (ADR-0027, item 4): ela só
@@ -231,6 +240,13 @@ forbidden_modules = [
     "mlx_whisper",
     "numpy",
     "av",
+    # LLM entra no CARD-007 (ADR-0030/0031). `httpx2` está aqui junto do
+    # `anthropic` porque é o cliente HTTP REAL do SDK 1.x: `httpx` já estava na
+    # lista, mas a lista não enxerga o que ninguém digitou — sem esta linha,
+    # `import httpx2` no núcleo passaria verde (é a lição da Q8, CARD-005).
+    "anthropic",
+    "jiter",
+    "httpx2",
 ]
 
 [[tool.importlinter.contracts]]
@@ -260,6 +276,13 @@ forbidden_modules = [
     "mlx_whisper",
     "numpy",
     "av",
+    # LLM entra no CARD-007 (ADR-0030/0031). `httpx2` está aqui junto do
+    # `anthropic` porque é o cliente HTTP REAL do SDK 1.x: `httpx` já estava na
+    # lista, mas a lista não enxerga o que ninguém digitou — sem esta linha,
+    # `import httpx2` no núcleo passaria verde (é a lição da Q8, CARD-005).
+    "anthropic",
+    "jiter",
+    "httpx2",
 ]
 
 # `voicecoach.config` mora fora das cinco camadas (ADR-0013), então o contrato

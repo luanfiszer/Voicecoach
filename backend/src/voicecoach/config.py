@@ -77,6 +77,19 @@ class Settings(BaseSettings):
     teacher_model: str = "claude-haiku-4-5"
     assistant_model: str = "claude-haiku-4-5"
 
+    # --- Professor (ADR-0022, ADR-0030) --------------------------------------
+    # Teto de saída. 700 é o valor com que a latência foi medida (§5.1): baixá-lo
+    # trunca a resposta no meio, subi-lo não acelera nada porque o modelo para
+    # quando termina. É configurável e não constante de módulo porque o eval da
+    # Fase 4 pode querer respostas mais longas sem mexer em código.
+    teacher_max_tokens: int = Field(default=700, gt=0)
+
+    # Timeout de UMA tentativa, não do turno inteiro: o SDK tenta 2 vezes por
+    # default, então o tempo de parede pode chegar a 3x este valor. O retry só
+    # acontece antes do primeiro trecho de fala — depois dele a conexão já está
+    # aberta e recomeçar faria o aluno ouvir a resposta do zero (ADR-0030).
+    teacher_timeout_seconds: float = Field(default=30.0, gt=0)
+
     # --- STT (ADR-0011, ADR-0027) --------------------------------------------
     # `auto` resolve pela plataforma no boot: mlx em Apple Silicon (0,59 s no
     # small.en), faster-whisper no resto (1,18 s). Escolha explícita

@@ -58,7 +58,7 @@ Escreva um ADR sempre que a decisão:
 | [0019](0019-limiar-global-de-cobertura-com-folga-agora-que-o-nucleo-morde.md) | Limiar global de cobertura com folga, agora que o anel do núcleo morde | aceito |
 | [0020](0020-prompt-caching-no-adapter-do-professor.md) | Prompt caching no adapter do professor, com o prompt tratado como prefixo estável | **substituído por ADR-0021** |
 | [0021](0021-prompt-caching-adiado-o-limiar-medido-nao-e-alcancado.md) | Prompt caching adiado: o limiar medido (4.096 tok) não é alcançado por uma conversa real | aceito |
-| [0022](0022-ordem-dos-campos-da-resposta-do-professor-e-contrato-de-latencia.md) | A ordem dos campos da resposta do professor é contrato de latência, não estilo | aceito |
+| [0022](0022-ordem-dos-campos-da-resposta-do-professor-e-contrato-de-latencia.md) | A ordem dos campos da resposta do professor é contrato de latência, não estilo | aceito (risco técnico fechado por 0030) |
 | [0023](0023-ciclo-de-vida-do-turn-com-entrega-em-cascata.md) | Ciclo de vida do Turn com entrega em cascata: o áudio vira uma sequência de trechos | aceito (substitui 0016) |
 | [0024](0024-midia-por-trecho-chave-url-assinada-e-retencao-assimetrica.md) | Mídia por trecho: chave, URL assinada junto do evento e retenção assimétrica | aceito (substitui 0006) |
 | [0025](0025-modelos-residentes-no-worker-e-readiness-que-distingue-pronto.md) | Modelos de IA residentes no worker, e um readiness que distingue "subiu" de "pronto" | aceito |
@@ -66,6 +66,8 @@ Escreva um ADR sempre que a decisão:
 | [0027](0027-adapter-duplo-de-stt-com-default-resolvido-pela-plataforma.md) | Adapter duplo de STT (`mlx-whisper` e `faster-whisper`), com default resolvido pela plataforma | aceito (complementado por 0029) |
 | [0028](0028-derivacao-da-etapa-do-turn-mora-no-dominio.md) | A derivação da etapa do Turn mora no domínio, não na borda | aceito (revoga o §4 do 0016) |
 | [0029](0029-o-que-atravessa-a-porta-de-stt-sao-bytes-codificados.md) | O que atravessa a porta de STT são bytes codificados; decodificar é do adapter | aceito (complementa 0027) |
+| [0030](0030-saida-estruturada-em-streaming-por-tool-use-com-deltas-granulares.md) | Saída estruturada em streaming por tool use com deltas granulares | aceito (fecha o risco em aberto do 0022) |
+| [0031](0031-o-que-atravessa-a-porta-do-professor-e-um-fluxo-de-eventos.md) | O que atravessa a porta do professor é um fluxo de eventos, não um objeto | aceito (complementa 0023 e 0026) |
 
 ## ADRs pendentes de decisão de produto
 

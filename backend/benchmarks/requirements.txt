@@ -9,6 +9,9 @@ faster-whisper
 mlx-whisper ; sys_platform == "darwin" and platform_machine == "arm64"
 kokoro
 anthropic
+# `jiter` é o parser de JSON parcial do CARD-007. NÃO vem com o pydantic-core:
+# ele embute o crate Rust, não o módulo Python (verificado em 2026-08-21).
+jiter
 soundfile
 numpy
 # PyAV vem junto do faster-whisper, mas o `make_inputs.py` o importa direto para
