@@ -67,8 +67,8 @@ uv run lint-imports
 > que ser um lint. Equivalente mental: `NetArchTest`/`ArchUnitNET`.
 
 Os contratos `forbidden` listam apenas dependências **já instaladas**. Ao
-adicionar uma dependência nova que não pode vazar para dentro (`anthropic`,
-`boto3`), acrescente-a à lista do contrato no mesmo commit — a lista **não** se
+adicionar uma dependência nova que não pode vazar para dentro (`boto3`,
+`arq`), acrescente-a à lista do contrato no mesmo commit — a lista **não** se
 atualiza sozinha, e é esse o elo fraco do ADR-0012.
 
 > **Os dois contratos não são redundantes, e nenhum cobre o outro.** O `layers`
@@ -114,11 +114,14 @@ backend/
         ├── application/
         │   └── ports/
         │       ├── repositories.py     # os três Protocol de repositório
-        │       └── speech_to_text.py   # porta de STT (ADR-0027/0029)
+        │       ├── speech_to_text.py   # porta de STT (ADR-0027/0029)
+        │       └── teacher_llm.py      # porta do professor, em fluxo (ADR-0030/0031)
         ├── adapters/
         │   ├── health.py     # checks de Postgres, Redis e MinIO
         │   ├── persistence/  # models, mappers, repositories, engine, seed
-        │   └── stt/          # dois adapters de STT + fábrica (ADR-0027)
+        │   ├── stt/          # dois adapters de STT + fábrica (ADR-0027)
+        │   └── llm/          # professor em streaming, corte por sentença,
+        │                     # fábrica e prompts/teacher/v1.md (ADR-0030/0031)
         ├── api/
         │   ├── app.py        # create_app() — composition root
         │   ├── dependencies.py

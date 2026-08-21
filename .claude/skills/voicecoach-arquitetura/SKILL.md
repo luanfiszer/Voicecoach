@@ -10,6 +10,10 @@ Regras **destiladas dos ADRs** (`docs/adr/`) e da visão
 fonte.** O *porquê* de cada uma, com o gatilho para reavaliá-la, está em
 [REFERENCE.md](REFERENCE.md).
 
+> **Cobertura desta skill:** ADRs 0001–0023 e 0030–0031. Os ADRs **0024–0029**
+> ainda não foram destilados aqui — consulte-os direto em `docs/adr/`. Se a skill
+> contradisser um ADR, **o ADR ganha**.
+>
 > O produto deste projeto é o conhecimento do desenvolvedor; o código é
 > subproduto (CLAUDE.md). Ao aplicar uma regra, saiba citar o ADR que a originou
 > — regra sem lastro é opinião do agente disfarçada de convenção.
@@ -72,6 +76,10 @@ fronteira é um lint.
 | Implementação de uma porta (SQLAlchemy, Anthropic, MinIO, arq) | `adapters/` | visão §D |
 | Escolha de adapter por plataforma/config | `adapters/<capacidade>/factory.py`, resolvida **no boot**; incompatível **levanta**, nunca faz fallback | ADR-0027 |
 | Áudio atravessando a porta de STT | `AudioInput(data: bytes)` — bytes codificados. Decodificar é do adapter; `numpy`/`av` não passam | ADR-0029 |
+| Resposta do professor atravessando a porta | **fluxo**, não objeto: `respond_streaming(history) -> AsyncIterator[TeacherEvent]`, união fechada `SpokenSentence \| FeedbackReady`. O método **não** é `async def` — gerador assíncrono já devolve o iterador na chamada | ADR-0031 |
+| Erro de provedor que o caso de uso vai capturar | na **porta** (`application/ports/`), não no adapter — `application` não pode importar `adapters`. Herda de `RuntimeError`, nunca de `DomainError` | ADR-0031, ADR-0017 |
+| Saída estruturada de LLM em streaming | *tool* com schema estrito + `eager_input_streaming: true`; parse com `jiter` e `partial_mode="trailing-strings"` | ADR-0030 |
+| Prompt de LLM | arquivo versionado **dentro do pacote** (`adapters/llm/prompts/<papel>/vN.md`), lido com `importlib.resources`; sem conteúdo volátil no prefixo | ADR-0021, ADR-0030 |
 | Router, schema pydantic de request/response, auth, Problem Details | `api/` | ADR-0008 |
 | Entrypoint que consome a fila | `worker/` | ADR-0005 |
 | Leitura de env, segredo, budget | `config.py` (pydantic-settings) — passado **por parâmetro** ao núcleo | ADR-0013 |
@@ -122,6 +130,18 @@ Cada proibição tem contrato executável ou ADR por trás.
 - **Deixar `numpy` (ou qualquer tipo de biblioteca) atravessar uma porta.**
   `NDArray[np.float32]` é o tipo *natural* para "áudio" e por isso é o vazamento
   fácil de cometer sem querer: a porta trafega `bytes` (ADR-0029).
+- **Validar saída de LLM com pydantic.** pydantic é contrato de API e vive na
+  borda `api/` (ADR-0008). No adapter a validação é à mão — o schema já foi
+  imposto pelo provedor, e são poucos campos de tipo conhecido (ADR-0030, item 4).
+- **Deixar `spoken_reply` sair do primeiro lugar**, no prompt ou no
+  `input_schema` da tool. É contrato de latência, verificado por teste — o modo
+  de falha é silencioso: nada quebra, só a latência sobe (ADR-0022, ADR-0030).
+- **Retentar depois de já ter emitido fala.** O aluno ouviria a resposta
+  recomeçar. O `async with` do stream fica **dentro** do gerador e antes do
+  primeiro `yield`, o que confina todo retry do SDK à zona legítima (ADR-0030).
+- **Guardar o stream fora do `async with`, ou engolir `GeneratorExit`.**
+  Abandonar a iteração é o que cancela a geração; desligar isso faz o produto
+  pagar por tokens que ninguém vai ouvir (ADR-0031, item 6).
 - **Fallback silencioso entre adapters.** Escolha explícita incompatível falha
   no boot; cair para o outro esconderia uma regressão de 2x atrás de um log
   (ADR-0027, item 3) — mesma classe de falha dos ADRs 0021 e 0022.

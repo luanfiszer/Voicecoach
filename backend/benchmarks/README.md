@@ -24,6 +24,18 @@ uv venv --python 3.12
 uv pip install --python .venv -r requirements.txt
 ```
 
+> **Exceção: `llm_primeira_sentenca.py` roda no venv do PROJETO, não neste.**
+> Ele mede o adapter de produção (`AnthropicTeacher`), então precisa do
+> `voicecoach` importável — e o `anthropic` e o `jiter` já são dependências do
+> produto desde o CARD-007. Rode-o com `uv run python llm_primeira_sentenca.py`
+> a partir desta pasta, com `ANTHROPIC_API_KEY` no ambiente.
+>
+> **`llm_streaming_spike.py` e `llm_primeira_sentenca.py` GASTAM DINHEIRO**
+> (~US$ 0,03 e ~US$ 0,02 por execução, `claude-haiku-4-5`). Ambos imprimem o
+> custo real da execução a partir do `usage` de cada chamada, e ambos hasheiam o
+> insumo — se o prompt mudar, o hash muda e as tabelas da medição deixam de
+> valer explicitamente.
+
 `mypy` e `import-linter` não alcançam esta pasta (o alvo deles é `src tests`).
 `ruff format` e `ruff check` **alcançam** — estes scripts passam nos mesmos
 gates que o resto do backend.

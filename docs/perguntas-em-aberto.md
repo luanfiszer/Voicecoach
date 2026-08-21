@@ -23,8 +23,8 @@ perguntas que nunca tiveram resposta verificada.
 | Q4 | `@lru_cache` em `get_settings()`: o que exatamente fica em cache, e por que isso morde na suíte de testes? | CARD-002 | 2026-08-17 | "não sei responder" |
 | Q5 | Por que o hook de `mypy` usa `pass_filenames: false`? | CARD-003 | 2026-08-17 | dispensada, sem resposta |
 | Q6 | Por que o limiar de cobertura é travado no valor real de hoje em vez de num número redondo? | CARD-003 | 2026-08-17 | dispensada, sem resposta |
-| Q7 | O que `Protocol` faz que dispensa um framework de mock, e **em que momento** se descobre que um fake não satisfaz a porta? | CARD-004 | 2026-08-17 | **dispensada pelo dev** no CARD-006 |
-| Q9 | Igualdade de `@dataclass`: por que dois objetos da mesma entidade com um campo diferente não são iguais, e por que o Python **proíbe** usá-los como chave de dict/set? | CARD-005 | 2026-08-18 | explicada com execução; não reformulada por falta de orçamento de perguntas da sessão |
+| Q7 | O que `Protocol` faz que dispensa um framework de mock, e **em que momento** se descobre que um fake não satisfaz a porta? | CARD-004 | 2026-08-17 | reapresentada no CARD-007; **sem resposta e sem dispensa** |
+| Q9 | Igualdade de `@dataclass`: por que dois objetos da mesma entidade com um campo diferente não são iguais, e por que o Python **proíbe** usá-los como chave de dict/set? | CARD-005 | 2026-08-18 | reapresentada no CARD-007; **sem resposta e sem dispensa** |
 
 > **Q7** foi reapresentada na abertura do CARD-006 e **dispensada pelo
 > desenvolvedor** ("vamos pular essas perguntas e finalizar a implementação").
@@ -43,9 +43,26 @@ perguntas que nunca tiveram resposta verificada.
 > na comparação da coleção de trechos). **Q3, Q7 e Q9 são as que tocam o
 > CARD-006** e têm de abrir aquela sessão.
 
+> **CARD-007 (2026-08-21): a fila FOI reapresentada na abertura**, antes do
+> plano — Q7 e Q9, com o motivo de cada uma tocar aquele card (o primeiro fake
+> cuja assinatura devolve `AsyncIterator`; a comparação de listas de eventos por
+> igualdade estrutural). O desenvolvedor não respondeu nenhuma das duas e, no
+> meio da sessão, pediu explicitamente que não houvesse mais perguntas. **Não
+> foram fechadas por explicação do agente** (LEARNING-0004): seguem aqui, e
+> abrem o CARD-008.
+>
+> Ironia útil, de novo: naquela mesma sessão as duas se demonstraram sozinhas.
+> O `mypy` reprovou **três** vezes um dublê que tinha "tudo o que se lê" mas não
+> satisfazia o `Protocol` — atributo onde o Protocol declarava `@property`, e
+> membro invariante onde a covariância era necessária (Q7). E o teste do fluxo
+> assere uma **lista inteira de eventos** com um `==` só, o que só funciona
+> porque `frozen=True` gera `__eq__` por valor **e** `__hash__` (Q9). A
+> demonstração existe; a resposta do desenvolvedor, não.
+
 ## Fechadas
 
 | # | Pergunta | Fechada em | Como |
 |---|---|---|---|
 | Q3 | Contrato de **dependência** vs. contrato de **direção** no import-linter: em que cenário só o segundo pega a violação? | 2026-08-19 (CARD-006) | Perguntada **antes** de escrever as listas `forbidden` dos módulos de STT. Primeira resposta parcialmente errada ("A quebra o forbidden"): a violação A — `from faster_whisper import ...` em `application`, com o módulo fora da lista — passou **verde**, `4 kept, 0 broken`. Demonstrado o par completo (mesma linha, com o módulo na lista → `BROKEN`) e **reformulado** uma vez. Respondida corretamente: apagando os contratos `forbidden`, só o `layers` quebra, e **nenhuma lista o torna redundante** — `layers` opera sobre o grafo interno sem lista, `forbidden` é o único que enxerga biblioteca de terceiros |
+| Q10 | `jiter.from_json(buf, partial_mode=True)` sobre `b'{"spoken_reply": "Hi there, how ar'`: o que devolve, e por que isso mataria a cascata? | 2026-08-21 (CARD-007) | Perguntada **antes** de escrever o parser incremental. Primeira resposta **errada** (`{'spoken_reply': 'Hi there, how ar'}` — que é o que o `trailing-strings` devolve, não o `True`). Demonstrada com as três chamadas no terminal: `trailing-strings` → a string incompleta vem; `True` → `{}`; sem `partial_mode` → `ValueError: EOF while parsing a string`. Explicado o porquê (`True` só entrega valores **completos**, e uma string sem a aspa de fechamento não é um) e a consequência: a fala só apareceria quando estivesse inteira, que é esperar o objeto fechar — o card falhando em silêncio. **Reformulada uma vez** (quais trechos podem ir ao TTS com `"Hi there. How are yo"`) e **respondida corretamente**: só `"Hi there."`, porque só o que tem delimitador **e texto depois** está provadamente fechado |
 | Q8 | Que falha o `lint-imports` **não** pega com a lista `forbidden` desatualizada? | 2026-08-18 (CARD-005) | Perguntada **no ponto da decisão**, antes de adicionar `sqlalchemy`. Primeira resposta errada ("o contrato de layers pega"); demonstrada com a violação injetada (`4 kept, 0 broken` com a violação dentro → `BROKEN` depois de atualizar a lista); **reformulada** e respondida corretamente: gate verde significa "nenhuma violação **entre as que eu listei**" |

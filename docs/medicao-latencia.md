@@ -316,3 +316,70 @@ o gatilho dele continua escrito.
 | 3 | Reexecução em **máquina hospedada** | O número não transfere para x86 sem Neural Engine |
 | 4 | Medição **ponta a ponta** (CARD-012) | O custo de composição da §1 continua desconhecido |
 | 5 | Decidir se os scripts viram artefato do repositório | Benchmark que não se reexecuta vira folclore |
+
+---
+
+## 8. CARD-007 — mecanismo de saída estruturada e tempo até a primeira sentença
+
+- **Medido em:** 2026-08-21, no CARD-007
+- **Instrumentos:** `backend/benchmarks/llm_streaming_spike.py` (escolha do
+  mecanismo) e `backend/benchmarks/llm_primeira_sentenca.py` (o número final,
+  medido **através do adapter de produção**)
+- **Insumo versionado:** prompt `v1.md`, `sha256:5903387004506a55…` (completo:
+  `5903387004506a555b44692f81305ce91b3e31e693feac891a356ac9668551b7`); histórico
+  de 6 trocas; falas curta (41 chars) e longa (291 chars, `sha256:924904ef26e86901`)
+- **Custo total das duas execuções:** US$ 0,053 (`claude-haiku-4-5`)
+
+> **Ressalva de método, aprendida no CARD-006:** o insumo está hasheado no
+> próprio script e impresso na saída. Se o prompt mudar, o hash muda e as tabelas
+> abaixo deixam de valer — explicitamente, não em silêncio.
+
+### 8.1 Os quatro mecanismos (`llm_streaming_spike.py`)
+
+Fala longa, 3 execuções úteis após 1 de aquecimento.
+
+| Opção | TTFT p50 | 1ª fala legível p50 | Total p50 | `spoken_reply` 1º | Ordem estável |
+|---|---|---|---|---|---|
+| **A — tool use + `eager_input_streaming`** | 0,88 s | **0,88 s** | 3,72 s | **3/3** | **sim** |
+| B — texto livre + parser parcial | 1,01 s | 1,04 s | 3,55 s | **2/3** | **não** |
+| C — duas chamadas (só a da fala) | 0,55 s | 0,55 s | 1,65 s | 3/3 | sim (trivial) |
+| D — `output_config.format` | 1,04 s | 1,35 s | 3,64 s | 3/3 | sim |
+
+**O achado que decidiu o ADR-0030.** A rodada 3 da opção B produziu:
+
+```
+{"has_mistakes": true, "original": "So yesterday I was talki…
+```
+
+O modelo reordenou as chaves com o prompt pedindo a ordem explicitamente. É o
+risco que o [ADR-0022](adr/0022-ordem-dos-campos-da-resposta-do-professor-e-contrato-de-latencia.md)
+deixou em aberto, materializado em 1 de 3 execuções.
+
+**Custo em tokens de entrada:** a opção A leva o schema da tool na requisição —
+entrada de **1.473–1.522 tokens** contra **1.084** da linha de base da §5.1.
+~400 tokens a mais por chamada, ~US$ 0,0004 no Haiku.
+
+### 8.2 O número que o card existe para produzir (`llm_primeira_sentenca.py`)
+
+Medido **através do `AnthropicTeacher`**, não de uma reimplementação: o número
+inclui o parse incremental com `jiter` e o corte por sentença.
+
+| Caso | 1ª sentença p50 | p95 | Resposta inteira p50 | Trechos emitidos |
+|---|---|---|---|---|
+| fala curta | **0,76 s** | 0,79 s | 2,05 s | 2 |
+| fala longa | **0,68 s** | 0,82 s | 3,74 s | 3 |
+
+**O custo do código próprio é ~0,05 s.** O TTFT medido na §5.1 é 0,60–0,73 s; a
+primeira sentença sai praticamente junto com o primeiro token. O corte por
+sentença paga por si com folga.
+
+**O que a cascata recupera:** 1,29 s na fala curta e **3,06 s** na fala longa.
+
+### 8.3 Relação com a §6
+
+A tabela de alavancas da §6 marcou a cascata como "desnecessária" — conclusão
+correta **dentro do orçamento daquele momento** (teto de 12–15 s, TTS Kokoro a
+5,6 s). O alvo mudou para ~1,4 s de primeiro áudio
+([`analise-caminho-para-1-2s.md`](analise-caminho-para-1-2s.md)), e com ele a
+alavanca voltou — foi o que gerou os ADRs 0022, 0023 e 0026. **A §6 continua
+verdadeira sobre o orçamento que mediu; ela não é a régua atual.**
