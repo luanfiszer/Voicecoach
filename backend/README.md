@@ -66,11 +66,19 @@ uv run lint-imports
 > qualquer módulo; não existe fronteira de compilação. Logo, a fronteira tem
 > que ser um lint. Equivalente mental: `NetArchTest`/`ArchUnitNET`.
 
-Os contratos `forbidden` listam apenas dependências **já instaladas** (hoje
-`fastapi`, `pydantic`, `pydantic_settings`, `uvicorn`, `asyncpg`, `redis`,
-`httpx`). Ao adicionar uma dependência nova que não pode vazar para dentro
-(SQLAlchemy, `anthropic`, `boto3`), acrescente-a à lista do contrato no mesmo
-commit — a lista **não** se atualiza sozinha, e é esse o elo fraco do ADR-0012.
+Os contratos `forbidden` listam apenas dependências **já instaladas**. Ao
+adicionar uma dependência nova que não pode vazar para dentro (`anthropic`,
+`boto3`), acrescente-a à lista do contrato no mesmo commit — a lista **não** se
+atualiza sozinha, e é esse o elo fraco do ADR-0012.
+
+> **Os dois contratos não são redundantes, e nenhum cobre o outro.** O `layers`
+> opera sobre o grafo **interno** e reprova qualquer seta que suba, sem lista
+> nenhuma, inclusive para módulos que não existiam quando ele foi escrito. O
+> `forbidden` opera sobre uma **lista escrita à mão** e só enxerga o que alguém
+> digitou — por isso o silêncio dele nunca é veredito. Demonstrado no CARD-006:
+> `from faster_whisper import ...` dentro de `application` passou **verde** com
+> os quatro contratos intactos até o módulo entrar na lista; com ele na lista, o
+> mesmo código virou `BROKEN`.
 
 O contrato transitivo funciona: com `from voicecoach.config import ...` injetado
 no `domain`, o lint aponta os dois saltos —
@@ -104,10 +112,13 @@ backend/
         │   ├── session.py
         │   └── turn.py       # ciclo de vida do Turn (ADR-0016)
         ├── application/
-        │   └── ports/repositories.py   # os três Protocol de repositório
+        │   └── ports/
+        │       ├── repositories.py     # os três Protocol de repositório
+        │       └── speech_to_text.py   # porta de STT (ADR-0027/0029)
         ├── adapters/
         │   ├── health.py     # checks de Postgres, Redis e MinIO
-        │   └── persistence/  # models, mappers, repositories, engine, seed
+        │   ├── persistence/  # models, mappers, repositories, engine, seed
+        │   └── stt/          # dois adapters de STT + fábrica (ADR-0027)
         ├── api/
         │   ├── app.py        # create_app() — composition root
         │   ├── dependencies.py
@@ -157,6 +168,30 @@ uv run uvicorn voicecoach.api.app:create_app --factory --reload
 
 Depois, `curl localhost:8000/health/ready` deve responder 200 com as três
 dependências `up`.
+
+### STT local (ADR-0027)
+
+`STT_PROVIDER=auto` (default) resolve pela plataforma **no boot**: `mlx` em
+Apple Silicon, `faster-whisper` no resto. Escolha explícita incompatível
+**falha na subida** com mensagem nomeando a plataforma — nunca cai para o outro
+adapter.
+
+```bash
+uv sync --extra mlx      # só em Apple Silicon; sem isso, o caminho mlx não existe
+uv run pytest -m slow    # os testes que tocam modelo de IA de verdade
+```
+
+Dois avisos de primeira execução:
+
+- **os pesos são baixados na primeira transcrição** (36-99 s medidos, uma vez;
+  ficam no cache do Hugging Face);
+- **`uv sync --extra mlx` puxa o `torch`** — o `mlx-whisper` o declara como
+  dependência. São ~1,3 GB de `.venv`. O CI faz `uv sync --frozen` **sem** o
+  extra e não paga isso.
+
+Os testes marcados `slow` são **deselecionados por padrão** (`addopts`): baixam
+modelo e o caminho `mlx` não existe no CI, que roda em x86. Essa assimetria de
+cobertura é aceita e registrada no ADR-0027, não resolvida.
 
 ### Configuração (ADR-0013)
 

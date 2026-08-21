@@ -58,9 +58,25 @@ clone limpo não é possível reproduzir os números exatos** — só o método.
 .venv/bin/python make_inputs.py <pasta-com-audio>
 ```
 
-Isso grava `inputs/curto.wav` e `inputs/longo.wav` e imprime o SHA-256 de cada
-um. **Anote os hashes**: números só se comparam entre si quando o insumo é
-byte-idêntico.
+Isso grava, para cada duração alvo, **três arquivos com o mesmo PCM por trás** —
+e imprime o SHA-256 de cada um:
+
+| Arquivo | Para que serve |
+|---|---|
+| `curto.wav`, `longo.wav` | insumo dos benchmarks de STT: decodificação fora da medição |
+| `curto.m4a`, `longo.m4a` | AAC 64 kbps — o que o Expo grava por padrão no iOS e no Android, ou seja, o que o adapter vai **de fato** receber |
+| `curto.opus`, `longo.opus` | Ogg/Opus 24 kbps — o formato do protótipo de WhatsApp, mantido porque é a única variante cuja decodificação aparece no orçamento |
+
+**Anote os hashes**: números só se comparam entre si quando o insumo é
+byte-idêntico. Isso não é retórica — os arquivos foram regerados entre a sessão
+de medição e o CARD-006, e as tabelas §3.2/§3.3 de `medicao-latencia.md` **não**
+reproduzem byte a byte hoje (ressalva registrada na §3.5 daquele documento).
+
+> A codificação usa **PyAV**, não o binário `ffmpeg`: a máquina de
+> desenvolvimento não o tem no PATH. Isso não é detalhe de conveniência — é a
+> mesma armadilha que o adapter de STT evita, porque
+> `mlx_whisper.transcribe()` exige `ffmpeg` no PATH quando recebe um caminho de
+> arquivo (ADR-0029).
 
 > ⚠️ O insumo usado em 2026-08-19 foi saída de TTS sintético — inglês nativo,
 > sem sotaque, sem hesitação. É o **caso trivial** do Whisper, e por isso as 16
@@ -72,9 +88,10 @@ byte-idêntico.
 
 | Script | O que mede | Custa dinheiro? |
 |---|---|---|
-| `make_inputs.py` | — (constrói os insumos) | não |
+| `make_inputs.py` | — (constrói os insumos, nos três formatos) | não |
 | `stt_faster_whisper.py` | carga do modelo e transcrição: modelo × `beam_size` × VAD × quantização | não |
 | `stt_mlx.py` | o mesmo com `mlx-whisper` — **só Apple Silicon** | não |
+| `stt_decode.py` | decodificação do áudio comprimido em PCM — a etapa que os dois de cima tiram de fora de propósito | não |
 | `tts_kokoro.py` | carga do pipeline e síntese: resposta inteira vs. uma frase | não |
 | `llm_haiku.py` | tempo até o primeiro token vs. até o JSON completo | **~US$ 0,05** |
 | `llm_cache_threshold.py` | prefixo mínimo cacheável, e o custo de um prefixo volátil | **~US$ 0,10** |

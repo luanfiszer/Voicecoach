@@ -11,3 +11,8 @@ kokoro
 anthropic
 soundfile
 numpy
+# PyAV vem junto do faster-whisper, mas o `make_inputs.py` o importa direto para
+# CODIFICAR os insumos comprimidos. Dependência que se usa por nome se declara
+# por nome — depender dela de forma transitiva é depender de um detalhe interno
+# de outro pacote.
+av

@@ -70,6 +70,8 @@ fronteira é um lint.
 | Caso de uso que orquestra domínio + portas | `application/` (handler CQS) | visão §D |
 | Interface para trocar provider (STT/LLM/TTS/storage/fila) | `application/ports/`, como `Protocol` | visão §D |
 | Implementação de uma porta (SQLAlchemy, Anthropic, MinIO, arq) | `adapters/` | visão §D |
+| Escolha de adapter por plataforma/config | `adapters/<capacidade>/factory.py`, resolvida **no boot**; incompatível **levanta**, nunca faz fallback | ADR-0027 |
+| Áudio atravessando a porta de STT | `AudioInput(data: bytes)` — bytes codificados. Decodificar é do adapter; `numpy`/`av` não passam | ADR-0029 |
 | Router, schema pydantic de request/response, auth, Problem Details | `api/` | ADR-0008 |
 | Entrypoint que consome a fila | `worker/` | ADR-0005 |
 | Leitura de env, segredo, budget | `config.py` (pydantic-settings) — passado **por parâmetro** ao núcleo | ADR-0013 |
@@ -117,6 +119,16 @@ Cada proibição tem contrato executável ou ADR por trás.
   caso de uso, e sua forma ainda é TBD (ADR-0017).
 - **`api` importar `worker`, ou o contrário** — dois entrypoints do mesmo
   núcleo (ADR-0012).
+- **Deixar `numpy` (ou qualquer tipo de biblioteca) atravessar uma porta.**
+  `NDArray[np.float32]` é o tipo *natural* para "áudio" e por isso é o vazamento
+  fácil de cometer sem querer: a porta trafega `bytes` (ADR-0029).
+- **Fallback silencioso entre adapters.** Escolha explícita incompatível falha
+  no boot; cair para o outro esconderia uma regressão de 2x atrás de um log
+  (ADR-0027, item 3) — mesma classe de falha dos ADRs 0021 e 0022.
+- **"Otimizar" o STT trocando modelo ou quantização.** `small.en`, `float32`,
+  `beam_size=1` são resultado de medição, e `int8`/`base.en` foram medidos como
+  **mais lentos** neste hardware. A escolha de modelo está BLOQUEADA até haver
+  voz de aprendiz real (ADR-0027, item 7).
 - **Adicionar dependência que não pode vazar para dentro sem pôr o módulo na
   lista `forbidden` no mesmo commit.** A lista não se atualiza sozinha: é o elo
   fraco assumido do ADR-0012, e lista desatualizada é gate que não morde.

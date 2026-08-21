@@ -267,6 +267,7 @@ tabela é alteração que ninguém vai conseguir auditar depois.
 | 2026-08-18 | `sqlalchemy` e `alembic` entraram nas listas `forbidden` de `domain` e `application` | ADR-0012, no mesmo commit da dependência. Demonstrado que sem isso o gate fica verde com a violação dentro |
 | 2026-08-19 | Ciclo de vida do `Turn`: o áudio da resposta virou sequência de trechos, e a ordem de avaliação da etapa inverteu | ADR-0023 (substitui 0016), CARD-018. A skill dizia que `speaking` vinha de `reply_text` — na cascata o primeiro áudio existe **antes** dele, e a regra passou a mentir |
 | 2026-08-19 | A derivação da etapa saiu da borda e foi para o `domain` | ADR-0028, CARD-018. A skill mandava derivar em `api/schemas` (herdado do ADR-0016 §4); com worker e SSE também precisando da etapa, a borda produziria uma segunda implementação dentro do próprio servidor |
-| 2026-08-19 | **Dívida:** a skill ainda não reflete os ADRs 0024–0027 (mídia por trecho, worker residente, SSE, adapter duplo de STT) | Corrigidas aqui só as linhas que **contradiziam** o código do CARD-018. A varredura completa é do CARD-004 |
+| 2026-08-19 | **Dívida:** a skill ainda não reflete os ADRs 0024–0026 (mídia por trecho, worker residente, SSE) | Corrigidas no CARD-018 só as linhas que **contradiziam** o código dele. A varredura completa é do CARD-004 |
+| 2026-08-19 | Entraram as regras de fábrica de adapter, de tipo que atravessa a porta de STT e de "não otimizar o STT por gosto" | ADR-0027 e ADR-0029, CARD-006. O ADR-0027 saiu da dívida acima; 0024–0026 continuam nela |
 
 *Esta skill cresce pelos postmortems (`docs/learnings/`), não por antecipação.*
