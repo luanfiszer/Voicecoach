@@ -40,6 +40,22 @@ uv pip install --python .venv -r requirements.txt
 `ruff format` e `ruff check` **alcançam** — estes scripts passam nos mesmos
 gates que o resto do backend.
 
+### Ouvir o TTS (`tts_audicao.py`)
+
+O único eixo do desempate Kokoro vs Piper que não é automatizável é a **qualidade
+percebida** — a §9.4 da medição diz isso, e o ADR-0032 a registra como dívida
+aberta. Este script é o instrumento dela:
+
+```bash
+cd backend
+uv run python benchmarks/tts_audicao.py                     # correção pedagógica padrão
+uv run python benchmarks/tts_audicao.py "o texto que quiser"
+```
+
+Ele roda no venv do **projeto** (como o `llm_primeira_sentenca.py`), porque
+exercita o adapter de produção: o que você ouve é o que o aluno ouviria. Toca
+cada voz de `voices/` em sequência e deixa os WAVs em `/tmp`.
+
 ### Vozes do Piper (CARD-008)
 
 O Piper **não embarca vozes**: cada uma é um par `.onnx` (60 MB) + `.onnx.json`,
