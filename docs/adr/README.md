@@ -68,6 +68,9 @@ Escreva um ADR sempre que a decisão:
 | [0029](0029-o-que-atravessa-a-porta-de-stt-sao-bytes-codificados.md) | O que atravessa a porta de STT são bytes codificados; decodificar é do adapter | aceito (complementa 0027) |
 | [0030](0030-saida-estruturada-em-streaming-por-tool-use-com-deltas-granulares.md) | Saída estruturada em streaming por tool use com deltas granulares | aceito (fecha o risco em aberto do 0022) |
 | [0031](0031-o-que-atravessa-a-porta-do-professor-e-um-fluxo-de-eventos.md) | O que atravessa a porta do professor é um fluxo de eventos, não um objeto | aceito (complementa 0023 e 0026) |
+| [0032](0032-piper-substitui-o-kokoro-como-motor-de-voz.md) | Piper substitui o Kokoro como motor de voz local | aceito (revê a escolha provisória do 0011; encolhe o número do 0025) |
+| [0033](0033-o-que-atravessa-a-porta-de-tts-e-pcm-com-a-taxa-junto.md) | O que atravessa a porta de TTS é PCM cru com a taxa junto | aceito (complementa 0029) |
+| [0034](0034-adapter-s3-sincrono-em-executor-e-retencao-por-tag.md) | Adapter S3 síncrono num executor, e retenção por tag em vez de prefixo | aceito (complementa 0024; fecha a dívida do 0014) |
 
 ## ADRs pendentes de decisão de produto
 

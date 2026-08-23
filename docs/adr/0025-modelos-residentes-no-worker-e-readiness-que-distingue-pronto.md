@@ -1,6 +1,6 @@
 # ADR-0025 — Modelos de IA residentes no worker, e um readiness que distingue "subiu" de "pronto"
 
-- **Status:** aceito
+- **Status:** aceito — **a DECISÃO continua inteira, o NÚMERO que a motivou encolheu**: com o [ADR-0032](0032-piper-substitui-o-kokoro-como-motor-de-voz.md) a carga do worker cai de ~6 s para ~1 s, e a consequência "todo restart custa ~6 s de fila parada" deixa de valer
 - **Data:** 2026-08-19
 - **Complementa:** [ADR-0005](0005-fila-e-worker-arq-sobre-redis.md) (arq),
   [ADR-0014](0014-health-check-liveness-readiness.md) (health check),

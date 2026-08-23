@@ -52,3 +52,8 @@ temp_audio/
 
 # Claude Code — versionar commands/ e skills/, ignorar apenas settings locais
 .claude/settings.local.json
+
+# Vozes do Piper (CARD-008): 60 MB por voz, artefato baixado por comando, não
+# código. `benchmarks/README.md` diz como obtê-las.
+backend/benchmarks/voices/
+backend/voices/

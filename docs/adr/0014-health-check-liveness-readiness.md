@@ -1,6 +1,6 @@
 # ADR-0014 — Health check: liveness separado de readiness, checado com clientes nativos e sem porta
 
-- **Status:** aceito
+- **Status:** aceito — **a dívida do check de MinIO foi paga** pelo [ADR-0034](0034-adapter-s3-sincrono-em-executor-e-retencao-por-tag.md) (2026-08-23): o probe HTTP virou `head_bucket` com credencial real
 - **Data:** 2026-08-18
 - **Complementa:** ADR-0004 (Postgres), ADR-0005 (Redis), ADR-0006 (MinIO/S3),
   ADR-0012 (contratos de camada), visão §F (anti-overengineering)

@@ -18,7 +18,7 @@ O diagnóstico card a card, a ordem e as decisões estão em
 | [018](CARD-018-turn-com-trechos-de-audio-dominio-e-migration.md) | **Turn com trechos de áudio: domínio, invariantes e migration** | 1 | backend | P | 005, ADR-0023 | **concluído** |
 | [006](CARD-006-porta-e-adapter-stt-local.md) | **Porta SpeechToText + adapters `mlx-whisper` e `faster-whisper`** | 1 | backend/IA | M | 001, ADR-0027, ADR-0029 | **concluído** |
 | [007](CARD-007-porta-e-adapter-teacher-llm.md) | **TeacherLlm em streaming + parse incremental frase a frase** | 1 | backend/IA | **G** | 002, 006, ADR-0022 | **concluído** |
-| [008](CARD-008-adapter-tts-local-e-storage.md) | TTS por sentença + MediaStorage por trecho (Kokoro vs Piper) | 1 | backend/IA | M | 002, 006, 018 | backlog |
+| [008](CARD-008-adapter-tts-local-e-storage.md) | TTS por sentença + MediaStorage por trecho (**Piper venceu**) | 1 | backend/IA | M | 002, 006, 018 | **concluído** |
 | [009](CARD-009-fila-arq-e-worker-pipeline.md) | **Worker em cascata, modelos residentes, entrega parcial** | 1 | backend | **G** | 018, 006, 007, 008 | backlog |
 | [010](CARD-010-endpoints-de-turn-idempotencia-polling.md) | Endpoints de Turn: upload, idempotência e SSE | 1 | backend | M | 009, ADR-0026 | backlog |
 | [011](CARD-011-app-expo-tela-de-conversa-gravacao.md) | App Expo: tela de conversa e gravação | 1 | mobile | M | 001 | backlog |

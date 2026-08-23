@@ -59,6 +59,26 @@ perguntas que nunca tiveram resposta verificada.
 > porque `frozen=True` gera `__eq__` por valor **e** `__hash__` (Q9). A
 > demonstração existe; a resposta do desenvolvedor, não.
 
+> **CARD-008 (2026-08-23): a fila FOI reapresentada na abertura**, antes do
+> plano — Q7 e Q9, com o motivo de cada uma tocar aquele card (duas portas novas
+> e seus fakes; a comparação de coleções de trechos). **Nenhuma das duas foi
+> respondida nem dispensada**, e a sessão seguiu a pedido do desenvolvedor
+> ("termine o que falta"). Seguem aqui: silêncio não é dispensa, e explicação do
+> agente não fecha item (LEARNING-0004).
+>
+> **Q11 nasceu naquela sessão, e nasceu certa:** foi feita **antes** de o adapter
+> de storage existir, sobre consequência observável. Também não foi respondida.
+> O agente a demonstrou com execução — `put_object` chamado direto de uma
+> corrotina congelou o event loop por 122 ms, com o heartbeat de 10 ms rodando
+> **zero** voltas; em executor, 10 voltas e 1 ms de atraso máximo. A demonstração
+> virou o teste `test_o_upload_nao_bloqueia_o_event_loop` e o ADR-0034. **A
+> resposta do desenvolvedor continua faltando, e é ela que fecha o item.**
+>
+> Padrão que já é o quarto: as perguntas se demonstram sozinhas durante a
+> implementação, e o item segue vermelho — o mecanismo produz **evidência**, mas
+> a verificação de aprendizado depende de uma resposta que não vem. Se isso se
+> repetir no CARD-009, vale um postmortem sobre a regra, não sobre a sessão.
+
 ## Fechadas
 
 | # | Pergunta | Fechada em | Como |

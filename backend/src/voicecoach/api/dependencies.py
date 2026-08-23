@@ -40,6 +40,6 @@ async def check_dependencies(request: Request) -> list[DependencyStatus]:
         await asyncio.gather(
             check_postgres(settings.database_url),
             check_redis(settings.redis_url),
-            check_minio(settings.s3_endpoint_url),
+            check_minio(settings),
         )
     )

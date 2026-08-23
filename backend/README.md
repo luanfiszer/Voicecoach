@@ -108,6 +108,7 @@ backend/
         ├── config.py         # Settings — fora das camadas (ADR-0013)
         ├── domain/
         │   ├── errors.py     # DomainError, InvalidStateTransitionError (ADR-0017)
+        │   ├── media_keys.py # esquema de chaves e classe de retenção (ADR-0024)
         │   ├── student.py
         │   ├── session.py
         │   └── turn.py       # ciclo de vida do Turn (ADR-0016)
@@ -115,11 +116,15 @@ backend/
         │   └── ports/
         │       ├── repositories.py     # os três Protocol de repositório
         │       ├── speech_to_text.py   # porta de STT (ADR-0027/0029)
-        │       └── teacher_llm.py      # porta do professor, em fluxo (ADR-0030/0031)
+        │       ├── teacher_llm.py      # porta do professor, em fluxo (ADR-0030/0031)
+        │       ├── text_to_speech.py   # porta de TTS + concat de PCM (ADR-0033)
+        │       └── media_storage.py    # porta de storage (ADR-0024/0034)
         ├── adapters/
         │   ├── health.py     # checks de Postgres, Redis e MinIO
         │   ├── persistence/  # models, mappers, repositories, engine, seed
         │   ├── stt/          # dois adapters de STT + fábrica (ADR-0027)
+        │   ├── tts/          # Piper + fábrica + codificação AAC (ADR-0032/0033)
+        │   ├── storage/      # adapter S3 e lifecycle do bucket (ADR-0034)
         │   └── llm/          # professor em streaming, corte por sentença,
         │                     # fábrica e prompts/teacher/v1.md (ADR-0030/0031)
         ├── api/
@@ -196,6 +201,42 @@ Os testes marcados `slow` são **deselecionados por padrão** (`addopts`): baixa
 modelo e o caminho `mlx` não existe no CI, que roda em x86. Essa assimetria de
 cobertura é aceita e registrada no ADR-0027, não resolvida.
 
+### TTS local e storage (ADR-0032, ADR-0033, ADR-0034)
+
+O motor de voz é o **Piper**, escolhido por medição contra o Kokoro (§9 da
+medição): carga 0,55 s vs. 5,66 s, RTF 0,024 vs. 0,098 e **zero dependências de
+sistema**. Ele não embarca vozes — baixe a que a config aponta antes de rodar:
+
+```bash
+cd backend
+uv run python -m piper.download_voices en_US-lessac-medium --download-dir voices
+```
+
+Sem isso, o adapter **falha na subida** dizendo qual arquivo falta (e o comando
+que o baixa). `voices/` está no `.gitignore`: são 60 MB por voz, artefato e não
+código.
+
+O storage é S3 (MinIO local). Três coisas que valem saber:
+
+- **o bucket é criado pelo sidecar `createbuckets` do Compose**, não pela
+  aplicação — em S3 real a credencial do produto lê e escreve objetos, e nada
+  além disso;
+- **o `boto3` é síncrono e roda em executor.** Medido: chamado direto de uma
+  corrotina, um upload de 2 MB congela o event loop por 122 ms e nenhuma outra
+  corrotina roda. O motivo é diferente do executor do STT — lá é CPU-bound que
+  solta o GIL, aqui é uma chamada síncrona que nunca cede o controle;
+- **a retenção é uma tag por objeto**, não um prefixo: as chaves começam pelo
+  `student_id`, então não existe prefixo comum que selecione "todos os inputs".
+
+```bash
+uv run pytest tests/adapters/test_s3_media_storage.py   # sobe um MinIO próprio
+uv run pytest -m slow tests/adapters/test_tts_piper.py  # carrega a voz de verdade
+```
+
+> O marker `slow` significa coisas diferentes por arquivo, e a diferença importa:
+> nos testes de LLM ele quer dizer **gasta dinheiro**; nos de TTS e STT, **custa
+> CPU e download de modelo**. Nenhum teste deste card gasta um centavo.
+
 ### Configuração (ADR-0013)
 
 `voicecoach.config.Settings` é a declaração única e tipada de toda a
@@ -263,7 +304,7 @@ reconhecem `sk-ant-...`, e essa é a única credencial paga do projeto
 | Endpoint | Pergunta que responde | Toca em dependência? |
 |---|---|---|
 | `GET /health` | "o processo está vivo?" | **não** — se dependesse do banco, um supervisor mataria uma API sadia por causa de um vizinho |
-| `GET /health/ready` | "posso receber tráfego?" | sim: Postgres (`SELECT 1`), Redis (`PING`), MinIO (`/minio/health/live`) |
+| `GET /health/ready` | "posso receber tráfego?" | sim: Postgres (`SELECT 1`), Redis (`PING`), MinIO (**`head_bucket` com credencial real** — ADR-0034) |
 
 `/health/ready` responde **200 só com as três `up`; 503 caso contrário**, com o
 mesmo corpo nos dois casos — quem faz probe lê o status HTTP, quem depura lê o
@@ -276,7 +317,7 @@ do pacote Python). Portas de host configuráveis por `.env` para o caso de
 5432/6379 já estarem ocupadas.
 
 ```bash
-docker compose up -d                            # postgres + redis + minio
+docker compose up -d                            # postgres, redis, minio + cria o bucket
 docker compose --profile observability up -d    # + jaeger (UI em :16686)
 docker compose down                             # para; dados sobrevivem
 docker compose down -v                          # para e apaga os volumes
