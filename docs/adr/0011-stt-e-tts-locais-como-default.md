@@ -1,6 +1,6 @@
 # ADR-0011 — STT e TTS locais como default de desenvolvimento; APIs pagas por configuração
 
-- **Status:** aceito
+- **Status:** aceito — **o candidato de TTS foi revisto pelo [ADR-0032](0032-piper-substitui-o-kokoro-como-motor-de-voz.md)** (2026-08-23): o Kokoro era escolha provisória, sem medição; medido, perdeu para o Piper em todos os eixos cronometrados
 - **Data:** 2026-08-17
 - **Relacionado:** ADR-0010 (política de custo), ADR-0003 (portas de STT/TTS)
 

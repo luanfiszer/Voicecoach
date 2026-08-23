@@ -19,3 +19,8 @@ numpy
 # por nome — depender dela de forma transitiva é depender de um detalhe interno
 # de outro pacote.
 av
+# CARD-008: o Piper é o candidato a substituir o Kokoro. Ele NÃO embarca vozes —
+# cada voz é um par .onnx + .onnx.json baixado à parte (ver README) — mas também
+# não traz dependência de SISTEMA: a fonemização mora dentro da extensão
+# compilada, que é exatamente a dor medida do Kokoro (§4.3).
+piper-tts

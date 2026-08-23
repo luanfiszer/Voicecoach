@@ -10,7 +10,7 @@ Regras **destiladas dos ADRs** (`docs/adr/`) e da visão
 fonte.** O *porquê* de cada uma, com o gatilho para reavaliá-la, está em
 [REFERENCE.md](REFERENCE.md).
 
-> **Cobertura desta skill:** ADRs 0001–0023 e 0030–0031. Os ADRs **0024–0029**
+> **Cobertura desta skill:** ADRs 0001–0023 e 0030–0034. Os ADRs **0024–0029**
 > ainda não foram destilados aqui — consulte-os direto em `docs/adr/`. Se a skill
 > contradisser um ADR, **o ADR ganha**.
 >
@@ -76,6 +76,10 @@ fronteira é um lint.
 | Implementação de uma porta (SQLAlchemy, Anthropic, MinIO, arq) | `adapters/` | visão §D |
 | Escolha de adapter por plataforma/config | `adapters/<capacidade>/factory.py`, resolvida **no boot**; incompatível **levanta**, nunca faz fallback | ADR-0027 |
 | Áudio atravessando a porta de STT | `AudioInput(data: bytes)` — bytes codificados. Decodificar é do adapter; `numpy`/`av` não passam | ADR-0029 |
+| Áudio saindo da porta de TTS | `SynthesizedAudio(pcm: bytes, sample_rate: int)` — PCM16 mono cru, com a taxa junto porque ela é do **modelo** (Piper 22.050, Kokoro 24.000). Comprimir é de quem grava; `duration_seconds` é `@property` derivada | ADR-0033 |
+| Motor de voz | **Piper** (`piper-tts`), decidido por medição. Kokoro está no enum e **levanta na subida** — não existe adapter pela metade | ADR-0032 |
+| Chave de objeto no storage | `domain/media_keys.py` — o zero-padding `{index:03d}` é regra de produto (a ordem do bucket É a de playback), e a **classe de retenção é derivada da chave**, nunca parâmetro | ADR-0024, ADR-0034 |
+| SDK síncrono (boto3) dentro de corrotina | `run_in_executor` — **e o motivo NÃO é o do STT**: lá é CPU-bound que solta o GIL, aqui é uma chamada síncrona que nunca cede o controle. Medido: 122 ms de event loop congelado | ADR-0034 |
 | Resposta do professor atravessando a porta | **fluxo**, não objeto: `respond_streaming(history) -> AsyncIterator[TeacherEvent]`, união fechada `SpokenSentence \| FeedbackReady`. O método **não** é `async def` — gerador assíncrono já devolve o iterador na chamada | ADR-0031 |
 | Erro de provedor que o caso de uso vai capturar | na **porta** (`application/ports/`), não no adapter — `application` não pode importar `adapters`. Herda de `RuntimeError`, nunca de `DomainError` | ADR-0031, ADR-0017 |
 | Saída estruturada de LLM em streaming | *tool* com schema estrito + `eager_input_streaming: true`; parse com `jiter` e `partial_mode="trailing-strings"` | ADR-0030 |
@@ -127,6 +131,12 @@ Cada proibição tem contrato executável ou ADR por trás.
   caso de uso, e sua forma ainda é TBD (ADR-0017).
 - **`api` importar `worker`, ou o contrário** — dois entrypoints do mesmo
   núcleo (ADR-0012).
+- **Gravar objeto de mídia sem classe de retenção.** A tag é derivada da chave
+  e chave fora do esquema levanta: esquecer a tag não daria erro, só faria voz de
+  aluno viver para sempre (ADR-0034).
+- **Expressar retenção por prefixo.** As chaves começam pelo `student_id`, então
+  não existe prefixo comum por tipo de objeto — o lifecycle filtra por **tag**
+  (ADR-0034).
 - **Deixar `numpy` (ou qualquer tipo de biblioteca) atravessar uma porta.**
   `NDArray[np.float32]` é o tipo *natural* para "áudio" e por isso é o vazamento
   fácil de cometer sem querer: a porta trafega `bytes` (ADR-0029).

@@ -1,6 +1,7 @@
 # Medição de latência e custo dos componentes de IA
 
-- **Data:** 2026-08-19
+- **Data:** 2026-08-19; §8 acrescentada em 2026-08-21 (CARD-007); §9 em
+  2026-08-23 (CARD-008)
 - **Status:** **completa** para os três componentes (STT, LLM, TTS)
 - **Origem:** sessão de medição anterior aos adapters de IA (CARDs 006/007/008)
 
@@ -312,7 +313,7 @@ o gatilho dele continua escrito.
 | # | O que falta | Por que importa |
 |---|---|---|
 | 1 | Insumo com **voz real de aprendiz** | Sem ele não há coluna de qualidade honesta (§3.4) |
-| 2 | **Piper** como alternativa ao Kokoro | O Kokoro traz três dependências de sistema (§4.3) |
+| 2 | ~~**Piper** como alternativa ao Kokoro~~ | **Resolvida na §9** (CARD-008): medido lado a lado, o Piper ganha em todos os eixos cronometrados |
 | 3 | Reexecução em **máquina hospedada** | O número não transfere para x86 sem Neural Engine |
 | 4 | Medição **ponta a ponta** (CARD-012) | O custo de composição da §1 continua desconhecido |
 | 5 | Decidir se os scripts viram artefato do repositório | Benchmark que não se reexecuta vira folclore |
@@ -383,3 +384,89 @@ correta **dentro do orçamento daquele momento** (teto de 12–15 s, TTS Kokoro 
 ([`analise-caminho-para-1-2s.md`](analise-caminho-para-1-2s.md)), e com ele a
 alavanca voltou — foi o que gerou os ADRs 0022, 0023 e 0026. **A §6 continua
 verdadeira sobre o orçamento que mediu; ela não é a régua atual.**
+
+---
+
+## 9. CARD-008 — Kokoro vs Piper, medidos lado a lado
+
+- **Data:** 2026-08-23 · **Máquina:** a mesma das §3–§5 (Apple M4)
+- **Instrumentos:** `benchmarks/tts_kokoro.py` (inalterado) e
+  `benchmarks/tts_piper.py` (novo), ambos sobre o protocolo do `_common.py` —
+  aquecimento descartado, 5 repetições, percentil por posição sem interpolação.
+- **Insumo idêntico e hasheado** (verificado por igualdade entre os dois
+  módulos, não por inspeção visual):
+
+  | Texto | Caracteres | SHA-256 (16) |
+  |---|---|---|
+  | `TIPICO` (resposta de 3–5 frases) | 276 | `a14ecf44376d35f1` |
+  | `FRASE` (a primeira frase da cascata) | 61 | `0e6b159130536a29` |
+
+O critério de comparação foi escrito no card **antes** da medição: tempo de
+carga, RTF, número de dependências de sistema e qualidade percebida — com o
+desempate declarado em favor do empacotamento em caso de empate na última.
+
+### 9.1 Os números
+
+Kokoro reproduziu a §4 quase exatamente (1,67 s vs. 1,68 s; RTF 0,098), o que
+valida a comparação: a máquina e o protocolo não mudaram entre as duas sessões.
+
+| Eixo | Kokoro (`af_heart`) | Piper (`en_US-lessac-medium`) | Razão |
+|---|---|---|---|
+| `import` do módulo | 2,45 s | **0,12 s** | 20× |
+| Carga do modelo | 3,21 s | **0,43 s** | 7× |
+| **Total até poder sintetizar** | **5,66 s** | **0,55 s** | **10×** |
+| RTF | 0,098 | **0,024** | 4× |
+| Primeira frase (61 chars) | 0,41 s | **0,09 s** | 4,5× |
+| Resposta típica (276 chars) | 1,67 s | **0,35 s** | 4,8× |
+| Taxa de amostragem | 24.000 Hz | 22.050 Hz | — |
+
+A segunda voz medida (`en_US-amy-medium`) ficou dentro do ruído da primeira:
+carga 0,44 s, RTF 0,024, primeira frase 0,10 s. A escolha de voz **não** é a
+escolha de motor.
+
+### 9.2 Empacotamento — o eixo que se decide sem cronômetro
+
+| | Kokoro | Piper |
+|---|---|---|
+| Dependências de **sistema** | `espeak-ng` instalado no SO | **nenhuma** |
+| Fonemização | `.dylib` externo, reapontado à mão **depois** do `import` | extensão compilada (`espeakbridge.so`) no próprio wheel |
+| Dados de espeak | do sistema | **embarcados** (`piper/espeak-ng-data`) |
+| Modelo de linguagem | spaCy + `en_core_web_sm` **não declarado** | não usa |
+| Peso instalado | `torch` 501 MB + `spacy` 22 MB | `onnxruntime` 76 MB + `piper` 46 MB |
+| `py.typed` | **não** | **sim** |
+| Vozes | embarcadas no pacote | **download à parte** (60 MB por voz) |
+
+**Observado ao vivo nesta sessão, e é o argumento mais forte da tabela:** rodar
+o `tts_kokoro.py` num ambiente novo disparou **dois downloads não declarados no
+meio da execução** — o `en_core_web_sm` (instalado pelo próprio spaCy, em
+runtime) e os pesos do Hugging Face. Num container sem rede, isso não é lentidão:
+é falha. O Piper não baixa nada em runtime; a voz é um artefato que se busca
+explicitamente antes.
+
+**A troca honesta:** o Piper não elimina o problema de artefato externo, ele o
+**muda de natureza** — some a dependência de sistema (que vive no Dockerfile e
+no `brew` de cada máquina), entra um par `.onnx` + `.onnx.json` versionado (que
+vive num diretório e se baixa por comando). Trocar "três consertos de ambiente"
+por "um download versionado" é bom negócio, mas é troca, não eliminação.
+
+### 9.3 O que isso faz com o orçamento
+
+Dois números do projeto mudam, e um ADR fica desatualizado:
+
+1. **A carga do worker (ADR-0025) deixa de ser dominada pelo TTS.** Os ~6 s
+   eram 5,63 s de Kokoro + 0,24–0,46 s de STT. Com o Piper, o total cai para
+   **~1 s** — e o "restart custa ~6 s de fila parada" registrado como
+   consequência aceita do ADR-0025 passa a ser falso na direção boa.
+2. **O primeiro áudio.** Primeira sentença do LLM em 0,68–0,76 s (§8.2) mais
+   **0,09 s** de síntese = **~0,8 s**, contra os ~1,1 s que o CARD-008 projetou
+   com o Kokoro. O orçamento de 1,8 s deixa de ser apertado.
+
+### 9.4 O que esta medição NÃO decide
+
+**Qualidade percebida.** Nenhuma métrica automática de qualidade de voz foi
+usada — inventar uma seria pior que admitir a lacuna, como na §3.4 sobre WER sem
+voz de aprendiz. O julgamento é humano por natureza, e **foi feito**: as amostras
+dos dois motores, mais uma correção pedagógica real sintetizada pelo adapter de
+produção (`benchmarks/tts_audicao.py`), foram ouvidas pelo desenvolvedor em
+2026-08-23, que aprovou a voz do Piper. Com isso, os quatro eixos do critério
+escrito antes da medição estão cobertos, e o ADR-0032 deixa de ter lacuna.

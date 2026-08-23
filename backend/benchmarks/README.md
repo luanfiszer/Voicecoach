@@ -40,7 +40,39 @@ uv pip install --python .venv -r requirements.txt
 `ruff format` e `ruff check` **alcançam** — estes scripts passam nos mesmos
 gates que o resto do backend.
 
-### Dependência de sistema: `espeak-ng` (só para o TTS)
+### Ouvir o TTS (`tts_audicao.py`)
+
+O único eixo do desempate Kokoro vs Piper que não é automatizável é a **qualidade
+percebida** — a §9.4 da medição diz isso, e o ADR-0032 a registra como dívida
+aberta. Este script é o instrumento dela:
+
+```bash
+cd backend
+uv run python benchmarks/tts_audicao.py                     # correção pedagógica padrão
+uv run python benchmarks/tts_audicao.py "o texto que quiser"
+```
+
+Ele roda no venv do **projeto** (como o `llm_primeira_sentenca.py`), porque
+exercita o adapter de produção: o que você ouve é o que o aluno ouviria. Toca
+cada voz de `voices/` em sequência e deixa os WAVs em `/tmp`.
+
+### Vozes do Piper (CARD-008)
+
+O Piper **não embarca vozes**: cada uma é um par `.onnx` (60 MB) + `.onnx.json`,
+o análogo dos pesos do Whisper. Baixe antes de rodar `tts_piper.py`:
+
+```bash
+.venv/bin/python -m piper.download_voices \
+  en_US-lessac-medium en_US-amy-medium --download-dir voices
+```
+
+`voices/` está no `.gitignore` — é artefato, não código. Em compensação, o Piper
+**não tem dependência de sistema**: ele embarca o `espeak-ng-data` dentro do
+wheel e fonemiza numa extensão compilada. A seção abaixo, que descreve três
+consertos de ambiente, vale **só para o Kokoro** — e é o que a §9 da medição
+mede como diferença de empacotamento.
+
+### Dependência de sistema: `espeak-ng` (só para o Kokoro)
 
 O Kokoro **não roda out-of-the-box**. Três armadilhas, todas encontradas na
 sessão e todas relevantes para o Dockerfile do CARD-008:

@@ -12,9 +12,11 @@ não quando o módulo é importado — ver `get_settings()`.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 from enum import StrEnum
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -35,6 +37,23 @@ class SttProvider(StrEnum):
     MLX = "mlx"
     FASTER_WHISPER = "faster_whisper"
     OPENAI = "openai"
+
+
+class TtsProvider(StrEnum):
+    """Qual motor de voz o processo usa (ADR do CARD-008).
+
+    Não há `auto` aqui, ao contrário do STT: lá a escolha dependia da
+    plataforma (o `mlx` só existe em Apple Silicon) e resolver no boot era a
+    única saída honesta. O Piper roda igual nos quatro alvos que publica wheel,
+    então "resolva sozinho" seria indireção sem pergunta a responder.
+
+    `KOKORO` continua no enum porque o motor continua utilizável e a medição
+    que o destronou pode ser refeita em outra máquina — mas exige as três
+    dependências de sistema da §4.3 e não é instalado por default.
+    """
+
+    PIPER = "piper"
+    KOKORO = "kokoro"
 
 
 class Settings(BaseSettings):
@@ -109,6 +128,38 @@ class Settings(BaseSettings):
     # parece — remedido, ele ficou mais LENTO no mlx.
     stt_model_faster_whisper: str = "small.en"
     stt_model_mlx: str = "mlx-community/whisper-small.en-mlx"
+
+    # --- TTS (ADR-0011, e o ADR de troca do CARD-008) ------------------------
+    # Piper por default: 10x mais rápido para carregar, 4x menor RTF e ZERO
+    # dependência de sistema (medição §9). A troca é configuração porque a porta
+    # a torna barata — é a primeira vez que o investimento em portas se cobra
+    # numa substituição de motor inteira.
+    tts_provider: TtsProvider = TtsProvider.PIPER
+
+    # A voz é um par `.onnx` + `.onnx.json` baixado à parte (60 MB), não algo
+    # embarcado no pacote. É o análogo dos pesos do Whisper, com uma diferença
+    # que importa: o Piper NÃO baixa sozinho em runtime, então o arquivo tem de
+    # existir antes — e o adapter falha na subida dizendo qual arquivo falta.
+    tts_voice: str = "en_US-lessac-medium"
+
+    # Onde as vozes moram. Default relativo ao processo, sobrescrito por env em
+    # container. Um caminho e não um "modelo": vozes são arquivos, e fingir que
+    # são identificadores esconderia o download que alguém precisa fazer.
+    tts_voices_dir: Path = Path("voices")
+
+    # --- Mídia e retenção (ADR-0024) -----------------------------------------
+    # TTL da URL assinada. A regra do ADR-0024 é uma só: MAIOR que o playback do
+    # turn inteiro. Uma resposta típica tem ~17 s de áudio; 15 minutos dão folga
+    # para o aluno pausar, atender o telefone e voltar — e continuam curtos o
+    # bastante para que uma URL vazada não seja um link permanente.
+    media_url_ttl: timedelta = timedelta(minutes=15)
+
+    # Retenção assimétrica do ADR-0024. O trecho some primeiro porque é a cópia
+    # mais numerosa e vira redundante assim que `full` existe; `full` é o que o
+    # histórico reproduz; `input` existe para reprocessamento e debug.
+    retention_reply_chunk: timedelta = timedelta(days=1)
+    retention_reply_full: timedelta = timedelta(days=90)
+    retention_input: timedelta = timedelta(days=7)
 
     # --- Proteção de custo (ADR-0010, visão §D) ------------------------------
     # Decimal, não float: dinheiro em binário de ponto flutuante acumula erro.

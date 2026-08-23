@@ -38,6 +38,8 @@ dependencies = [
     #               embute o crate Rust, não o módulo Python (verificado).
     "anthropic>=1,<2",
     "jiter>=0.16",
+    "boto3>=1.43.78",
+    "piper-tts>=1.7.0",
 ]
 
 # `mlx-whisper` é dependência OPCIONAL, não base (ADR-0027, item 4): ela só
@@ -163,6 +165,18 @@ ignore_missing_imports = true
 module = ["faster_whisper.*", "mlx_whisper.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# boto3/botocore não publicam `py.typed` (verificado no CARD-008: o mypy
+# reprovou os três imports). Existe o pacote `types-boto3`, casado versão a
+# versão com o `boto3` — foi DESCARTADO: seria uma dependência a mais, que
+# precisa ser mantida em sincronia manual, para tipar um atributo privado de uma
+# classe cujo contrato público (a porta `MediaStorage`) já está inteiramente
+# tipado. O projeto tem precedente para o override em `asyncpg` e
+# `faster_whisper`. Gatilho para reverter: boto3 passar a publicar py.typed, ou
+# o adapter crescer a ponto de o `Any` esconder erro de verdade.
+module = ["boto3.*", "botocore.*"]
+ignore_missing_imports = true
+
 # ---------------------------------------------------------------------------
 # coverage — dois anéis (ADR-0015)
 #   1. global, travado no valor real de hoje: qualquer regressão quebra
@@ -247,6 +261,17 @@ forbidden_modules = [
     "anthropic",
     "jiter",
     "httpx2",
+    # Storage entra no CARD-008 (ADR-0024). `botocore` está aqui junto do
+    # `boto3` porque é ele quem carrega o cliente de verdade: `import botocore`
+    # no núcleo passaria verde com só `boto3` na lista — a mesma lição da Q8.
+    "boto3",
+    "botocore",
+    # TTS entra no CARD-008. `onnxruntime` está aqui junto do `piper` pela mesma
+    # razão que `numpy` está junto do `faster_whisper`: é o runtime de inferência
+    # por baixo, e um `import onnxruntime` no núcleo passaria verde sem esta
+    # linha.
+    "piper",
+    "onnxruntime",
 ]
 
 [[tool.importlinter.contracts]]
@@ -283,6 +308,17 @@ forbidden_modules = [
     "anthropic",
     "jiter",
     "httpx2",
+    # Storage entra no CARD-008 (ADR-0024). `botocore` está aqui junto do
+    # `boto3` porque é ele quem carrega o cliente de verdade: `import botocore`
+    # no núcleo passaria verde com só `boto3` na lista — a mesma lição da Q8.
+    "boto3",
+    "botocore",
+    # TTS entra no CARD-008. `onnxruntime` está aqui junto do `piper` pela mesma
+    # razão que `numpy` está junto do `faster_whisper`: é o runtime de inferência
+    # por baixo, e um `import onnxruntime` no núcleo passaria verde sem esta
+    # linha.
+    "piper",
+    "onnxruntime",
 ]
 
 # `voicecoach.config` mora fora das cinco camadas (ADR-0013), então o contrato

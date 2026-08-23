@@ -9,12 +9,18 @@ overengineering que a visão §F manda cortar (ADR-0014).
 from __future__ import annotations
 
 import asyncio
+import functools
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import asyncpg
-import httpx
+import boto3
 import redis.asyncio as redis
+from botocore.config import Config as BotoConfig
+
+if TYPE_CHECKING:
+    from voicecoach.config import Settings
 
 # Um readiness lento é pior que um readiness errado: quem consome quer resposta
 # rápida. Se a dependência não responde em 2s, para este fim ela está fora.
@@ -97,20 +103,43 @@ async def check_redis(redis_url: str) -> DependencyStatus:
         await client.aclose()
 
 
-async def check_minio(s3_endpoint_url: str) -> DependencyStatus:
-    """GET no probe de liveness do MinIO — não autenticado, de propósito.
+async def check_minio(settings: Settings) -> DependencyStatus:
+    """`HEAD` no bucket, com credencial real — a dívida do ADR-0014 fecha aqui.
 
-    Deliberadamente NÃO valida credencial nem existência do bucket: isso exige
-    um cliente S3 (boto3), que entra com a porta `MediaStorage` no CARD-008.
-    Aqui a pergunta é "o serviço está de pé?", não "consigo assinar URL?".
+    Até o CARD-008 este check era um `GET /minio/health/live` não autenticado, e
+    o próprio ADR-0014 registrou por quê: validar credencial e bucket exigia um
+    cliente S3, que só entraria com a porta `MediaStorage`. Ele entrou.
+
+    A diferença é a pergunta que o readiness passa a responder. O probe antigo
+    dizia "o processo do MinIO está de pé". Este diz **"eu consigo trabalhar"** —
+    e as três formas de falhar que o antigo deixava passar são justamente as que
+    derrubam o primeiro turn do dia: credencial errada, bucket inexistente e
+    permissão insuficiente. Um readiness que responde 200 nessas condições é o
+    tipo de mentira que o ADR-0014 existe para não contar.
+
+    Roda em executor como todo o resto do boto3 (ver `s3_media_storage.py`): num
+    endpoint que já usa `asyncio.gather`, bloquear o loop atrasaria os outros
+    dois checks e a latência reportada seria a soma, não o pior caso.
     """
     started = time.perf_counter()
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
-            response = await client.get(
-                f"{s3_endpoint_url.rstrip('/')}/minio/health/live"
-            )
-            response.raise_for_status()
+        client = boto3.client(
+            "s3",
+            endpoint_url=settings.s3_endpoint_url,
+            aws_access_key_id=settings.s3_access_key,
+            aws_secret_access_key=settings.s3_secret_key,
+            region_name=settings.s3_region,
+            config=BotoConfig(
+                signature_version="s3v4",
+                connect_timeout=_TIMEOUT_SECONDS,
+                read_timeout=_TIMEOUT_SECONDS,
+                retries={"max_attempts": 1},
+            ),
+        )
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None, functools.partial(client.head_bucket, Bucket=settings.s3_bucket)
+        )
         return DependencyStatus("minio", up=True, latency_ms=_elapsed_ms(started))
     except Exception as exc:  # noqa: BLE001 — idem: a falha vira status, não exceção
         return DependencyStatus(
