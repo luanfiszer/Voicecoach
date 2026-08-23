@@ -33,7 +33,7 @@ async def test_liveness_responde_sem_tocar_em_dependencia(client: AsyncClient) -
     assert response.json() == {"status": "alive"}
 
 
-async def test_readiness_200_quando_as_tres_dependencias_respondem(
+async def test_readiness_200_quando_as_quatro_dependencias_respondem(
     app: FastAPI, client: AsyncClient
 ) -> None:
     _override(
@@ -42,6 +42,7 @@ async def test_readiness_200_quando_as_tres_dependencias_respondem(
             DependencyStatus("postgres", up=True, latency_ms=3),
             DependencyStatus("redis", up=True, latency_ms=1),
             DependencyStatus("minio", up=True, latency_ms=5),
+            DependencyStatus("worker", up=True, latency_ms=1),
         ],
     )
 
@@ -50,7 +51,7 @@ async def test_readiness_200_quando_as_tres_dependencias_respondem(
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ready"
-    assert set(body["checks"]) == {"postgres", "redis", "minio"}
+    assert set(body["checks"]) == {"postgres", "redis", "minio", "worker"}
     assert all(check["status"] == "up" for check in body["checks"].values())
 
 
@@ -98,3 +99,34 @@ def test_configuracao_recusa_boot_sem_anthropic_api_key(
     message = str(exc_info.value)
     assert "anthropic_api_key" in message.lower()
     assert "required" in message.lower()
+
+
+async def test_readiness_503_quando_nao_ha_worker_com_modelos_carregados(
+    app: FastAPI, client: AsyncClient
+) -> None:
+    """ "Subiu" não é "pronto" (ADR-0025, item 4).
+
+    Redis, Postgres e MinIO respondendo não significam nada se não há worker
+    capaz de processar um turn — aceitar tráfego nesse estado enfileira turnos
+    que ninguém vai atender.
+    """
+
+    async def dependencias() -> list[DependencyStatus]:
+        return [
+            DependencyStatus("postgres", up=True, latency_ms=3),
+            DependencyStatus("redis", up=True, latency_ms=1),
+            DependencyStatus("minio", up=True, latency_ms=5),
+            DependencyStatus(
+                "worker",
+                up=False,
+                latency_ms=1,
+                error="voicecoach:worker:ready ausente: worker sem modelos",
+            ),
+        ]
+
+    app.dependency_overrides[check_dependencies] = dependencias
+
+    resposta = await client.get("/health/ready")
+
+    assert resposta.status_code == 503
+    assert resposta.json()["checks"]["worker"]["status"] == "down"

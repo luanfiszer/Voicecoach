@@ -19,6 +19,8 @@ import boto3
 import redis.asyncio as redis
 from botocore.config import Config as BotoConfig
 
+from voicecoach.adapters.readiness_keys import WORKER_READY_KEY
+
 if TYPE_CHECKING:
     from voicecoach.config import Settings
 
@@ -85,7 +87,13 @@ async def check_postgres(database_url: str) -> DependencyStatus:
 async def check_redis(redis_url: str) -> DependencyStatus:
     """PING/PONG — o handshake mais barato que prova protocolo, não só socket."""
     started = time.perf_counter()
-    client = redis.from_url(
+    # `type: ignore[no-untyped-call]` é consequência DIRETA do CARD-009: o `arq`
+    # 0.28 fixa `redis>=4.2,<6` e rebaixou o cliente de 8.1.0 para 5.3.1. Na 8.x
+    # o `from_url` é anotado e o `mypy --strict` passava limpo; na 5.3.1 ele não
+    # tem tipo de retorno, e `strict` reprova chamada a função não tipada.
+    # Ignore PONTUAL, com o código do erro, em vez de afrouxar o modo global.
+    # Gatilho para remover: o `arq` passar a aceitar `redis>=6`.
+    client: redis.Redis = redis.from_url(  # type: ignore[no-untyped-call]
         redis_url,
         socket_connect_timeout=_TIMEOUT_SECONDS,
         socket_timeout=_TIMEOUT_SECONDS,
@@ -100,6 +108,43 @@ async def check_redis(redis_url: str) -> DependencyStatus:
     finally:
         # `aclose()` devolve as conexões do pool. Sem isso, cada readiness
         # vazaria um pool — em endpoint chamado por probe, isso derruba a API.
+        await client.aclose()
+
+
+async def check_worker(redis_url: str) -> DependencyStatus:
+    """A quarta entrada do readiness (ADR-0025, item 4).
+
+    **"Subiu" não é "pronto".** As outras três checagens perguntam se uma
+    dependência responde; esta pergunta outra coisa — se existe um worker com os
+    modelos de IA **carregados**, capaz de honrar um turn dentro do orçamento de
+    latência. Um worker que subiu há 200 ms e ainda está lendo pesos do disco
+    responde ao Redis normalmente e não consegue processar nada.
+
+    A resposta é a existência da chave que o próprio worker renova
+    (`worker/readiness.py`). Ausência significa uma de duas coisas — não subiu,
+    ou parou de renovar — e as duas dão o mesmo veredito: não aceite turn.
+    """
+    started = time.perf_counter()
+    client: redis.Redis = redis.from_url(  # type: ignore[no-untyped-call]  # ver check_redis
+        redis_url,
+        socket_connect_timeout=_TIMEOUT_SECONDS,
+        socket_timeout=_TIMEOUT_SECONDS,
+    )
+    try:
+        existe = await asyncio.wait_for(
+            client.exists(WORKER_READY_KEY), timeout=_TIMEOUT_SECONDS
+        )
+        return DependencyStatus(
+            "worker",
+            up=bool(existe),
+            latency_ms=_elapsed_ms(started),
+            error=None if existe else f"{WORKER_READY_KEY} ausente: worker sem modelos",
+        )
+    except Exception as exc:  # noqa: BLE001 — idem: a falha vira status
+        return DependencyStatus(
+            "worker", up=False, latency_ms=_elapsed_ms(started), error=_describe(exc)
+        )
+    finally:
         await client.aclose()
 
 

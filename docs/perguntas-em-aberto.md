@@ -25,7 +25,8 @@ perguntas que nunca tiveram resposta verificada.
 | Q6 | Por que o limiar de cobertura é travado no valor real de hoje em vez de num número redondo? | CARD-003 | 2026-08-17 | dispensada, sem resposta |
 | Q7 | O que `Protocol` faz que dispensa um framework de mock, e **em que momento** se descobre que um fake não satisfaz a porta? | CARD-004 | 2026-08-17 | reapresentada no CARD-007; **sem resposta e sem dispensa** |
 | Q9 | Igualdade de `@dataclass`: por que dois objetos da mesma entidade com um campo diferente não são iguais, e por que o Python **proíbe** usá-los como chave de dict/set? | CARD-005 | 2026-08-18 | reapresentada no CARD-007; **sem resposta e sem dispensa** |
-| Q11 | Se eu chamar `client.put_object(...)` **direto dentro de uma corrotina**, o que acontece com as outras corrotinas do worker enquanto o upload corre — e como eu provaria isso num teste? | CARD-008 | 2026-08-23 | feita no ponto da decisão; **sem resposta e sem dispensa** |
+| Q11 | Se eu chamar `client.put_object(...)` **direto dentro de uma corrotina**, o que acontece com as outras corrotinas do worker enquanto o upload corre — e como eu provaria isso num teste? | CARD-008 | 2026-08-23 | reapresentada no CARD-009; **sem resposta e sem dispensa** |
+| Q12 | Contratos do import-linter, os dois lados: o `forbidden` segue **cadeias indiretas** (`use_case → encoding → av` reprova mesmo sem `import av` escrito) e o `layers` **só enxerga o grafo interno** (biblioteca externa é invisível para ele). Dado um import, quantos e quais contratos quebram? | CARD-009 | 2026-08-23 | feita no ponto da decisão; 1ª resposta errada (1, era 2), **reformulada uma vez**, 2ª também errada (2, era 1) |
 
 > **Q7** foi reapresentada na abertura do CARD-006 e **dispensada pelo
 > desenvolvedor** ("vamos pular essas perguntas e finalizar a implementação").
@@ -79,6 +80,33 @@ perguntas que nunca tiveram resposta verificada.
 > implementação, e o item segue vermelho — o mecanismo produz **evidência**, mas
 > a verificação de aprendizado depende de uma resposta que não vem. Se isso se
 > repetir no CARD-009, vale um postmortem sobre a regra, não sobre a sessão.
+
+> **CARD-009 (2026-08-23): a fila FOI reapresentada na abertura** — Q7, Q9 e Q11,
+> com o motivo de cada uma tocar aquele card (nove fakes de porta de uma vez; a
+> comparação da lista inteira de eventos publicados com um `==` só; dois modelos
+> de IA, um banco e um storage disputando o mesmo event loop). **Nenhuma das três
+> foi respondida nem dispensada:** o desenvolvedor respondeu apenas as três
+> decisões de escopo ("Vamos com A, incluir o list_by_session, Dockerfile em card
+> próprio"). Silêncio não é dispensa (LEARNING-0004).
+>
+> As três se demonstraram sozinhas de novo, e agora com o teste como testemunha:
+> **Q7** — o `mypy` reprovou **dois** fakes de storage no instante em que
+> `MediaStorage` ganhou `get`, com o `pytest` verde; **Q9** — o teste
+> `test_os_eventos_publicados_sao_exatamente_estes` compara seis eventos com um
+> `==` só, o que só funciona porque `frozen=True` gera `__eq__` por valor;
+> **Q11** — a resposta virou desenho: `AacAudioEncoder` empurra a codificação
+> para um executor, com teste de heartbeat provando que o event loop não congela.
+>
+> **Q12 nasceu nesta sessão, e nasceu certa:** feita antes de escrever o caso de
+> uso, sobre consequência observável, conferida rodando `lint-imports` na hora.
+> Foi **errada duas vezes** — a reformulação que a regra permite já foi gasta,
+> então ela entra na fila em vez de ser fechada por explicação do agente. As duas
+> execuções estão no CARD-009 e no ADR-0036.
+>
+> **Quinta sessão seguida com o item vermelho.** A proposta de postmortem sobre a
+> **regra** (não sobre a sessão) foi feita na abertura do CARD-009 e também ficou
+> sem resposta. Reescrever uma regra da constituição é decisão do desenvolvedor,
+> então o postmortem não foi escrito — fica como a pendência de topo desta fila.
 
 ## Fechadas
 

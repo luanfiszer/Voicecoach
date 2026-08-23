@@ -1,8 +1,10 @@
 # Medição de latência e custo dos componentes de IA
 
 - **Data:** 2026-08-19; §8 acrescentada em 2026-08-21 (CARD-007); §9 em
-  2026-08-23 (CARD-008)
-- **Status:** **completa** para os três componentes (STT, LLM, TTS)
+  2026-08-23 (CARD-008); **§10 em 2026-08-23 (CARD-009) — a primeira medição de
+  COMPOSIÇÃO, que a §1 avisava não existir**
+- **Status:** **completa** para os três componentes (STT, LLM, TTS) **e para o
+  pipeline composto** (§10)
 - **Origem:** sessão de medição anterior aos adapters de IA (CARDs 006/007/008)
 
 > Este documento existe para que os números citados em
@@ -14,6 +16,12 @@
 ## 1. O que esta medição NÃO cobre
 
 Dizer isto primeiro, porque é o erro mais fácil de cometer com estas tabelas.
+
+> **Atualização de 2026-08-23 (CARD-009): esta seção deixou de valer para as
+> §§2–9, e continua valendo como aviso.** O pipeline agora existe e foi medido
+> na **§10**. As tabelas abaixo continuam sendo de componente isolado; o que
+> mudou é que há um número composto com que compará-las — e ele **não** é a soma
+> das linhas.
 
 **Não existe pipeline para medir ponta a ponta.** Os adapters de STT (CARD-006),
 LLM (007), TTS (008) e o worker (009) **não foram escritos**. O que está medido
@@ -470,3 +478,93 @@ dos dois motores, mais uma correção pedagógica real sintetizada pelo adapter 
 produção (`benchmarks/tts_audicao.py`), foram ouvidas pelo desenvolvedor em
 2026-08-23, que aprovou a voz do Piper. Com isso, os quatro eixos do critério
 escrito antes da medição estão cobertos, e o ADR-0032 deixa de ter lacuna.
+
+
+---
+
+## 10. CARD-009 — o pipeline composto, e a carga do `mlx-whisper`
+
+- **Data:** 2026-08-23
+- **Método:** `uv run pytest tests/worker/test_pipeline_integracao.py -m slow -s`,
+  na mesma máquina das §§3–9 (Apple Silicon). Insumo: o mesmo WAV de 2,3 s da
+  §2 (*"Wow, that sounds like an amazing project."*). STT `mlx-whisper small.en`,
+  TTS Piper `en_US-lessac-medium`, professor `claude-haiku-4-5` **real** (a
+  execução gasta ~US$ 0,02). Storage, repositório e canal de eventos são fakes em
+  memória — o que se mede é a composição dos **três componentes de IA**, não o
+  IO de infraestrutura, que tem números próprios no ADR-0034.
+
+### 10.1 Carga do `mlx-whisper` — a dívida do ADR-0025, item 7
+
+Nunca havia sido cronometrada em separado. O ADR-0025 supunha que ela era a
+parcela pequena (*"o grosso dos 6 s é o Kokoro de qualquer forma"*). **Não é
+mais.**
+
+| Carga | Tempo medido |
+|---|---|
+| `mlx-whisper small.en`, **primeira** no processo (inclui `import mlx`) | **17,15 s** |
+| `mlx-whisper small.en`, com cache quente | **1,09–1,40 s** |
+| Piper `en_US-lessac-medium` (§9.1, reconfirmado) | **0,43 s** |
+| **STT + TTS + cliente do professor, subida completa** | **0,64–0,90 s** |
+
+Duas leituras que mudam o que estava escrito:
+
+1. **O STT virou a maior parcela da subida do worker.** Com o Kokoro em 5,63 s,
+   os 0,24–0,46 s do `faster-whisper base.en` eram ruído. Com o Piper em 0,43 s
+   e o `mlx small.en` em ~1,1 s, a proporção inverteu — a §9.3 dizia "o total cai
+   para ~1 s" supondo o STT pequeno, e o número é esse por coincidência, com a
+   composição interna trocada.
+2. **Os 17,15 s a frio não são carga de modelo, são `import mlx`.** Eles
+   aparecem uma vez por processo, na primeira subida de uma máquina que acabou
+   de ligar. Não afetam o regime, mas afetam **quanto tempo um deploy demora até
+   o `voicecoach:worker:ready` aparecer** — e é isso que a chave de readiness
+   existe para não deixar ninguém confundir com "o container subiu".
+
+### 10.2 O turn composto — o número que a §1 dizia não existir
+
+Três execuções consecutivas, mesma máquina, mesmo insumo:
+
+| Rodada | Carga dos modelos | Até o **1º trecho gravado** | Turn completo | Trechos |
+|---|---|---|---|---|
+| 1 (cache HF frio) | 0,90 s | 2,50 s | 3,58 s | 2 |
+| 2 | 0,68 s | **1,61 s** | 2,93 s | 2 |
+| 3 | 0,64 s | **1,56 s** | 2,61 s | 2 |
+
+**O alvo de 1,8 s até o aluno ouvir a primeira palavra é atingido** em regime
+(rodadas 2 e 3), com folga de ~0,2 s. A rodada 1 pagou o `Fetching 4 files` do
+cache do Hugging Face e está na tabela porque descartar a execução ruim seria
+escolher o número que agrada.
+
+### 10.3 O custo de composição, finalmente quantificado
+
+A §1 avisa há semanas que somar as linhas não dá a latência de um turn. Agora dá
+para dizer **quanto** a diferença é:
+
+| | Componentes isolados (§§3, 8, 9) | Composto (§10.2) |
+|---|---|---|
+| STT (`mlx small.en`, insumo de 2,3 s) | 0,59 s | — |
+| 1ª sentença do professor | 0,68–0,76 s | — |
+| Síntese da 1ª sentença (Piper) | 0,09 s | — |
+| **Soma otimista** | **~1,36 s** | — |
+| **Medido de ponta a ponta** | — | **1,56–1,61 s** |
+
+**O custo de composição é de ~0,2–0,25 s**, ou ~15% sobre a soma. É menor do que
+o risco registrado no CARD-009 temia, e a explicação mais provável é que a
+contenção de CPU entre STT e TTS **não acontece**: o `mlx-whisper` roda na GPU
+(ADR-0027) e libera a CPU justamente enquanto o Piper precisa dela. Numa máquina
+x86 com `faster-whisper`, essa sobreposição não existe e o número tende a ser
+pior — **não medido**, e é a pendência que fica.
+
+### 10.4 O que esta medição NÃO cobre
+
+- **x86 com `faster-whisper`.** O caminho que o CI exercita não foi medido em
+  composição. A contenção de CPU que a §10.3 supõe ausente é justamente o que
+  aconteceria lá.
+- **Infraestrutura real no caminho.** Postgres, MinIO e Redis são fakes em
+  memória neste teste. Os números do ADR-0034 (93 ms por upload em executor)
+  entram por cima, e o desenho da cascata (ADR-0037) existe para que o upload do
+  trecho N corra em paralelo com a síntese de N+1 — **não medido em conjunto**.
+- **Tempo de pickup da fila.** O `arq` não participa deste teste: o caso de uso é
+  chamado direto. Falta o intervalo entre `enqueue` e o início do job.
+- **Respostas longas.** O insumo produziu 2 trechos; o ADR-0023 prevê 3 a 6. Com
+  mais trechos, o tempo até o **primeiro** não deve mudar (é o ponto da cascata),
+  mas o turn completo cresce linearmente.

@@ -17,7 +17,11 @@ import asyncio
 from typing import TYPE_CHECKING, Protocol
 
 from voicecoach.adapters.stt.audio import decode, duration_seconds
-from voicecoach.application.ports.speech_to_text import AudioInput, Transcript
+from voicecoach.application.ports.speech_to_text import (
+    AudioInput,
+    SttError,
+    Transcript,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -100,7 +104,19 @@ class FasterWhisperSpeechToText:
         turno, e nenhuma outra corrotina avançaria.
         """
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self._transcribe_sync, audio)
+        try:
+            return await loop.run_in_executor(None, self._transcribe_sync, audio)
+        except Exception as exc:
+            # `except Exception` amplo, e justificado: ao contrário do `boto3`
+            # (que tem `ClientError`/`BotoCoreError` como raízes), nem o
+            # `faster-whisper` nem o `mlx-whisper` publicam uma família de
+            # exceções. O que sai daqui é `RuntimeError` do CTranslate2, erro do
+            # PyAV ao decodificar, `OSError` de pesos corrompidos ou qualquer
+            # coisa do MLX. Listar as que conhecemos hoje deixaria as demais
+            # escaparem para `application` como tipo de biblioteca — que é
+            # exatamente o que a porta existe para impedir.
+            message = f"transcrição falhou: {exc}"
+            raise SttError(message) from exc
 
     def _transcribe_sync(self, audio: AudioInput) -> Transcript:
         samples = decode(audio)

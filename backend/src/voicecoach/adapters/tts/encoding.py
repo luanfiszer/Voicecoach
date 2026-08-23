@@ -19,10 +19,16 @@ cliente aqui é um `<audio>` de app, não um player que a gente controla.
 
 from __future__ import annotations
 
+import asyncio
 import io
 from typing import TYPE_CHECKING
 
 import av
+
+from voicecoach.application.ports.audio_encoder import (
+    AudioEncodingError,
+    EncodedAudio,
+)
 
 if TYPE_CHECKING:
     from voicecoach.application.ports.text_to_speech import SynthesizedAudio
@@ -60,3 +66,38 @@ def to_aac(audio: SynthesizedAudio) -> bytes:
             container.mux(packet)
 
     return saida.getvalue()
+
+
+class AacAudioEncoder:
+    """Implementa `AudioEncoder` sobre o `to_aac` acima.
+
+    Satisfaz a porta **estruturalmente**, como todos os adapters do projeto: não
+    herda de `Protocol` nenhum, só tem o método com a assinatura certa.
+
+    **Sem estado, e ainda assim uma classe.** A tentação era passar a função
+    `to_aac` direto, mas a porta pede um objeto com `.encode()` — e o motivo de
+    ela pedir isso é o mesmo de todas as outras: um dia haverá um encoder de
+    Opus (o ADR-0029 já registrou o Safari como o que impede hoje), e trocar
+    implementação não pode significar mexer no caso de uso.
+    """
+
+    async def encode(self, audio: SynthesizedAudio) -> EncodedAudio:
+        """Comprime numa thread do executor.
+
+        Codificar 2 s de fala custa poucos milissegundos — mas "poucos
+        milissegundos" é o que o CARD-008 mediu como suficiente para o
+        heartbeat de 10 ms dar **zero** voltas (Q11). No meio da cascata, o
+        event loop congelado é o intervalo em que a próxima sentença deveria
+        estar sendo sintetizada.
+        """
+        loop = asyncio.get_running_loop()
+        try:
+            dados = await loop.run_in_executor(None, to_aac, audio)
+        except (av.error.FFmpegError, ValueError) as exc:
+            # `FFmpegError` é a raiz das exceções do PyAV (verificado: o `av`
+            # NÃO expõe `AVError`, e o `__mro__` do FFmpegError é
+            # `Exception`). `ValueError` entra junto porque `AudioFrame` recusa
+            # buffer de tamanho incompatível antes de o FFmpeg ser chamado.
+            message = f"compressão AAC falhou: {exc}"
+            raise AudioEncodingError(message) from exc
+        return EncodedAudio(data=dados, content_type=CONTENT_TYPE, extension=EXTENSION)

@@ -41,7 +41,7 @@ Escreva um ADR sempre que a decisão:
 | [0002](0002-stack-de-cliente-expo-mais-web-separada.md) | Stack de cliente: Expo/RN (mobile) + web separada (Vite) em monorepo | aceito |
 | [0003](0003-interacao-v1-turn-based-preparada-para-v2-realtime.md) | Interação: V1 turn-based, desenhado para V2 realtime | aceito |
 | [0004](0004-persistencia-postgres-sqlalchemy-alembic.md) | Persistência: PostgreSQL + SQLAlchemy 2.0 (async) + Alembic | aceito |
-| [0005](0005-fila-e-worker-arq-sobre-redis.md) | Fila e worker: arq sobre Redis | aceito (complementado por 0025) |
+| [0005](0005-fila-e-worker-arq-sobre-redis.md) | Fila e worker: arq sobre Redis | aceito (complementado por 0025; instalado e custeado pelo 0038) |
 | [0006](0006-storage-de-midia-s3-url-assinada.md) | Storage de mídia: S3-compatível (MinIO) com URL assinada e expiração | **substituído por ADR-0024** |
 | [0007](0007-autenticacao-jwt-refresh-rotativo.md) | Autenticação: e-mail verificado, JWT curto + refresh rotativo | aceito (ajustado por 0010) |
 | [0008](0008-contrato-api-versionamento-e-tipos-gerados.md) | Contrato de API: REST /v1 aditivo + tipos TS gerados do OpenAPI | aceito |
@@ -59,10 +59,10 @@ Escreva um ADR sempre que a decisão:
 | [0020](0020-prompt-caching-no-adapter-do-professor.md) | Prompt caching no adapter do professor, com o prompt tratado como prefixo estável | **substituído por ADR-0021** |
 | [0021](0021-prompt-caching-adiado-o-limiar-medido-nao-e-alcancado.md) | Prompt caching adiado: o limiar medido (4.096 tok) não é alcançado por uma conversa real | aceito |
 | [0022](0022-ordem-dos-campos-da-resposta-do-professor-e-contrato-de-latencia.md) | A ordem dos campos da resposta do professor é contrato de latência, não estilo | aceito (risco técnico fechado por 0030) |
-| [0023](0023-ciclo-de-vida-do-turn-com-entrega-em-cascata.md) | Ciclo de vida do Turn com entrega em cascata: o áudio vira uma sequência de trechos | aceito (substitui 0016) |
-| [0024](0024-midia-por-trecho-chave-url-assinada-e-retencao-assimetrica.md) | Mídia por trecho: chave, URL assinada junto do evento e retenção assimétrica | aceito (substitui 0006) |
-| [0025](0025-modelos-residentes-no-worker-e-readiness-que-distingue-pronto.md) | Modelos de IA residentes no worker, e um readiness que distingue "subiu" de "pronto" | aceito |
-| [0026](0026-entrega-progressiva-por-sse-com-polling-como-contrato-de-recuo.md) | Entrega progressiva do turn por SSE, com o polling preservado como contrato de recuo | aceito |
+| [0023](0023-ciclo-de-vida-do-turn-com-entrega-em-cascata.md) | Ciclo de vida do Turn com entrega em cascata: o áudio vira uma sequência de trechos | aceito (substitui 0016; a forma da cascata está no 0037) |
+| [0024](0024-midia-por-trecho-chave-url-assinada-e-retencao-assimetrica.md) | Mídia por trecho: chave, URL assinada junto do evento e retenção assimétrica | aceito (substitui 0006; porta estendida com `get` pelo 0036) |
+| [0025](0025-modelos-residentes-no-worker-e-readiness-que-distingue-pronto.md) | Modelos de IA residentes no worker, e um readiness que distingue "subiu" de "pronto" | aceito (implementado no CARD-009; dívida do item 7 fechada — ver 0038) |
+| [0026](0026-entrega-progressiva-por-sse-com-polling-como-contrato-de-recuo.md) | Entrega progressiva do turn por SSE, com o polling preservado como contrato de recuo | aceito (canal worker→API definido no 0035) |
 | [0027](0027-adapter-duplo-de-stt-com-default-resolvido-pela-plataforma.md) | Adapter duplo de STT (`mlx-whisper` e `faster-whisper`), com default resolvido pela plataforma | aceito (complementado por 0029) |
 | [0028](0028-derivacao-da-etapa-do-turn-mora-no-dominio.md) | A derivação da etapa do Turn mora no domínio, não na borda | aceito (revoga o §4 do 0016) |
 | [0029](0029-o-que-atravessa-a-porta-de-stt-sao-bytes-codificados.md) | O que atravessa a porta de STT são bytes codificados; decodificar é do adapter | aceito (complementa 0027) |
@@ -71,6 +71,10 @@ Escreva um ADR sempre que a decisão:
 | [0032](0032-piper-substitui-o-kokoro-como-motor-de-voz.md) | Piper substitui o Kokoro como motor de voz local | aceito (revê a escolha provisória do 0011; encolhe o número do 0025) |
 | [0033](0033-o-que-atravessa-a-porta-de-tts-e-pcm-com-a-taxa-junto.md) | O que atravessa a porta de TTS é PCM cru com a taxa junto | aceito (complementa 0029) |
 | [0034](0034-adapter-s3-sincrono-em-executor-e-retencao-por-tag.md) | Adapter S3 síncrono num executor, e retenção por tag em vez de prefixo | aceito (complementa 0024; fecha a dívida do 0014) |
+| [0035](0035-canal-worker-api-por-pubsub-com-o-banco-como-fonte-da-verdade.md) | O canal worker→API é pub/sub, e o banco é a fonte da verdade | aceito (complementa 0026) |
+| [0036](0036-o-primeiro-consumidor-revela-o-que-faltava-nas-portas.md) | O primeiro consumidor revela o que faltava nas portas (`get`, `AudioEncoder`, `SttError`, `list_by_session`, `UnitOfWork`) | aceito (estende 0024/0029/0031/0004) |
+| [0037](0037-a-cascata-e-uma-fila-interna-com-um-consumidor-so.md) | A cascata é uma fila interna com um consumidor só, não uma task por sentença | aceito (complementa 0023 e 0031) |
+| [0038](0038-arq-entra-e-rebaixa-o-redis.md) | O `arq` entra e rebaixa o `redis` de 8.1 para 5.3 | aceito (executa o 0005) |
 
 ## ADRs pendentes de decisão de produto
 

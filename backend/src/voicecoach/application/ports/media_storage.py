@@ -30,12 +30,18 @@ class MediaStorageError(RuntimeError):
 class MediaStorage(Protocol):
     """Guarda e serve os áudios de um turn.
 
-    Três operações, e nenhuma a mais: é o que o ADR-0024 exige e o que o
-    CARD-017 vai reusar. Um ``get`` que devolve bytes **não** entra — se a API
-    lesse o objeto para repassá-lo, a URL assinada perderia o propósito
-    (alternativa B do ADR-0024, rejeitada). O worker lê o input pelo mesmo
-    caminho? Sim, e quando o CARD-009 precisar disso, o método entra **por
-    extensão**, com o motivo escrito.
+    Eram três operações, e o docstring dizia que um ``get`` só entraria "por
+    extensão, quando o CARD-009 precisar disso, com o motivo escrito". O
+    CARD-009 precisou, e o motivo é este: **o worker não está no caminho do
+    aluno.** A rejeição da alternativa B do ADR-0024 é sobre a *API* ler o
+    objeto para repassá-lo ao cliente — aí a URL assinada perde o propósito,
+    porque o produto volta a pagar banda e CPU de streaming. O worker é o
+    contrário: ele é o destinatário final dos bytes, não um intermediário. Ele
+    precisa do áudio **dentro do processo** para entregá-lo ao STT, e uma URL
+    assinada só o obrigaria a baixar de si mesmo por HTTP.
+
+    Quatro operações, portanto, e a assimetria é deliberada: escrita e leitura
+    direta são do worker, URL assinada é da API.
     """
 
     async def put(self, key: str, data: bytes, content_type: str) -> None:
@@ -47,6 +53,24 @@ class MediaStorage(Protocol):
         entre o ``AudioInput`` do STT (que **não** carrega content type de
         propósito, porque o decodificador lê os próprios bytes — ADR-0029) e
         aqui: lá o consumidor é nosso código, aqui é um navegador.
+        """
+        ...
+
+    async def get(self, key: str) -> bytes:
+        """Lê um objeto inteiro para a memória — o áudio do aluno, no worker.
+
+        Devolve ``bytes`` porque é exatamente o que a porta de STT consome
+        (``AudioInput.data``, ADR-0029): o áudio ainda codificado, com o
+        decodificador do adapter identificando o contêiner pelos próprios
+        bytes. Nada de caminho de arquivo, nada de stream — um turn tem no
+        máximo ~20 s de áudio, e o STT precisa do buffer inteiro de qualquer
+        forma para decodificar.
+
+        Levanta ``MediaStorageError`` se a chave não existir. Não há
+        ``None``: pedir o input de um turn que existe no banco e não existe no
+        storage não é ausência esperada, é o storage tendo perdido o objeto —
+        e o caso de uso trata isso como falha de infraestrutura, marcando o
+        turn como ``failed``.
         """
         ...
 

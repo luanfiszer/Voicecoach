@@ -40,6 +40,19 @@ dependencies = [
     "jiter>=0.16",
     "boto3>=1.43.78",
     "piper-tts>=1.7.0",
+    # CARD-009 (ADR-0005, ADR-0025):
+    #   arq — fila e worker sobre Redis. Escolhido no ADR-0005 e confirmado aqui
+    #         pelo que o CARD-009 exige de verdade: um `on_startup` async que
+    #         popula um `ctx` compartilhado por toda task (ADR-0025) e que
+    #         BLOQUEIA o consumo de job até retornar. Celery é síncrono na raiz
+    #         e o §F já cortou RabbitMQ; Dramatiq não tem contexto de processo
+    #         async equivalente.
+    #
+    #   ATENÇÃO — ele REBAIXA o `redis` de 8.1.0 para 5.3.1 (arq 0.28 fixa
+    #   `redis>=4.2,<6`). O `redis` está aqui desde o CARD-002, usado pelo
+    #   `check_redis` do readiness; a API consumida (`from_url`, `ping`,
+    #   `pubsub`) é a mesma nas duas majors — verificado com o gate verde.
+    "arq>=0.28",
 ]
 
 # `mlx-whisper` é dependência OPCIONAL, não base (ADR-0027, item 4): ela só
@@ -194,6 +207,12 @@ exclude_also = [
     "raise NotImplementedError",
 ]
 
+# O processo do worker (ADR-0005). `arq voicecoach.worker.main.WorkerSettings`
+# também funciona, mas ignora o `run()` — e é ele que injeta a `redis_settings`
+# vinda da configuração tipada em vez do default de localhost.
+[project.scripts]
+voicecoach-worker = "voicecoach.worker.main:run"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -272,6 +291,14 @@ forbidden_modules = [
     # linha.
     "piper",
     "onnxruntime",
+    # Fila entra no CARD-009 (ADR-0005/0025). A porta `TurnQueue` mora em
+    # `application` e é EXATAMENTE onde o `arq` tentaria vazar: bastaria tipar
+    # `enqueue` com o `Job` que o `arq` devolve para a aplicação passar a
+    # depender da biblioteca de fila. `hiredis` está junto pela lição da Q8 — é
+    # o parser em C que o `arq` traz, e a lista não enxerga o que ninguém
+    # digitou.
+    "arq",
+    "hiredis",
 ]
 
 [[tool.importlinter.contracts]]
@@ -319,6 +346,14 @@ forbidden_modules = [
     # linha.
     "piper",
     "onnxruntime",
+    # Fila entra no CARD-009 (ADR-0005/0025). A porta `TurnQueue` mora em
+    # `application` e é EXATAMENTE onde o `arq` tentaria vazar: bastaria tipar
+    # `enqueue` com o `Job` que o `arq` devolve para a aplicação passar a
+    # depender da biblioteca de fila. `hiredis` está junto pela lição da Q8 — é
+    # o parser em C que o `arq` traz, e a lista não enxerga o que ninguém
+    # digitou.
+    "arq",
+    "hiredis",
 ]
 
 # `voicecoach.config` mora fora das cinco camadas (ADR-0013), então o contrato

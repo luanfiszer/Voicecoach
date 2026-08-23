@@ -14,10 +14,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from voicecoach.adapters.persistence import mappers
 from voicecoach.adapters.persistence.models import SessionRow, StudentRow, TurnRow
+from voicecoach.domain.turn import TurnStatus
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -121,3 +123,31 @@ class SqlAlchemyTurnRepository:
             message = f"Turn {turn.id} não existe."
             raise RowNotFoundError(message)
         mappers.apply_turn(turn, row)
+
+    async def list_by_session(self, session_id: UUID, *, limit: int) -> list[Turn]:
+        """Os últimos ``limit`` turnos concluídos da sessão, em ordem cronológica.
+
+        **A query ordena ao contrário do resultado, e isso é o ponto.** Para
+        pegar os N mais RECENTES é preciso ordenar decrescente e cortar; para
+        montar o histórico do professor é preciso a ordem cronológica. Inverter
+        no banco e reinverter em Python é mais barato e mais óbvio que uma
+        subquery, e o `limit` mantém o custo constante numa sessão longa.
+
+        O eager load dos trechos vem junto por obrigação, não por escolha: sem
+        ele o `turn_from_row` estoura com `MissingGreenlet` ao tocar a coleção
+        (`lazy="raise_on_sql"` no modelo). O histórico não usa os trechos — mas
+        o mapeador é um só, e ter um mapeador "parcial" para economizar um
+        SELECT seria trocar um custo medido por um modo de falha novo.
+        """
+        stmt = (
+            select(TurnRow)
+            .where(
+                TurnRow.session_id == session_id,
+                TurnRow.status == TurnStatus.COMPLETED,
+            )
+            .order_by(TurnRow.created_at.desc())
+            .limit(limit)
+            .options(self._COM_TRECHOS)
+        )
+        linhas = (await self._session.scalars(stmt)).all()
+        return [mappers.turn_from_row(linha) for linha in reversed(linhas)]

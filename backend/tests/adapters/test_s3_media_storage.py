@@ -21,7 +21,7 @@ import time
 from collections.abc import Iterator
 from datetime import timedelta
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import boto3
 import httpx
@@ -120,6 +120,33 @@ async def test_grava_e_a_url_assinada_baixa_o_mesmo_conteudo(
     assert resposta.status_code == 200
     assert resposta.content == conteudo
     assert resposta.headers["content-type"] == "audio/aac"
+
+
+async def test_get_devolve_os_bytes_para_o_worker_mandar_ao_stt(
+    storage: S3MediaStorage,
+) -> None:
+    """O método que o CARD-009 acrescentou à porta (ADR-0034 + nota do canal).
+
+    O worker não é intermediário do aluno: ele é o destinatário dos bytes. Uma
+    URL assinada só o faria baixar de si mesmo por HTTP.
+    """
+    chave = input_key(STUDENT, SESSION, TURN, "aac")
+    conteudo = b"\xff\xf1audio-do-aluno"
+    await storage.put(chave, conteudo, "audio/aac")
+
+    assert await storage.get(chave) == conteudo
+
+
+async def test_get_de_chave_inexistente_vira_erro_da_porta(
+    storage: S3MediaStorage,
+) -> None:
+    """Não há `None`: o input de um turn que existe no banco tem de existir.
+
+    Ausência aqui não é caso esperado — é o storage tendo perdido o objeto, e o
+    caso de uso trata isso como falha de infraestrutura.
+    """
+    with pytest.raises(MediaStorageError):
+        await storage.get(input_key(STUDENT, SESSION, uuid4(), "aac"))
 
 
 async def test_objeto_nao_e_legivel_sem_assinatura(
