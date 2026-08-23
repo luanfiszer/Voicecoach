@@ -9,17 +9,25 @@ aceitando.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from pathlib import Path
 
 import pytest
 from faster_whisper.audio import decode_audio
 
-from voicecoach.adapters.tts.encoding import CONTENT_TYPE, EXTENSION, to_aac
+from voicecoach.adapters.tts.encoding import (
+    CONTENT_TYPE,
+    EXTENSION,
+    AacAudioEncoder,
+    to_aac,
+)
 from voicecoach.adapters.tts.factory import (
     TtsProviderUnavailableError,
     create_text_to_speech,
 )
 from voicecoach.adapters.tts.piper_adapter import TtsVoiceNotFoundError, load_piper
+from voicecoach.application.ports.audio_encoder import AudioEncoder, AudioEncodingError
 from voicecoach.application.ports.text_to_speech import (
     BYTES_PER_SAMPLE,
     SynthesizedAudio,
@@ -97,6 +105,58 @@ def test_full_concatenado_dura_a_soma_e_ainda_toca() -> None:
 
 
 # -- fábrica: também não precisa de modelo -----------------------------------
+
+
+async def test_o_encoder_satisfaz_a_porta_e_rotula_o_que_grava() -> None:
+    """O adapter que o CARD-009 precisou criar para comprimir sem quebrar camada.
+
+    `content_type` e `extension` saem do **mesmo lugar** (o codec) para que não
+    possam divergir: gravar `.aac` com `audio/mpeg` é o tipo de erro que só
+    aparece no aparelho de alguém.
+    """
+    porta: AudioEncoder = AacAudioEncoder()
+    audio = SynthesizedAudio(pcm=pcm_senoide(0.3), sample_rate=TAXA)
+
+    codificado = await porta.encode(audio)
+
+    assert codificado.content_type == "audio/aac"
+    assert codificado.extension == "aac"
+    assert 0 < len(codificado.data) < len(audio.pcm)
+
+
+async def test_o_encoder_nao_bloqueia_o_event_loop() -> None:
+    """Mesma lição do CARD-008 (Q11), agora no codec.
+
+    Codificar é CPU-bound. Um `to_aac` chamado direto da corrotina congelaria o
+    event loop exatamente no intervalo em que a próxima sentença deveria estar
+    sendo sintetizada — e num turno de 6 trechos isso acontece 6 vezes.
+    """
+    voltas = 0
+
+    async def heartbeat() -> None:
+        nonlocal voltas
+        while True:
+            await asyncio.sleep(0.001)
+            voltas += 1
+
+    batedor = asyncio.create_task(heartbeat())
+    # Áudio grande o bastante para a codificação demorar mais que uma volta.
+    audio = SynthesizedAudio(pcm=pcm_senoide(20.0), sample_rate=TAXA)
+    await AacAudioEncoder().encode(audio)
+    batedor.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await batedor
+
+    assert voltas > 0
+
+
+async def test_pcm_invalido_atravessa_como_erro_da_porta() -> None:
+    """Exceção do PyAV não pode vazar para `application`."""
+    quebrado = SynthesizedAudio(pcm=pcm_senoide(0.1), sample_rate=TAXA)
+    object.__setattr__(quebrado, "pcm", b"\x00" * 7)
+
+    with pytest.raises(AudioEncodingError):
+        await AacAudioEncoder().encode(quebrado)
 
 
 def test_kokoro_falha_na_subida_em_vez_de_existir_pela_metade() -> None:

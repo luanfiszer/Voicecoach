@@ -54,9 +54,16 @@ e o readiness da API sabe a diferença.**
 6. **Todo restart custa ~6 s de indisponibilidade do worker.** Consequência
    aceita e explícita: deploy do worker **não** é rolling sem sobreposição, e um
    crash-loop de worker é um incidente de latência, não só de disponibilidade.
-7. **Se o `mlx-whisper` for o adapter ativo (ADR-0027), a conta muda e ainda não
-   foi medida** — a carga dele não foi cronometrada em separado. O grosso dos
-   6 s é o Kokoro de qualquer forma; o CARD-009 mede e registra.
+7. ~~**Se o `mlx-whisper` for o adapter ativo (ADR-0027), a conta muda e ainda não
+   foi medida**~~ — **MEDIDO no CARD-009 (2026-08-23), e o número inverte a
+   suposição desta lista.** A carga do `mlx-whisper small.en` é **1,10-1,40 s
+   com o cache quente** (17,15 s a frio, na primeira execução do processo, que
+   inclui o import do `mlx`). Ou seja: com o Piper em 0,43 s (ADR-0032), o STT
+   passou a ser a **maior** parcela da subida do worker, e não a menor — o
+   oposto do que "o grosso dos 6 s é o Kokoro de qualquer forma" dava a entender.
+   O total de subida medido de ponta a ponta é **0,64-0,90 s** para os três
+   componentes juntos numa segunda subida, e ~1,8 s quando o `mlx` também precisa
+   ser importado. Registrado em `docs/medicao-latencia.md`.
 
 **Equivalente mental .NET:** é registrar o modelo como **singleton no
 container do host** e resolvê-lo no `BackgroundService`, em vez de dar `new` a

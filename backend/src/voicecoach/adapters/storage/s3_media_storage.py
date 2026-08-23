@@ -42,6 +42,7 @@ from voicecoach.application.ports.media_storage import MediaStorageError
 from voicecoach.domain.media_keys import retention_class
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from datetime import timedelta
 
     from voicecoach.config import Settings
@@ -88,6 +89,28 @@ class S3MediaStorage:
             Tagging=f"retention={retention_class(key).value}",
         )
 
+    async def get(self, key: str) -> bytes:
+        """Lê o objeto inteiro — o áudio do aluno, para o worker mandar ao STT.
+
+        O `get_object` devolve um dicionário cujo `Body` é um stream **síncrono**
+        do botocore. O `.read()` dele também bloqueia, então ele acontece dentro
+        do executor, junto da chamada: lê-lo do lado de fora traria de volta
+        exatamente o congelamento de event loop que o docstring do módulo mede
+        em 122 ms.
+        """
+
+        def ler() -> bytes:
+            resposta = self._client.get_object(Bucket=self._bucket, Key=key)
+            corpo: bytes = resposta["Body"].read()
+            return corpo
+
+        # Variável intermediária anotada em vez de `return await ...`: o
+        # `_in_executor_fn` devolve `Any` (o `boto3` não é tipado), e o
+        # `warn_return_any` do mypy strict reprova devolver `Any` de uma função
+        # que promete `bytes`. A anotação é onde o `Any` para.
+        conteudo: bytes = await self._in_executor_fn(ler)
+        return conteudo
+
     async def presigned_get_url(self, key: str, ttl: timedelta) -> str:
         """Assinar é HMAC local — mas continua no executor. Ver o docstring.
 
@@ -129,6 +152,20 @@ class S3MediaStorage:
             if not listagem.get("IsTruncated"):
                 return removidos
             continuation = listagem.get("NextContinuationToken")
+
+    async def _in_executor_fn(self, fn: Callable[[], Any]) -> Any:  # noqa: ANN401
+        """Igual ao `_in_executor`, para quem já vem com os argumentos presos.
+
+        Existe porque o `get` precisa rodar **duas** chamadas do SDK na mesma
+        thread (`get_object` e o `.read()` do corpo), e `_in_executor` só sabe
+        despachar uma função do cliente com kwargs.
+        """
+        loop = asyncio.get_running_loop()
+        try:
+            return await loop.run_in_executor(None, fn)
+        except (ClientError, BotoCoreError) as exc:
+            message = f"storage falhou em {getattr(fn, '__name__', fn)}: {exc}"
+            raise MediaStorageError(message) from exc
 
     async def _in_executor(self, fn: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         """Roda a chamada síncrona numa thread e traduz a falha do SDK.

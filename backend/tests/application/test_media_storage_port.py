@@ -41,6 +41,12 @@ class FakeMediaStorage:
     async def put(self, key: str, data: bytes, content_type: str) -> None:
         self.objetos[key] = (data, content_type)
 
+    async def get(self, key: str) -> bytes:
+        if key not in self.objetos:
+            message = f"chave inexistente: {key}"
+            raise MediaStorageError(message)
+        return self.objetos[key][0]
+
     async def presigned_get_url(self, key: str, ttl: timedelta) -> str:
         if key not in self.objetos:
             message = f"chave inexistente: {key}"

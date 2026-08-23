@@ -31,6 +31,21 @@ from dataclasses import dataclass
 from typing import Protocol
 
 
+class SttError(RuntimeError):
+    """A transcrição não produziu texto utilizável.
+
+    Chegou no CARD-009 e não no CARD-006 porque só agora existe alguém que a
+    captura: o caso de uso, que precisa marcar o turn como ``failed`` com um
+    motivo em vez de deixar a exceção da biblioteca escapar. É a mesma regra do
+    ADR-0031, item 5 — **onde o erro mora é consequência de quem precisa
+    capturá-lo** —, e por isso ele mora na porta, e não junto do
+    ``SttProviderUnavailableError``, que é erro de subida e ninguém captura.
+
+    Herda de ``RuntimeError`` e não de ``DomainError`` (ADR-0017): motor de
+    transcrição que falha é infraestrutura, não invariante de negócio violada.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class AudioInput:
     """Áudio como ele chega do storage: bytes de um arquivo, ainda codificado.
@@ -68,6 +83,10 @@ class SpeechToText(Protocol):
     ``async`` porque quem chama é o worker, que é assíncrono. Os adapters locais
     são **CPU-bound** e por isso empurram o trabalho para um executor — a porta
     não sabe nem se importa se a implementação é local, remota ou um fake.
+
+    Falha do motor atravessa como ``SttError``: o que não pode atravessar é uma
+    exceção do ``faster-whisper`` ou do ``mlx-whisper``, porque quem a captura
+    está em ``application`` e não pode importar nenhuma das duas.
     """
 
     async def transcribe(self, audio: AudioInput) -> Transcript: ...

@@ -18,6 +18,7 @@ from voicecoach.adapters.health import (
     check_minio,
     check_postgres,
     check_redis,
+    check_worker,
 )
 from voicecoach.config import Settings
 
@@ -29,7 +30,11 @@ def get_settings_from_app(request: Request) -> Settings:
 
 
 async def check_dependencies(request: Request) -> list[DependencyStatus]:
-    """Checa as três dependências em paralelo.
+    """Checa as quatro dependências em paralelo.
+
+    A quarta entrou no CARD-009 (ADR-0025, item 4) e é diferente das outras: ela
+    não pergunta se um serviço responde, e sim se **existe worker pronto**. Um
+    turn aceito sem worker capaz fica na fila até alguém subir.
 
     `asyncio.gather` dispara as corrotinas juntas e espera todas — é o
     `Task.WhenAll` do C#. Serializar os checks somaria as latências (e, no pior
@@ -41,5 +46,6 @@ async def check_dependencies(request: Request) -> list[DependencyStatus]:
             check_postgres(settings.database_url),
             check_redis(settings.redis_url),
             check_minio(settings),
+            check_worker(settings.redis_url),
         )
     )

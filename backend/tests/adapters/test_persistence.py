@@ -197,6 +197,81 @@ async def test_status_vai_para_o_banco_como_valor_e_nao_como_nome(
     assert resultado.scalar_one() == "queued"
 
 
+async def test_list_by_session_devolve_so_os_concluidos_em_ordem_cronologica(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """O histórico do professor (CARD-009).
+
+    Três turnos: dois concluídos e um que falhou. O que falhou **não** entra —
+    ele não tem os dois lados do diálogo, e alimentar o professor com metade de
+    uma troca ensinaria a ele um padrão de conversa que não existe.
+    """
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+
+    async def turno(minuto: int, *, concluido: bool) -> Turn:
+        turn = sessao_persistida.start_turn(
+            turn_id=uuid4(),
+            input_audio_ref=f"dev/{minuto}.m4a",
+            audio_duration=timedelta(seconds=10),
+            now=NOW + timedelta(minutes=minuto),
+        )
+        await repository.add(turn)
+        turn.start_processing(NOW + timedelta(minutes=minuto))
+        turn.attach_transcript(f"fala {minuto}", NOW + timedelta(minutes=minuto))
+        if concluido:
+            turn.attach_reply(f"resposta {minuto}", NOW + timedelta(minutes=minuto))
+            turn.attach_reply_audio(
+                f"dev/{minuto}.mp3", NOW + timedelta(minutes=minuto)
+            )
+            turn.complete(NOW + timedelta(minutes=minuto))
+        else:
+            turn.fail("tts caiu", NOW + timedelta(minutes=minuto))
+        await repository.update(turn)
+        return turn
+
+    await turno(1, concluido=True)
+    await turno(2, concluido=False)
+    await turno(3, concluido=True)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    historico = await repository.list_by_session(sessao_persistida.id, limit=10)
+
+    assert [t.transcript for t in historico] == ["fala 1", "fala 3"]
+
+
+async def test_list_by_session_corta_os_mais_velhos_e_nao_os_mais_novos(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """O `limit` protege o custo de tokens — e tem de cortar o lado certo.
+
+    A query ordena decrescente para pegar os N mais recentes; o resultado volta
+    cronológico porque é assim que o histórico é montado. Cortar ao contrário
+    daria ao professor o começo da conversa e não o que acabou de ser dito.
+    """
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    for minuto in (1, 2, 3):
+        turn = sessao_persistida.start_turn(
+            turn_id=uuid4(),
+            input_audio_ref=f"dev/{minuto}.m4a",
+            audio_duration=timedelta(seconds=10),
+            now=NOW + timedelta(minutes=minuto),
+        )
+        await repository.add(turn)
+        turn.start_processing(NOW + timedelta(minutes=minuto))
+        turn.attach_transcript(f"fala {minuto}", NOW + timedelta(minutes=minuto))
+        turn.attach_reply(f"resposta {minuto}", NOW + timedelta(minutes=minuto))
+        turn.attach_reply_audio(f"dev/{minuto}.mp3", NOW + timedelta(minutes=minuto))
+        turn.complete(NOW + timedelta(minutes=minuto))
+        await repository.update(turn)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    historico = await repository.list_by_session(sessao_persistida.id, limit=2)
+
+    assert [t.transcript for t in historico] == ["fala 2", "fala 3"]
+
+
 async def test_get_de_id_inexistente_devolve_none(db_session: AsyncSession) -> None:
     repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
 

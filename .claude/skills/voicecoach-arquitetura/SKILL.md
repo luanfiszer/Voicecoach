@@ -71,7 +71,7 @@ fronteira é um lint.
 | Preciso de… | Vai em | Fonte |
 |---|---|---|
 | Entidade / value object / regra pura | `domain/` — só stdlib, `dataclasses` no lugar de pydantic | ADR-0012 |
-| Caso de uso que orquestra domínio + portas | `application/` (handler CQS) | visão §D |
+| Caso de uso que orquestra domínio + portas | `application/use_cases/<comando>.py` — um handler, um comando, CQS sem MediatR. Recebe as portas por parâmetro nomeado; quem monta é a composition root | visão §D, ADR-0037 |
 | Interface para trocar provider (STT/LLM/TTS/storage/fila) | `application/ports/`, como `Protocol` | visão §D |
 | Implementação de uma porta (SQLAlchemy, Anthropic, MinIO, arq) | `adapters/` | visão §D |
 | Escolha de adapter por plataforma/config | `adapters/<capacidade>/factory.py`, resolvida **no boot**; incompatível **levanta**, nunca faz fallback | ADR-0027 |
@@ -85,7 +85,13 @@ fronteira é um lint.
 | Saída estruturada de LLM em streaming | *tool* com schema estrito + `eager_input_streaming: true`; parse com `jiter` e `partial_mode="trailing-strings"` | ADR-0030 |
 | Prompt de LLM | arquivo versionado **dentro do pacote** (`adapters/llm/prompts/<papel>/vN.md`), lido com `importlib.resources`; sem conteúdo volátil no prefixo | ADR-0021, ADR-0030 |
 | Router, schema pydantic de request/response, auth, Problem Details | `api/` | ADR-0008 |
-| Entrypoint que consome a fila | `worker/` | ADR-0005 |
+| Entrypoint que consome a fila | `worker/` — `main.py` é a composition root e o `ctx` do arq é o "container" | ADR-0005, ADR-0038 |
+| Modelo de IA no worker | carregado **uma vez** no `on_startup`, lido de `ctx["stt"]` / `ctx["tts"]`. Task **nunca** constrói — não quebra teste, só custa ~1 s por turno | ADR-0025 |
+| Nome de fila, chave de Redis, qualquer string que **api e worker** compartilhem | módulo em `adapters/` que ambos importam (`queue/arq_turn_queue.py`, `readiness_keys.py`) — nunca no `worker/`, porque `adapters` não pode importar `worker` | ADR-0012, ADR-0038 |
+| Evento do worker para a API | porta `TurnEvents` + pub/sub Redis, **um canal por turn**, com `storage_key` e nunca URL assinada. O canal é o caminho rápido; o **banco é a fonte da verdade** | ADR-0035 |
+| Concorrência dentro de um caso de uso | `asyncio.Queue` + um consumidor só, dentro de um `TaskGroup`. **Nunca** `create_task` por item quando a ordem for invariante de domínio | ADR-0037 |
+| Confirmar transação | porta `UnitOfWork`; na API é a borda, **no worker é o caso de uso**, comitando por marco — o turn não é uma transação, é uma sequência de marcos | ADR-0036 |
+| Comprimir áudio antes de gravar | porta `AudioEncoder`; `to_aac` usa PyAV e **não pode** ser chamado de `application` (o `forbidden` alcança `av` pela cadeia indireta) | ADR-0036 |
 | Leitura de env, segredo, budget | `config.py` (pydantic-settings) — passado **por parâmetro** ao núcleo | ADR-0013 |
 | Migration | `alembic/` — `env.py` resolve a URL da config ou da injetada pelo teste; nunca do `.ini` | ADR-0004 |
 | Ciclo de vida de um `Turn` | estado grosso em `domain`; o áudio da resposta é uma **sequência de trechos** (`TurnAudioChunk`); a **etapa** é propriedade calculada da entidade, e a borda só projeta | ADR-0023, ADR-0028 |
@@ -128,9 +134,22 @@ Cada proibição tem contrato executável ou ADR por trás.
   (ADR-0023 + CARD-015).
 - **Usar `Result` para invariante de domínio** — invariante violada é bug do
   chamador e levanta exceção; `Result` está reservado para falha *esperada* de
-  caso de uso, e sua forma ainda é TBD (ADR-0017).
+  caso de uso, e sua forma **continua TBD** (ADR-0017). O gatilho foi conferido no
+  CARD-009 e **não** foi atingido: toda falha do pipeline é infraestrutura. Os
+  candidatos reais são quota estourada (CARD-015) e `Idempotency-Key` repetida
+  (CARD-010).
 - **`api` importar `worker`, ou o contrário** — dois entrypoints do mesmo
-  núcleo (ADR-0012).
+  núcleo (ADR-0012). **E `adapters` importar `worker` também não**: aconteceu no
+  CARD-009 (o health check lendo a chave de prontidão de `worker/readiness.py`) e
+  o `lint-imports` reprovou. O que os dois processos compartilham mora em
+  `adapters/`.
+- **Reprocessar um turn que já entregou trecho.** O `arq` reexecuta a função
+  inteira no retry e não sabe disso; a guarda é do caso de uso, olhando
+  `turn.audio_chunks` no começo. Turn `completed` re-enfileirado é **no-op**, não
+  erro (ADR-0037, CARD-009).
+- **Assinar URL de mídia no worker.** A URL assinada é montada pela API no
+  momento da entrega; o que atravessa o canal é a chave. Assinar cedo entrega URL
+  já envelhecida a quem reconecta (ADR-0035).
 - **Gravar objeto de mídia sem classe de retenção.** A tag é derivada da chave
   e chave fora do esquema levanta: esquecer a tag não daria erro, só faria voz de
   aluno viver para sempre (ADR-0034).

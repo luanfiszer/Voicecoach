@@ -113,18 +113,26 @@ backend/
         │   ├── session.py
         │   └── turn.py       # ciclo de vida do Turn (ADR-0016)
         ├── application/
-        │   └── ports/
-        │       ├── repositories.py     # os três Protocol de repositório
-        │       ├── speech_to_text.py   # porta de STT (ADR-0027/0029)
-        │       ├── teacher_llm.py      # porta do professor, em fluxo (ADR-0030/0031)
-        │       ├── text_to_speech.py   # porta de TTS + concat de PCM (ADR-0033)
-        │       └── media_storage.py    # porta de storage (ADR-0024/0034)
+        │   ├── ports/
+        │   │   ├── repositories.py     # repositórios + UnitOfWork (ADR-0004/0036)
+        │   │   ├── speech_to_text.py   # porta de STT (ADR-0027/0029)
+        │   │   ├── teacher_llm.py      # porta do professor, em fluxo (ADR-0030/0031)
+        │   │   ├── text_to_speech.py   # porta de TTS + concat de PCM (ADR-0033)
+        │   │   ├── media_storage.py    # porta de storage (ADR-0024/0034/0036)
+        │   │   ├── audio_encoder.py    # compressão antes de gravar (ADR-0036)
+        │   │   ├── turn_queue.py       # enfileirar um turn (ADR-0005)
+        │   │   └── turn_events.py      # canal worker→API (ADR-0035)
+        │   └── use_cases/
+        │       └── process_turn.py     # A CASCATA (ADR-0037) — o pipeline inteiro
         ├── adapters/
-        │   ├── health.py     # checks de Postgres, Redis e MinIO
+        │   ├── health.py           # checks de Postgres, Redis, MinIO e worker
+        │   ├── readiness_keys.py   # a chave que api e worker compartilham
         │   ├── persistence/  # models, mappers, repositories, engine, seed
         │   ├── stt/          # dois adapters de STT + fábrica (ADR-0027)
         │   ├── tts/          # Piper + fábrica + codificação AAC (ADR-0032/0033)
         │   ├── storage/      # adapter S3 e lifecycle do bucket (ADR-0034)
+        │   ├── queue/        # adapter arq da porta TurnQueue (ADR-0038)
+        │   ├── events/       # pub/sub Redis da porta TurnEvents (ADR-0035)
         │   └── llm/          # professor em streaming, corte por sentença,
         │                     # fábrica e prompts/teacher/v1.md (ADR-0030/0031)
         ├── api/
@@ -133,7 +141,31 @@ backend/
         │   ├── routes/health.py
         │   └── schemas/health.py
         └── worker/
+            ├── main.py       # composition root do worker: ctx, on_startup (ADR-0025)
+            └── readiness.py  # a chave voicecoach:worker:ready + heartbeat
 ```
+
+### O worker (ADR-0005, ADR-0025, ADR-0037)
+
+```bash
+uv run voicecoach-worker      # sobe o worker: carrega os modelos e consome a fila
+```
+
+**Ele é o processo que faz o produto acontecer**, e não é opcional: a API aceita
+o turn e devolve; quem transcreve, pensa e fala é o worker.
+
+Três coisas que não são óbvias e custam caro se esquecidas:
+
+| | Por quê |
+|---|---|
+| **Os modelos carregam no `on_startup`, nunca na task** | Carregar por job custa ~1 s (STT ~1,1 s + TTS 0,43 s medidos — `docs/medicao-latencia.md` §10.1), mais da metade do orçamento de 1,8 s. As tasks **leem** `ctx["stt"]`; construir ali não quebra teste nenhum, só a latência sobe |
+| **~1–2 GB residentes** | Requisito de máquina, não detalhe de execução (ADR-0025, item 5): os modelos ficam em memória mesmo com a fila vazia |
+| **`voicecoach:worker:ready` com TTL** | Worker morto não apaga nada — ele morre. A chave expira sozinha, e é por isso que `GET /health/ready` consegue distinguir "subiu" de "pronto" |
+
+A **forma** da cascata é contrato (ADR-0037): uma corrotina sintetiza, outra
+grava, ligadas por uma `asyncio.Queue`. Trocar isso por `asyncio.create_task` por
+sentença grava os trechos **fora de ordem** — às vezes com
+`OutOfOrderAudioChunkError`, mais frequentemente em silêncio.
 
 ### Banco e migrations (ADR-0004)
 
@@ -304,9 +336,13 @@ reconhecem `sk-ant-...`, e essa é a única credencial paga do projeto
 | Endpoint | Pergunta que responde | Toca em dependência? |
 |---|---|---|
 | `GET /health` | "o processo está vivo?" | **não** — se dependesse do banco, um supervisor mataria uma API sadia por causa de um vizinho |
-| `GET /health/ready` | "posso receber tráfego?" | sim: Postgres (`SELECT 1`), Redis (`PING`), MinIO (**`head_bucket` com credencial real** — ADR-0034) |
+| `GET /health/ready` | "posso receber tráfego?" | sim: Postgres (`SELECT 1`), Redis (`PING`), MinIO (**`head_bucket` com credencial real** — ADR-0034) e **worker** (a chave de prontidão existe? — ADR-0025) |
 
-`/health/ready` responde **200 só com as três `up`; 503 caso contrário**, com o
+A quarta entrada não é como as outras três: elas perguntam se um serviço
+responde, ela pergunta se **existe worker com os modelos carregados**. Um turn
+aceito sem worker pronto fica na fila até alguém subir.
+
+`/health/ready` responde **200 só com as quatro `up`; 503 caso contrário**, com o
 mesmo corpo nos dois casos — quem faz probe lê o status HTTP, quem depura lê o
 JSON (qual caiu, qual erro, quanto demorou).
 
