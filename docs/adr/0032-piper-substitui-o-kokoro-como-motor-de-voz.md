@@ -111,21 +111,24 @@ nada sozinho; a voz é um artefato buscado explicitamente antes.
 
 **Negativas — o preço aceito**
 
-- **A qualidade percebida NÃO foi julgada.** As amostras dos dois motores foram
-  geradas e entregues ao desenvolvedor, e ele não emitiu veredito até o
-  fechamento do card. A decisão está tomada sobre os eixos objetivos, e o
-  critério escrito antes da medição autoriza isso apenas no caso de **empate**
-  em qualidade — que não foi verificado. **Esta é a fragilidade conhecida deste
-  ADR.** Gatilho para reabrir: qualquer julgamento de que a voz do Piper é
-  insuficiente para uso pedagógico; o custo de reverter é uma linha de config
-  mais um adapter de ~40 linhas.
+- ~~**A qualidade percebida NÃO foi julgada.**~~ **Fechado em 2026-08-23**, no
+  mesmo dia: o desenvolvedor ouviu as amostras dos dois motores — incluindo uma
+  correção pedagógica real, com contraste de forma errada/certa e pergunta ao
+  final — e aprovou a voz do Piper (`en_US-lessac-medium`, o default). O
+  critério escrito antes da medição exigia empate em qualidade para o desempate
+  por empacotamento valer; o julgamento tornou a exigência desnecessária, porque
+  não houve nada a desempatar. **Este ADR deixa de ter lacuna conhecida.**
+  Gatilho para reabrir permanece: uso prolongado revelar prosódia insuficiente
+  em sessão longa — o custo de reverter é uma linha de config mais um adapter de
+  ~40 linhas.
 - **A voz deixa de vir no pacote.** São 60 MB por voz, baixados por comando, que
   precisam existir no container do CARD-009 e na máquina de quem clona o repo.
   Trocamos três dependências de sistema por **um artefato versionado** — é troca,
   não eliminação, e ela move o problema do `apt`/`brew` para o build da imagem.
-- **`en_US-lessac-medium` é escolha não medida.** Duas vozes foram
-  cronometradas e ficaram dentro do ruído uma da outra; qual delas soa melhor é
-  a mesma lacuna do item acima.
+- **`en_US-lessac-medium` vs. `en_US-amy-medium` não foi um julgamento
+  comparativo.** As duas foram cronometradas (dentro do ruído uma da outra) e
+  ouvidas, e a aprovação recaiu sobre o default sem que a segunda fosse
+  rejeitada explicitamente. Trocar de voz é uma linha de configuração.
 - **O Kokoro fica no enum sem adapter**, o que é uma promessa parcial: quem ler
   a configuração vai supor que `kokoro` funciona. Mitigado pela mensagem de erro,
   que nomeia as três dependências e aponta o ADR.

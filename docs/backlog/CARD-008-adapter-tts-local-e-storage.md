@@ -181,10 +181,10 @@ Conferido contra "Quando um ADR é OBRIGATÓRIO" (`docs/adr/README.md`):
 
 | Dívida | Gatilho / card que resolve |
 |---|---|
-| **Qualidade percebida da voz não foi julgada** — as amostras foram geradas e entregues, o desenvolvedor não emitiu veredito. O ADR-0032 está fundado só nos eixos objetivos | Qualquer julgamento de que a voz do Piper é insuficiente reabre o ADR-0032; reverter custa uma linha de config + ~40 linhas de adapter |
+| ~~Qualidade percebida da voz não julgada~~ — **fechada em 2026-08-23**: o desenvolvedor ouviu as amostras (incluindo uma correção pedagógica real, via `benchmarks/tts_audicao.py`) e aprovou a voz do Piper. O ADR-0032 passa a ter os quatro eixos do critério cobertos | — |
 | Dockerfile do worker | CARD-009 |
 | Lifecycle verificado só contra MinIO | migração para provedor real (ressalva do ADR-0006/0024, agora com 3 regras) |
-| `en_US-lessac-medium` escolhida sem comparação de qualidade | mesmo gatilho da primeira linha |
+| `lessac` vs. `amy` não foi comparação explícita: a aprovação recaiu sobre o default | trocar de voz é uma linha de config |
 | Objeto gravado por fora do adapter não recebe tag e viveria para sempre | sem defesa técnica; o teste falha se o adapter parar de marcar |
 
 ### Regra do explicador — desfecho honesto

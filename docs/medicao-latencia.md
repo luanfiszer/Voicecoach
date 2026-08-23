@@ -463,7 +463,10 @@ Dois números do projeto mudam, e um ADR fica desatualizado:
 
 ### 9.4 O que esta medição NÃO decide
 
-**Qualidade percebida.** Os cinco WAVs gerados (`/tmp/tts_*.wav`) foram
-entregues ao desenvolvedor para julgamento; nenhuma métrica automática de
-qualidade de voz foi usada, e inventar uma seria pior que admitir a lacuna —
-é a mesma honestidade da §3.4 sobre WER sem voz de aprendiz.
+**Qualidade percebida.** Nenhuma métrica automática de qualidade de voz foi
+usada — inventar uma seria pior que admitir a lacuna, como na §3.4 sobre WER sem
+voz de aprendiz. O julgamento é humano por natureza, e **foi feito**: as amostras
+dos dois motores, mais uma correção pedagógica real sintetizada pelo adapter de
+produção (`benchmarks/tts_audicao.py`), foram ouvidas pelo desenvolvedor em
+2026-08-23, que aprovou a voz do Piper. Com isso, os quatro eixos do critério
+escrito antes da medição estão cobertos, e o ADR-0032 deixa de ter lacuna.
