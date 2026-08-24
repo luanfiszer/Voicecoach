@@ -79,6 +79,8 @@ Escreva um ADR sempre que a decisão:
 | [0040](0040-formato-de-erro-da-api-problem-details.md) | O formato de erro da API é Problem Details (RFC 9457), num handler só | aceito (implementa 0008 item 5 e 0017 item 2) |
 | [0041](0041-id-estruturado-do-evento-sse-e-retomada-derivada-do-banco.md) | O `id` do evento SSE é estruturado, e a retomada é derivada do banco | aceito (completa 0026 e 0035) |
 | [0042](0042-idempotencia-do-post-por-coluna-no-postgres.md) | A idempotência do `POST` mora numa coluna do Postgres, não no Redis | aceito |
+| [0043](0043-quality-gates-do-cliente-typescript-com-biome.md) | Os quality gates do cliente: `tsc --strict` e Biome, nos mesmos três anéis | aceito (estende 0015 ao cliente; torna verificável o 0008) |
+| [0044](0044-dependencias-de-arranque-do-app-expo-e-convivencia-com-pnpm.md) | As dependências de arranque do app Expo, e a convivência do Metro com o pnpm | aceito (executa 0002; dispensa o polyfill previsto no 0026) |
 
 ## ADRs pendentes de decisão de produto
 

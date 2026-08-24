@@ -28,6 +28,7 @@ perguntas que nunca tiveram resposta verificada.
 | Q11 | Se eu chamar `client.put_object(...)` **direto dentro de uma corrotina**, o que acontece com as outras corrotinas do worker enquanto o upload corre — e como eu provaria isso num teste? | CARD-008 | 2026-08-23 | reapresentada no CARD-009; **sem resposta e sem dispensa** |
 | Q12 | Contratos do import-linter, os dois lados: o `forbidden` segue **cadeias indiretas** (`use_case → encoding → av` reprova mesmo sem `import av` escrito) e o `layers` **só enxerga o grafo interno** (biblioteca externa é invisível para ele). Dado um import, quantos e quais contratos quebram? | CARD-009 | 2026-08-23 | feita no ponto da decisão; 1ª resposta errada (1, era 2), **reformulada uma vez**, 2ª também errada (2, era 1) |
 | Q13 | Um gerador assíncrono não executa nada até o primeiro `__anext__`, então `events.subscribe(turn_id)` devolve o objeto **sem** ter emitido `SUBSCRIBE`. Se o caso de uso lê o banco antes de começar a iterar, e o worker publica o `chunk:0` exatamente nessa janela — o que o aluno vê na tela, e o que acontece com esse trecho? | CARD-010 | 2026-08-23 | feita **antes** de escrever o código, no ponto da decisão; **sem resposta e sem dispensa** |
+| Q14 | Lendo `response.body` do SSE com o **`fetch` global do React Native** (não o `expo/fetch`): o stream chega em pedaços, chega inteiro só no fim, ou dá erro porque `body` não é stream? | CARD-011 | 2026-08-24 | feita **antes** de escrever o spike, no ponto da decisão de dependência; **sem resposta e sem dispensa** |
 
 > **Q7** foi reapresentada na abertura do CARD-006 e **dispensada pelo
 > desenvolvedor** ("vamos pular essas perguntas e finalizar a implementação").
@@ -136,6 +137,40 @@ perguntas que nunca tiveram resposta verificada.
 >
 > **Sexta sessão seguida com o item vermelho.** A pendência de topo desta fila
 > continua sendo a mesma: decidir se a **regra** muda.
+
+> **CARD-011 (2026-08-24): a fila FOI reapresentada na abertura** — Q7 e Q1,
+> com o motivo honesto de cada uma tocar este card. A fila tem 10 abertas e é
+> **toda de backend**; este card é de front-end, e o agente disse isso em vez de
+> forçar as outras oito para cumprir tabela. **Q7** entrou pelo paralelo (este
+> card decide se o TypeScript roda com `strict`, e a pergunta gêmea é *"o que
+> quebra, e quando, se o backend renomear um campo?"*); **Q1** entrou pela
+> fronteira de empacotamento (o Metro e os symlinks do pnpm). A **proposta de
+> postmortem sobre a regra** foi reapresentada como pendência de topo, com os
+> três caminhos possíveis explicitados (manter e responder / reescrever /
+> manter e aceitar o vermelho como dívida). **Nenhuma das três foi respondida
+> nem dispensada:** o desenvolvedor respondeu as quatro decisões de escopo
+> (Biome, `expo-router` entra, teste adiado, tokens agora) e a sessão seguiu.
+>
+> Pela sétima vez, as perguntas se demonstraram sozinhas. **Q7:** renomear
+> `TurnResponse` no schema gerado ⇒ `error TS2339: Property 'TurnResponse' does
+> not exist`, revertido ⇒ verde — o par completo que torna verdadeira a promessa
+> do ADR-0008, que até esta sessão era **falsa** (ninguém compilava cliente
+> nenhum contra os tipos). **Q1:** o primeiro bundle saiu
+> `node_modules/.pnpm/expo-router@57.0.15_…/entry.js`, provando que o Metro
+> resolve através da store do pnpm — a mesma classe de pergunta ("o que o import
+> resolve depende de como o pacote foi instalado"), agora do outro lado do
+> monorepo.
+>
+> **Q14 nasceu nesta sessão, e nasceu certa:** feita antes de escrever o spike,
+> sobre consequência observável, num ponto em que errar custaria uma dependência
+> desnecessária no app (`react-native-sse`) ou um card inteiro perdido no 012.
+> Conferida rodando na hora: **(a) chega em pedaços** — 5 leituras, timestamps
+> crescentes, `chunk 0` em 1,65 s. Também sem resposta.
+>
+> **Sétima sessão seguida com o item vermelho.** A pendência de topo desta fila
+> continua sendo exatamente a mesma desde o CARD-009: decidir se a **regra**
+> muda. Ela é a única linha desta fila que não depende de mais uma sessão de
+> trabalho para ser resolvida — depende de uma decisão de uma frase.
 
 ## Fechadas
 
