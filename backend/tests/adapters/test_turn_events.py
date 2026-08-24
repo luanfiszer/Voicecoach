@@ -7,6 +7,7 @@ evento no fio, o canal e o payload), não o pub/sub, que é código da bibliotec
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from typing import Any
 from uuid import uuid4
 
@@ -15,7 +16,9 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 
 from voicecoach.adapters.events.redis_turn_events import (
     RedisTurnEvents,
+    UnknownWireEventError,
     channel_for,
+    parse_wire,
     wire_name,
 )
 from voicecoach.application.ports.turn_events import (
@@ -112,3 +115,50 @@ async def test_falha_do_redis_atravessa_como_erro_da_porta() -> None:
 
     with pytest.raises(TurnEventsError, match="publicação falhou"):
         await eventos.publish(uuid4(), Completed(reply_audio_key="k"))
+
+
+# --- o caminho de volta: fio → evento interno (CARD-010) --------------------
+
+TODOS_OS_EVENTOS: list[TurnEvent] = [
+    Transcribed(transcript="I think my job is stressful"),
+    ChunkReady(
+        index=3, storage_key="a/b/c/reply/003.aac", duration_seconds=1.75, text="Hi."
+    ),
+    FeedbackAvailable(
+        has_mistakes=True, original="I has", corrected="I have", tip="have, com I"
+    ),
+    Completed(reply_audio_key="a/b/c/reply/full.aac"),
+    Failed(reason="o TTS caiu", delivered_partially=True),
+]
+
+
+@pytest.mark.parametrize("evento", TODOS_OS_EVENTOS, ids=wire_name)
+def test_o_evento_sobrevive_a_ida_e_volta_pelo_fio(evento: TurnEvent) -> None:
+    """**É este teste que impede as duas metades da tradução de divergirem.**
+
+    `wire_name` + `asdict` (a ida) e `parse_wire` (a volta) são escritos à mão,
+    em `match` separados — de propósito, porque é o `assert_never` da ida que faz
+    um evento novo quebrar no `mypy` (ADR-0035, item 6). Uma tabela única casaria
+    os dois lados e jogaria fora essa garantia.
+
+    O preço dessa escolha é poder escrever a volta errada. Este teste é o preço
+    pago: os **cinco** eventos vão e voltam, e a igualdade estrutural das
+    dataclasses (`frozen=True` gera `__eq__` por valor) compara o objeto inteiro
+    com um `==` só.
+    """
+    payload = json.dumps({"event": wire_name(evento), "data": asdict(evento)})
+
+    assert parse_wire(payload) == evento
+
+
+def test_evento_desconhecido_no_fio_levanta_em_vez_de_sumir() -> None:
+    """Deploy em duas velocidades: um worker mais novo publica algo que esta API
+    não conhece.
+
+    Descartar em silêncio deixaria a tela do aluno parada sem ninguém saber por
+    quê — o pior modo de falha possível num canal de entrega.
+    """
+    payload = json.dumps({"event": "inventado", "data": {}})
+
+    with pytest.raises(UnknownWireEventError):
+        parse_wire(payload)

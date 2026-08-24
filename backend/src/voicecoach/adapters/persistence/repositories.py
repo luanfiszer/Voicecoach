@@ -107,6 +107,20 @@ class SqlAlchemyTurnRepository:
         row = await self._session.get(TurnRow, turn_id, options=[self._COM_TRECHOS])
         return None if row is None else mappers.turn_from_row(row)
 
+    async def get_by_idempotency_key(self, key: str) -> Turn | None:
+        """Busca pelo índice único parcial ``ix_turns_idempotency_key``.
+
+        O eager load dos trechos vem junto pelo mesmo motivo do ``get``: sem
+        ele o mapeador estoura ao tocar a coleção (``lazy="raise_on_sql"``).
+        """
+        stmt = (
+            select(TurnRow)
+            .where(TurnRow.idempotency_key == key)
+            .options(self._COM_TRECHOS)
+        )
+        row = (await self._session.scalars(stmt)).one_or_none()
+        return None if row is None else mappers.turn_from_row(row)
+
     async def update(self, turn: Turn) -> None:
         """Grava o novo estado de um Turn já persistido.
 

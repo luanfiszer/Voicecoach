@@ -64,11 +64,8 @@ jobs:
         run: uv run coverage report --include="*/domain/*,*/application/*" --fail-under=90
 
   openapi:
-    name: contrato OpenAPI
+    name: contrato OpenAPI e tipos TypeScript
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
 
     steps:
       - uses: actions/checkout@v7.0.1
@@ -79,6 +76,7 @@ jobs:
           cache-dependency-glob: backend/uv.lock
 
       - run: uv sync --frozen
+        working-directory: backend
 
       - name: Gera o schema OpenAPI
         # A chave é um valor descartável só para o boot passar: `create_app()`
@@ -87,20 +85,43 @@ jobs:
         # nenhum segredo de verdade é necessário no CI.
         env:
           ANTHROPIC_API_KEY: ci-nao-e-uma-chave-real
+        working-directory: backend
         run: |
           uv run python -c "
           import json, pathlib
           from voicecoach.api.app import create_app
           schema = create_app().openapi()
-          pathlib.Path('openapi.json').write_text(json.dumps(schema, indent=2))
+          pathlib.Path('openapi.json').write_text(json.dumps(schema, indent=2) + '\n')
           print('paths:', sorted(schema['paths']))
           "
 
+      - uses: pnpm/action-setup@v4.2.0
+      - uses: actions/setup-node@v6.0.0
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - name: Gera os tipos TypeScript do contrato
+        run: |
+          pnpm --filter @voicecoach/api-client install --frozen-lockfile
+          pnpm --filter @voicecoach/api-client run generate
+
+      - name: O contrato commitado tem de estar em dia
+        # **É este passo que faz o ADR-0008 item 4 valer alguma coisa.** Gerar os
+        # tipos e jogá-los fora provaria só que o gerador roda. Comparando com o
+        # que está no repositório, uma mudança de contrato vira DIFF REVISÁVEL no
+        # PR — e esquecer de regenerar vira build vermelho, em vez de um erro de
+        # runtime no aparelho de alguém.
+        run: |
+          git diff --exit-code --stat -- backend/openapi.json packages/api-client/src/schema.d.ts \
+            || {
+              echo "::error::O OpenAPI ou os tipos TS estão desatualizados."
+              echo "Rode, da raiz:  (cd backend && uv run python -c \"...\") && pnpm --filter @voicecoach/api-client run generate"
+              git diff -- backend/openapi.json packages/api-client/src/schema.d.ts
+              exit 1
+            }
+
       - name: Publica o schema como artefato
-        # Placeholder deliberado: hoje só prova que o contrato é *gerável* e
-        # deixa o JSON baixável. A geração de tipos TypeScript
-        # (openapi-typescript) entra quando existir rota /v1 para tipar —
-        # CARD-010. Ver ADR-0008.
         uses: actions/upload-artifact@v7.0.1
         with:
           name: openapi-schema

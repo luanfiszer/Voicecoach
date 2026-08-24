@@ -10,7 +10,7 @@ Regras **destiladas dos ADRs** (`docs/adr/`) e da visão
 fonte.** O *porquê* de cada uma, com o gatilho para reavaliá-la, está em
 [REFERENCE.md](REFERENCE.md).
 
-> **Cobertura desta skill:** ADRs 0001–0023 e 0030–0034. Os ADRs **0024–0029**
+> **Cobertura desta skill:** ADRs 0001–0023 e 0030–0042. Os ADRs **0024–0029**
 > ainda não foram destilados aqui — consulte-os direto em `docs/adr/`. Se a skill
 > contradisser um ADR, **o ADR ganha**.
 >
@@ -84,7 +84,14 @@ fronteira é um lint.
 | Erro de provedor que o caso de uso vai capturar | na **porta** (`application/ports/`), não no adapter — `application` não pode importar `adapters`. Herda de `RuntimeError`, nunca de `DomainError` | ADR-0031, ADR-0017 |
 | Saída estruturada de LLM em streaming | *tool* com schema estrito + `eager_input_streaming: true`; parse com `jiter` e `partial_mode="trailing-strings"` | ADR-0030 |
 | Prompt de LLM | arquivo versionado **dentro do pacote** (`adapters/llm/prompts/<papel>/vN.md`), lido com `importlib.resources`; sem conteúdo volátil no prefixo | ADR-0021, ADR-0030 |
-| Router, schema pydantic de request/response, auth, Problem Details | `api/` | ADR-0008 |
+| Router, schema pydantic de request/response, auth | `api/` | ADR-0008 |
+| **Prefixo `/v1`** | declarado UMA vez, no router pai de `api/routes/__init__.py` — é fronteira de contrato, não pode estar espalhada por `prefix=` em cada include | ADR-0008 |
+| **Formato de erro HTTP** | `api/errors.py` (exception handlers) + `api/schemas/problem.py`. **Problem Details RFC 9457, `application/problem+json`**, com `type` em URN (`urn:voicecoach:problem:...`) como chave semântica. Rota **nunca** monta `JSONResponse` de erro | ADR-0040 |
+| **Pool/engine/cliente de vida longa na API** | `api/lifespan.py` — context manager async passado ao `FastAPI(lifespan=...)`. Nunca por request: um engine por request esgota o Postgres, uma conexão de Redis por stream esgota o Redis | ADR-0040, CARD-010 |
+| **Composição por request** | `api/dependencies.py`: **um provider por porta**, e os handlers montados a partir deles. É o que faz o teste de rota trocar seis folhas por dublês sem tocar em infraestrutura | ADR-0012 |
+| **Desfecho esperado de caso de uso** | `Result[T, E]` de `application/result.py` (`Ok`/`Err`, união fechada, `match` + `assert_never`). `E` é um tipo **por caso de uso**, declarado junto do handler | ADR-0039 |
+| **`id` de evento SSE e retomada** | id **estruturado** (`transcribed`, `chunk:{index}`, `feedback`, `completed`, `failed`), recalculado do `Turn`. A ordem é uma função (`posicao`), nunca comparação de strings | ADR-0041 |
+| **Idempotência de requisição** | coluna em `turns` com índice único **parcial**, nunca `SETNX` no Redis. A chave e o Turn nascem no mesmo commit | ADR-0042 |
 | Entrypoint que consome a fila | `worker/` — `main.py` é a composition root e o `ctx` do arq é o "container" | ADR-0005, ADR-0038 |
 | Modelo de IA no worker | carregado **uma vez** no `on_startup`, lido de `ctx["stt"]` / `ctx["tts"]`. Task **nunca** constrói — não quebra teste, só custa ~1 s por turno | ADR-0025 |
 | Nome de fila, chave de Redis, qualquer string que **api e worker** compartilhem | módulo em `adapters/` que ambos importam (`queue/arq_turn_queue.py`, `readiness_keys.py`) — nunca no `worker/`, porque `adapters` não pode importar `worker` | ADR-0012, ADR-0038 |
@@ -132,12 +139,24 @@ Cada proibição tem contrato executável ou ADR por trás.
 - **`DateTime` sem `timezone=True`** em coluna de tempo — a quota reseta por
   dia-calendário em fuso fixo, e isso é impossível sobre timestamp ingênuo
   (ADR-0023 + CARD-015).
-- **Usar `Result` para invariante de domínio** — invariante violada é bug do
-  chamador e levanta exceção; `Result` está reservado para falha *esperada* de
-  caso de uso, e sua forma **continua TBD** (ADR-0017). O gatilho foi conferido no
-  CARD-009 e **não** foi atingido: toda falha do pipeline é infraestrutura. Os
-  candidatos reais são quota estourada (CARD-015) e `Idempotency-Key` repetida
-  (CARD-010).
+- **Usar `Result` para invariante de domínio, ou exceção para desfecho esperado.**
+  A forma do `Result` **está decidida** (ADR-0039, que fechou o TBD do ADR-0017).
+  A pergunta que separa os dois mecanismos não é *"deu erro?"* — é **"quem chamou
+  tem um bug?"**: se tem, exceção; se não tem, `Result`. Infraestrutura caída é
+  exceção de porta, **não** `Err`. E **sucesso com nuance é `Ok`**:
+  `Idempotency-Key` repetida devolve `Ok(TurnAccepted(..., replayed=True))`,
+  porque `202` com o mesmo `turn_id` é sucesso, não falha.
+- **Devolver `Result` de um gerador.** Ele não atravessa: um gerador assíncrono
+  não tem retorno que o consumidor leia. Ali o desfecho continua sendo exceção,
+  traduzida na borda (limitação registrada no ADR-0039).
+- **Levantar erro 4xx de dentro do gerador de um stream.** Quando o primeiro byte
+  sai, o código HTTP já foi enviado e o Starlette recusa o handler (*"response
+  already started"*). O que pode virar 4xx é validado **na rota** (ADR-0040).
+- **Devolver `AsyncIterator` de uma porta que precisa estabelecer estado antes de
+  iterar.** O corpo de um gerador assíncrono não roda até o primeiro `__anext__`
+  — `TurnEvents.subscribe` é **context manager** por isso: o `SUBSCRIBE` tem de
+  existir antes de o caso de uso ler o banco, ou o que for publicado nessa janela
+  cai no chão (ADR-0041, ADR-0035).
 - **`api` importar `worker`, ou o contrário** — dois entrypoints do mesmo
   núcleo (ADR-0012). **E `adapters` importar `worker` também não**: aconteceu no
   CARD-009 (o health check lendo a chave de prontidão de `worker/readiness.py`) e
@@ -205,13 +224,18 @@ Cada proibição tem contrato executável ou ADR por trás.
   sourcing (visão §F).
 - **Suprimir aviso é decisão:** todo `# noqa: XXX` e `# type: ignore[...]` vem
   com o código específico e o motivo ao lado (ADR-0015).
-- **Erro: metade decidida (ADR-0017).** **Invariante de domínio violada levanta
-  exceção** — `DomainError` como raiz, `InvalidStateTransitionError` para
-  transição impossível; a borda traduz para Problem Details num lugar só.
-  **`Result` para falha *esperada* de caso de uso continua TBD**, agora com
-  gatilho escrito: o primeiro desfecho que é normal do negócio e não bug —
-  quota estourada (CARD-015), `Idempotency-Key` repetida (CARD-010), convite já
-  usado (Fase 3). Naquele card decide-se, e vira ADR ali. **Não invente antes.**
+- **Erro: decidido por inteiro** (ADR-0017 + ADR-0039 + ADR-0040).
+
+  | Situação | Mecanismo |
+  |---|---|
+  | Invariante de agregado violada (`Turn.complete()` sem áudio) | **exceção** de `domain/errors.py` (`DomainError`) |
+  | Infraestrutura não colaborou (fila fora, storage recusou) | **exceção** de porta, herdando `RuntimeError` |
+  | Desfecho normal do negócio (sessão inexistente; quota — CARD-015) | **`Result`** (`Ok`/`Err`) |
+
+  A borda traduz **tudo** para Problem Details num lugar só (`api/errors.py`), e
+  o código HTTP responde *"de quem é o problema?"* — 409 para invariante (a
+  requisição está certa, o **estado** é que não permite), 503 para porta, 4xx
+  para o cliente.
 
 ## Quality gates (ADR-0015)
 
@@ -240,7 +264,7 @@ conta como cumprido (CLAUDE.md).
 | domain | unit puro, sem IO | pytest |
 | application | fakes em memória das portas — `Protocol` dispensa mock framework: um fake é uma classe com os métodos certos | pytest |
 | adapters | integração contra dependência real em container; HTTP de provider interceptado | pytest + **testcontainers** (instalado no CARD-005, ADR-0018); respx *(ainda não)*. Esquema criado por `alembic upgrade head`, não `create_all()` |
-| api | rota via `httpx.AsyncClient` contra o app | pytest + httpx |
+| api | rota via `httpx.AsyncClient` contra o app, com as **portas** trocadas por dublês em `dependency_overrides` (o `lifespan` nem roda) | pytest + httpx |
 | contrato | OpenAPI + geração de tipos no CI acusa breaking change | CI |
 | qualidade pedagógica da IA | **não é teste unitário** — é o eval harness | Fase 4 (P5) |
 

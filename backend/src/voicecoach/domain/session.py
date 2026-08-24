@@ -40,6 +40,7 @@ class Session:
         input_audio_ref: str,
         audio_duration: timedelta,
         now: datetime,
+        idempotency_key: str | None = None,
     ) -> Turn:
         """Cria um Turn nesta sessão — e recusa se ela já foi encerrada.
 
@@ -64,6 +65,7 @@ class Session:
             input_audio_ref=input_audio_ref,
             audio_duration=audio_duration,
             created_at=now,
+            idempotency_key=idempotency_key,
         )
 
     def end(self, now: datetime) -> None:

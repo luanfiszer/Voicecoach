@@ -1,0 +1,20 @@
+{
+  "name": "@voicecoach/api-client",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Tipos gerados do OpenAPI do backend (ADR-0008). Não editar à mão.",
+  "type": "module",
+  "types": "./src/schema.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/schema.d.ts"
+    }
+  },
+  "scripts": {
+    "generate": "openapi-typescript ../../backend/openapi.json -o src/schema.d.ts"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.9.1"
+  },
+  "license": "UNLICENSED"
+}

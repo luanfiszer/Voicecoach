@@ -20,11 +20,13 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     Interval,
     String,
     Text,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -91,6 +93,14 @@ class TurnRow(Base):
     """
 
     __tablename__ = "turns"
+    __table_args__ = (
+        Index(
+            "ix_turns_idempotency_key",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
     session_id: Mapped[uuid.UUID] = mapped_column(
@@ -102,6 +112,18 @@ class TurnRow(Base):
     # hoje?" direto no banco (CARD-015).
     audio_duration: Mapped[timedelta] = mapped_column(Interval)
     created_at: Mapped[datetime] = mapped_column(_Timestamp)
+
+    # Idempotência do POST (CARD-010). O índice é ÚNICO e **parcial**: só vale
+    # onde a chave existe, porque o worker e os testes criam Turn sem passar
+    # pela borda HTTP, e vários nulos não podem colidir entre si.
+    #
+    # Por que aqui e não no Redis: um `SETNX` com TTL cria uma segunda fonte de
+    # verdade e um estado de crash sem saída — a chave existindo e apontando
+    # para nenhum Turn. Aqui a chave e o Turn nascem no MESMO commit, então os
+    # dois existem ou nenhum existe. O preço é uma migration e uma decisão de
+    # retenção: a chave é dado do cliente e morre junto do Turn, sem ciclo
+    # próprio.
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), default=None)
 
     status: Mapped[TurnStatus] = mapped_column(_TurnStatusType, index=True)
 

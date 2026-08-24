@@ -27,6 +27,7 @@ perguntas que nunca tiveram resposta verificada.
 | Q9 | Igualdade de `@dataclass`: por que dois objetos da mesma entidade com um campo diferente não são iguais, e por que o Python **proíbe** usá-los como chave de dict/set? | CARD-005 | 2026-08-18 | reapresentada no CARD-007; **sem resposta e sem dispensa** |
 | Q11 | Se eu chamar `client.put_object(...)` **direto dentro de uma corrotina**, o que acontece com as outras corrotinas do worker enquanto o upload corre — e como eu provaria isso num teste? | CARD-008 | 2026-08-23 | reapresentada no CARD-009; **sem resposta e sem dispensa** |
 | Q12 | Contratos do import-linter, os dois lados: o `forbidden` segue **cadeias indiretas** (`use_case → encoding → av` reprova mesmo sem `import av` escrito) e o `layers` **só enxerga o grafo interno** (biblioteca externa é invisível para ele). Dado um import, quantos e quais contratos quebram? | CARD-009 | 2026-08-23 | feita no ponto da decisão; 1ª resposta errada (1, era 2), **reformulada uma vez**, 2ª também errada (2, era 1) |
+| Q13 | Um gerador assíncrono não executa nada até o primeiro `__anext__`, então `events.subscribe(turn_id)` devolve o objeto **sem** ter emitido `SUBSCRIBE`. Se o caso de uso lê o banco antes de começar a iterar, e o worker publica o `chunk:0` exatamente nessa janela — o que o aluno vê na tela, e o que acontece com esse trecho? | CARD-010 | 2026-08-23 | feita **antes** de escrever o código, no ponto da decisão; **sem resposta e sem dispensa** |
 
 > **Q7** foi reapresentada na abertura do CARD-006 e **dispensada pelo
 > desenvolvedor** ("vamos pular essas perguntas e finalizar a implementação").
@@ -107,6 +108,34 @@ perguntas que nunca tiveram resposta verificada.
 > **regra** (não sobre a sessão) foi feita na abertura do CARD-009 e também ficou
 > sem resposta. Reescrever uma regra da constituição é decisão do desenvolvedor,
 > então o postmortem não foi escrito — fica como a pendência de topo desta fila.
+
+> **CARD-010 (2026-08-23): a fila FOI reapresentada na abertura** — Q2, Q7 e Q12,
+> com o motivo de cada uma tocar aquele card (a primeira sessão em que `api` e
+> `worker` de fato se falam; seis dublês de porta trocados por
+> `dependency_overrides`; duas dependências novas entrando nas listas
+> `forbidden`). A **proposta de postmortem sobre a regra** foi reapresentada
+> junto, como pendência de topo. **Nenhuma das quatro foi respondida nem
+> dispensada:** o desenvolvedor respondeu as quatro decisões de escopo (forma do
+> `Result`, esquema de `id` do SSE, idempotência, token de dev) e pediu para
+> seguir. Silêncio não é dispensa (LEARNING-0004).
+>
+> Pela sexta vez, as perguntas se demonstraram sozinhas — e desta vez **duas
+> vezes na mesma sessão para a Q7**: o `mypy` reprovou `FakeTurnRepository` no
+> instante em que `TurnRepository` ganhou `get_by_idempotency_key`, e
+> `FakeTurnEvents` no instante em que `TurnEvents` ganhou `subscribe`, com o
+> `pytest` verde nas duas. A **Q12** ganhou o par completo: `sse_starlette` em
+> `application` com o módulo na lista → `BROKEN`; `starlette` na mesma posição
+> com o módulo **fora** da lista → `4 kept, 0 broken` — e essa segunda metade
+> revelou uma lacuna real, `starlette` faltando nas listas desde o CARD-001.
+>
+> **Q13 nasceu nesta sessão, e nasceu certa:** feita antes de escrever a porta,
+> sobre consequência observável, num ponto em que errar custa um trecho de áudio
+> perdido de forma intermitente. Também sem resposta. A decisão foi tomada
+> (porta como context manager) e há dois testes que a sustentam — um com dublê e
+> um contra Redis real —, mas **teste não fecha item de aprendizado**.
+>
+> **Sexta sessão seguida com o item vermelho.** A pendência de topo desta fila
+> continua sendo a mesma: decidir se a **regra** muda.
 
 ## Fechadas
 
