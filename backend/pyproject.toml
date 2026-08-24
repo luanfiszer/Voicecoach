@@ -53,6 +53,23 @@ dependencies = [
     #   `check_redis` do readiness; a API consumida (`from_url`, `ping`,
     #   `pubsub`) é a mesma nas duas majors — verificado com o gate verde.
     "arq>=0.28",
+    # CARD-010 (ADR-0026, ADR-0008):
+    #   sse-starlette    — `EventSourceResponse`: cuida do formato do fio
+    #                      (`id:`/`event:`/`data:`, linha em branco separando
+    #                      eventos), do heartbeat de keep-alive e de detectar o
+    #                      disconnect do cliente. A alternativa é montar isso à
+    #                      mão sobre `StreamingResponse` — ~40 linhas de
+    #                      protocolo textual em que errar uma linha em branco
+    #                      não dá erro, só faz o cliente nunca receber o evento.
+    #                      Escolhido no ADR-0026; instalado aqui.
+    #   python-multipart — backend de multipart do FastAPI. NÃO é escolha: o
+    #                      `UploadFile` levanta na DEFINIÇÃO da rota se ele
+    #                      faltar, e o FastAPI não tem segundo backend.
+    #
+    #   Ao contrário do `arq` (ADR-0038), NENHUM dos dois rebaixa nada —
+    #   verificado com o dry-run: `starlette` ficou em 1.6.0.
+    "sse-starlette>=3.4",
+    "python-multipart>=0.0.20",
 ]
 
 # `mlx-whisper` é dependência OPCIONAL, não base (ADR-0027, item 4): ela só
@@ -299,6 +316,23 @@ forbidden_modules = [
     # digitou.
     "arq",
     "hiredis",
+    # Borda HTTP entra no CARD-010 (ADR-0026/0008). Três observações que a lista
+    # não teria sem alguém verificar:
+    #   - `starlette` FALTAVA desde o CARD-001. `fastapi` estava listado, mas o
+    #     FastAPI é uma camada sobre o Starlette: `from starlette.responses
+    #     import Response` no núcleo passava VERDE (demonstrado nesta sessão).
+    #     Lacuna pré-existente, fechada aqui — a lição da Q8 aplicada a uma
+    #     dependência antiga.
+    #   - `python-multipart` instala DOIS módulos importáveis, `multipart` e
+    #     `python_multipart` (verificado em `importlib.metadata.files`). Listar
+    #     só um deixaria metade do buraco aberto.
+    #   - `sse_starlette` é transporte: o caso de uso do stream devolve um
+    #     iterador de eventos internos, e quem sabe o que é `text/event-stream`
+    #     é `api/`.
+    "starlette",
+    "sse_starlette",
+    "multipart",
+    "python_multipart",
 ]
 
 [[tool.importlinter.contracts]]
@@ -354,6 +388,23 @@ forbidden_modules = [
     # digitou.
     "arq",
     "hiredis",
+    # Borda HTTP entra no CARD-010 (ADR-0026/0008). Três observações que a lista
+    # não teria sem alguém verificar:
+    #   - `starlette` FALTAVA desde o CARD-001. `fastapi` estava listado, mas o
+    #     FastAPI é uma camada sobre o Starlette: `from starlette.responses
+    #     import Response` no núcleo passava VERDE (demonstrado nesta sessão).
+    #     Lacuna pré-existente, fechada aqui — a lição da Q8 aplicada a uma
+    #     dependência antiga.
+    #   - `python-multipart` instala DOIS módulos importáveis, `multipart` e
+    #     `python_multipart` (verificado em `importlib.metadata.files`). Listar
+    #     só um deixaria metade do buraco aberto.
+    #   - `sse_starlette` é transporte: o caso de uso do stream devolve um
+    #     iterador de eventos internos, e quem sabe o que é `text/event-stream`
+    #     é `api/`.
+    "starlette",
+    "sse_starlette",
+    "multipart",
+    "python_multipart",
 ]
 
 # `voicecoach.config` mora fora das cinco camadas (ADR-0013), então o contrato

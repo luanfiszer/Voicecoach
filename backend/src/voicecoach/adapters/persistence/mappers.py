@@ -86,6 +86,7 @@ def turn_to_row(turn: Turn) -> TurnRow:
         input_audio_ref=turn.input_audio_ref,
         audio_duration=turn.audio_duration,
         created_at=turn.created_at,
+        idempotency_key=turn.idempotency_key,
         status=turn.status,
         transcript=turn.transcript,
         transcribed_at=turn.transcribed_at,
@@ -108,6 +109,7 @@ def turn_from_row(row: TurnRow) -> Turn:
         input_audio_ref=row.input_audio_ref,
         audio_duration=row.audio_duration,
         created_at=row.created_at,
+        idempotency_key=row.idempotency_key,
         status=row.status,
         transcript=row.transcript,
         transcribed_at=row.transcribed_at,
@@ -128,9 +130,10 @@ def turn_from_row(row: TurnRow) -> Turn:
 def apply_turn(turn: Turn, row: TurnRow) -> None:
     """Copia para a linha carregada tudo que o pipeline pode ter produzido.
 
-    ``id``, ``session_id``, ``input_audio_ref``, ``audio_duration`` e
-    ``created_at`` ficam de fora de propósito: são imutáveis depois que o Turn
-    nasce, e reescrevê-los aqui esconderia um bug em vez de deixá-lo estourar.
+    ``id``, ``session_id``, ``input_audio_ref``, ``audio_duration``,
+    ``created_at`` e ``idempotency_key`` ficam de fora de propósito: são
+    imutáveis depois que o Turn nasce, e reescrevê-los aqui esconderia um bug em
+    vez de deixá-lo estourar.
     """
     row.status = turn.status
     row.transcript = turn.transcript

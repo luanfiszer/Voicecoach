@@ -53,7 +53,7 @@ Escreva um ADR sempre que a decisão:
 | [0014](0014-health-check-liveness-readiness.md) | Health check: liveness separado de readiness, com clientes nativos e sem porta | aceito (estendido por 0025) |
 | [0015](0015-quality-gates-tres-aneis.md) | Quality gates em três anéis: agente, pre-commit e CI | aceito (item 3 ajustado por 0019) |
 | [0016](0016-ciclo-de-vida-do-turn-estado-grosso-e-etapa-derivada.md) | Ciclo de vida do Turn: estado grosso persistido, etapa derivada dos artefatos | **substituído por ADR-0023** |
-| [0017](0017-erro-de-dominio-e-excecao-result-fica-para-o-caso-de-uso.md) | Invariante de domínio violada é exceção; `Result` fica para o caso de uso | aceito |
+| [0017](0017-erro-de-dominio-e-excecao-result-fica-para-o-caso-de-uso.md) | Invariante de domínio violada é exceção; `Result` fica para o caso de uso | aceito (o TBD do item 3 foi **fechado pelo 0039**; a borda prometida no item 2 é o **0040**) |
 | [0018](0018-teste-de-adapter-contra-postgres-real-com-testcontainers.md) | Teste de adapter contra Postgres real, com testcontainers | aceito |
 | [0019](0019-limiar-global-de-cobertura-com-folga-agora-que-o-nucleo-morde.md) | Limiar global de cobertura com folga, agora que o anel do núcleo morde | aceito |
 | [0020](0020-prompt-caching-no-adapter-do-professor.md) | Prompt caching no adapter do professor, com o prompt tratado como prefixo estável | **substituído por ADR-0021** |
@@ -75,6 +75,10 @@ Escreva um ADR sempre que a decisão:
 | [0036](0036-o-primeiro-consumidor-revela-o-que-faltava-nas-portas.md) | O primeiro consumidor revela o que faltava nas portas (`get`, `AudioEncoder`, `SttError`, `list_by_session`, `UnitOfWork`) | aceito (estende 0024/0029/0031/0004) |
 | [0037](0037-a-cascata-e-uma-fila-interna-com-um-consumidor-so.md) | A cascata é uma fila interna com um consumidor só, não uma task por sentença | aceito (complementa 0023 e 0031) |
 | [0038](0038-arq-entra-e-rebaixa-o-redis.md) | O `arq` entra e rebaixa o `redis` de 8.1 para 5.3 | aceito (executa o 0005) |
+| [0039](0039-result-minimo-para-desfecho-esperado-de-caso-de-uso.md) | `Result` mínimo próprio para o desfecho esperado de um caso de uso | aceito (fecha o TBD do 0017) |
+| [0040](0040-formato-de-erro-da-api-problem-details.md) | O formato de erro da API é Problem Details (RFC 9457), num handler só | aceito (implementa 0008 item 5 e 0017 item 2) |
+| [0041](0041-id-estruturado-do-evento-sse-e-retomada-derivada-do-banco.md) | O `id` do evento SSE é estruturado, e a retomada é derivada do banco | aceito (completa 0026 e 0035) |
+| [0042](0042-idempotencia-do-post-por-coluna-no-postgres.md) | A idempotência do `POST` mora numa coluna do Postgres, não no Redis | aceito |
 
 ## ADRs pendentes de decisão de produto
 

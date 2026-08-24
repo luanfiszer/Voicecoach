@@ -130,6 +130,24 @@ class Turn:
     audio_duration: timedelta
     created_at: datetime
 
+    # A chave que o cliente mandou no `Idempotency-Key` do POST (CARD-010).
+    #
+    # **Por que isto é campo da entidade e não um registro à parte.** É a
+    # tensão honesta desta decisão: a chave é vocabulário de transporte, não de
+    # pedagogia. Ela mora aqui porque a unicidade que a torna útil é imposta
+    # pelo BANCO (índice único), e o que o banco grava é esta entidade — e
+    # porque a pergunta que ela responde ("o aluno mandou esta mesma fala duas
+    # vezes?") é sobre o Turn, não sobre uma tabela paralela de chaves com TTL
+    # próprio, que seria uma segunda fonte de verdade.
+    #
+    # É o mesmo tipo de concessão já aceita em `input_audio_ref`, que também é
+    # uma chave de infraestrutura morando no núcleo por ser parte do registro.
+    #
+    # Nulo é permitido para que a entidade continue construível sem passar pela
+    # borda HTTP (o worker, os testes de domínio, um backfill). O índice único
+    # é PARCIAL — `WHERE idempotency_key IS NOT NULL` — exatamente por isso.
+    idempotency_key: str | None = None
+
     status: TurnStatus = TurnStatus.QUEUED
 
     transcript: str | None = None

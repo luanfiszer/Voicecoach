@@ -161,6 +161,21 @@ class Settings(BaseSettings):
     retention_reply_full: timedelta = timedelta(days=90)
     retention_input: timedelta = timedelta(days=7)
 
+    # Teto de duração de UMA fala do aluno. Não é a quota (essa é em minutos por
+    # dia, CARD-015): é o limite de um upload só. Existe porque a borda decodifica
+    # o áudio para medi-lo, e decodificar é trabalho proporcional ao tamanho —
+    # sem teto, um arquivo de uma hora ocuparia uma thread do executor da API por
+    # segundos. 120 s é ~6x a fala típica medida (~20 s).
+    max_turn_audio_duration: timedelta = timedelta(seconds=120)
+
+    # --- Entrega progressiva (ADR-0026, item 5) ------------------------------
+    # Prazo do stream SSE INTEIRO, não de cada evento. Um turn saudável fecha em
+    # ~2 s; este número existe para o turn que travou. Estourado, o servidor
+    # encerra e o `EventSource` do cliente reconecta sozinho com o
+    # `Last-Event-ID` — nada se perde, porque a retomada lê do banco. Stream sem
+    # prazo é conexão vazando, e cada uma segura uma conexão de Redis.
+    sse_timeout: timedelta = timedelta(seconds=60)
+
     # --- Proteção de custo (ADR-0010, visão §D) ------------------------------
     # Decimal, não float: dinheiro em binário de ponto flutuante acumula erro.
     # Equivalente mental exato: `decimal` do C#.

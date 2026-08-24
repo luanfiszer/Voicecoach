@@ -1,0 +1,597 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Voicecoach API",
+    "summary": "Professor de ingl\u00eas por conversa de \u00e1udio.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Liveness \u2014 o processo responde",
+        "operationId": "liveness_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LivenessResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Readiness \u2014 as depend\u00eancias de infraestrutura respondem",
+        "description": "200 apenas se as tr\u00eas depend\u00eancias responderem; 503 caso contr\u00e1rio.\n\nO corpo \u00e9 o mesmo nos dois casos \u2014 quem depura precisa saber *qual* caiu, e\nisso n\u00e3o deve depender de o endpoint ter respondido 200.",
+        "operationId": "readiness_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Alguma depend\u00eancia est\u00e1 fora; o payload diz qual.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Abre uma sess\u00e3o de conversa",
+        "operationId": "criar_sessao_v1_sessions_post",
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{session_id}/turns": {
+      "post": {
+        "tags": [
+          "turns"
+        ],
+        "summary": "Envia a fala do aluno e enfileira o turno",
+        "description": "``202`` com o ``turn_id``. O trabalho come\u00e7a depois da resposta.\n\nO cabe\u00e7alho \u00e9 **obrigat\u00f3rio** de prop\u00f3sito. Torn\u00e1-lo opcional (\"se faltar, eu\ngero uma\") faria o esquecimento do cliente virar um turno extra processado e\npago, em sil\u00eancio \u2014 e a rede m\u00f3vel, que \u00e9 o caso de uso inteiro da\nidempot\u00eancia, \u00e9 justamente onde o reenvio acontece.",
+        "operationId": "criar_turn_v1_sessions__session_id__turns_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 255,
+              "description": "Chave gerada pelo cliente. Reenviar a mesma devolve o mesmo turn_id, sem criar nem reprocessar nada.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Chave gerada pelo cliente. Reenviar a mesma devolve o mesmo turn_id, sem criar nem reprocessar nada."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_criar_turn_v1_sessions__session_id__turns_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnAcceptedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/turns/{turn_id}": {
+      "get": {
+        "tags": [
+          "turns"
+        ],
+        "summary": "O turno completo \u2014 o contrato de recuo (ADR-0026, item 4)",
+        "description": "Tudo que o app precisa mostrar, com as URLs j\u00e1 assinadas.\n\nAssinar N trechos s\u00e3o N HMACs locais (microssegundos cada, ADR-0024) \u2014 \u00e9 o\nque torna aceit\u00e1vel entregar as URLs prontas em vez de o cliente pedir uma\npor trecho, que era o roundtrip por frase que o ADR-0024 recusou.",
+        "operationId": "obter_turn_v1_turns__turn_id__get",
+        "parameters": [
+          {
+            "name": "turn_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Turn Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/turns/{turn_id}/events": {
+      "get": {
+        "tags": [
+          "turns"
+        ],
+        "summary": "Entrega progressiva por SSE (ADR-0026)",
+        "description": "O stream. Fecha em ``completed``/``failed``, no prazo, ou no disconnect.\n\n**Quem fecha no disconnect \u00e9 o `sse-starlette`**, e \u00e9 o principal motivo de a\nbiblioteca existir aqui: ele observa a mensagem ASGI ``http.disconnect`` e\n**cancela a corrotina** deste gerador. O cancelamento propaga para o\n``async with`` da assinatura dentro do caso de uso, que desfaz o\n``SUBSCRIBE`` e devolve a conex\u00e3o do Redis. Sem isso, um aluno que fecha o\napp deixaria uma conex\u00e3o pendurada at\u00e9 o prazo de 60 s \u2014 multiplicado por\ntodo mundo.\n\nO `Last-Event-ID` chega por cabe\u00e7alho porque \u00e9 assim que o `EventSource`\nnativo reconecta: ele o manda sozinho, sem o cliente escrever uma linha.",
+        "operationId": "acompanhar_turn_v1_turns__turn_id__events_get",
+        "parameters": [
+          {
+            "name": "turn_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Turn Id"
+            }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "O `id:` do \u00faltimo evento recebido. O servidor reenvia s\u00f3 o que vem depois dele, lendo do banco (ADR-0026, item 3).",
+              "title": "Last-Event-Id"
+            },
+            "description": "O `id:` do \u00faltimo evento recebido. O servidor reenvia s\u00f3 o que vem depois dele, lendo do banco (ADR-0026, item 3)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Body_criar_turn_v1_sessions__session_id__turns_post": {
+        "properties": {
+          "audio": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Audio",
+            "description": "A fala do aluno."
+          }
+        },
+        "type": "object",
+        "required": [
+          "audio"
+        ],
+        "title": "Body_criar_turn_v1_sessions__session_id__turns_post"
+      },
+      "ChunkPayload": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index",
+            "description": "0-based e denso; \u00e9 a ordem de playback."
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "URL assinada, v\u00e1lida por media_url_ttl."
+          },
+          "duration_seconds": {
+            "type": "number",
+            "title": "Duration Seconds"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "A frase que gerou este trecho."
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "url",
+          "duration_seconds",
+          "text"
+        ],
+        "title": "ChunkPayload",
+        "description": "Um trecho toc\u00e1vel da resposta \u2014 no GET e no evento ``chunk``.\n\n``url`` \u00e9 uma URL **pr\u00e9-assinada e de vida curta** (ADR-0024): ela \u00e9 montada\nno momento da entrega, com TTL de ``media_url_ttl``. N\u00e3o \u00e9 endere\u00e7o est\u00e1vel e\nn\u00e3o deve ser guardada pelo cliente al\u00e9m do playback do turn."
+      },
+      "DependencyCheck": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down"
+            ],
+            "title": "Status"
+          },
+          "latency_ms": {
+            "type": "integer",
+            "title": "Latency Ms"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "latency_ms"
+        ],
+        "title": "DependencyCheck",
+        "description": "Estado de uma depend\u00eancia de infraestrutura."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "LivenessResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "alive",
+            "title": "Status",
+            "default": "alive"
+          }
+        },
+        "type": "object",
+        "title": "LivenessResponse",
+        "description": "Resposta de ``GET /health``."
+      },
+      "ReadinessResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "not_ready"
+            ],
+            "title": "Status"
+          },
+          "checks": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DependencyCheck"
+            },
+            "type": "object",
+            "title": "Checks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "ReadinessResponse",
+        "description": "Resposta de ``GET /health/ready``.\n\n``status`` \u00e9 redundante em rela\u00e7\u00e3o a ``checks`` de prop\u00f3sito: quem faz\nprobe l\u00ea s\u00f3 o c\u00f3digo HTTP, quem depura l\u00ea o mapa inteiro."
+      },
+      "SessionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "student_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Student Id"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "student_id",
+          "started_at",
+          "is_active"
+        ],
+        "title": "SessionResponse",
+        "description": "``POST /v1/sessions`` \u2014 o m\u00ednimo para o cliente ter onde falar."
+      },
+      "TurnAcceptedResponse": {
+        "properties": {
+          "turn_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Turn Id"
+          },
+          "replayed": {
+            "type": "boolean",
+            "title": "Replayed",
+            "description": "true quando a Idempotency-Key j\u00e1 tinha sido usada: nenhum turn novo foi criado e nada \u00e9 reprocessado."
+          }
+        },
+        "type": "object",
+        "required": [
+          "turn_id",
+          "replayed"
+        ],
+        "title": "TurnAcceptedResponse",
+        "description": "``202`` do ``POST`` \u2014 o turn est\u00e1 aceito e a caminho."
+      },
+      "TurnResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TurnStatus",
+            "description": "Estado grosso; n\u00e3o cresce (ADR-0008)."
+          },
+          "stage": {
+            "$ref": "#/components/schemas/TurnStage",
+            "description": "Etapa exibida, DERIVADA (ADR-0023/0028)."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "transcript": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcript"
+          },
+          "reply_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Text"
+          },
+          "reply_audio_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Audio Url",
+            "description": "\u00c1udio inteiro concatenado, assinado. Nulo antes de completar \u2014 ou depois de a reten\u00e7\u00e3o expirar (ADR-0024)."
+          },
+          "delivered_partially": {
+            "type": "boolean",
+            "title": "Delivered Partially",
+            "description": "Falhou DEPOIS de o aluno j\u00e1 ter ouvido algo (ADR-0023)."
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "chunks": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkPayload"
+            },
+            "type": "array",
+            "title": "Chunks",
+            "description": "Campo ADITIVO (ADR-0008)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "status",
+          "stage",
+          "created_at",
+          "delivered_partially"
+        ],
+        "title": "TurnResponse",
+        "description": "``GET /v1/turns/{id}`` \u2014 completo e verdadeiro (ADR-0026, item 4).\n\nEste \u00e9 o **contrato de recuo**: um cliente que nunca abra o stream tem de\nconseguir levar um turn at\u00e9 o fim s\u00f3 com esta rota. \u00c9 por isso que ela\ndevolve tudo, e n\u00e3o um resumo."
+      },
+      "TurnStage": {
+        "type": "string",
+        "enum": [
+          "transcribing",
+          "thinking",
+          "speaking",
+          "completed"
+        ],
+        "title": "TurnStage",
+        "description": "Etapa exibida ao aluno \u2014 **derivada**, nunca persistida (ADR-0023).\n\nO vocabul\u00e1rio \u00e9 o mesmo do ADR-0016; o que mudou foi a ordem em que os\nartefatos aparecem. ``queued`` n\u00e3o est\u00e1 aqui de prop\u00f3sito: nenhuma tela\ndistingue \"na fila\" de \"transcrevendo\", e expor isso vazaria mec\u00e2nica de\ninfraestrutura no contrato."
+      },
+      "TurnStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "processing",
+          "completed",
+          "failed"
+        ],
+        "title": "TurnStatus",
+        "description": "Estado de execu\u00e7\u00e3o do Turn (ADR-0023).\n\n``StrEnum`` (Python 3.11+) \u00e9 uma enum cujos membros **s\u00e3o** strings: o valor\nvai para o banco e para o JSON sem convers\u00e3o manual, e ainda assim o mypy\ncobra o tipo. Em C# voc\u00ea precisaria de um conversor ou de um\n``[JsonStringEnumConverter]`` para o mesmo efeito.\n\nA enum **n\u00e3o ganha valor** com a cascata, e isso \u00e9 deliberado: acrescentar\n``speaking`` aqui quebraria o contrato aditivo do ADR-0008 (cliente antigo\nque trate os casos de forma exaustiva) e recriaria a duplica\u00e7\u00e3o que o\nADR-0016 rejeitou. A granularidade fina vive em ``TurnStage``, que \u00e9\nderivado e por isso pode crescer sem migration."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

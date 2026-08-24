@@ -4,9 +4,10 @@ Backend em camadas consumido pelos dois clientes (`apps/mobile`, `apps/web`).
 Este README é a **fonte da regra de arquitetura** deste diretório — é o insumo
 da skill de arquitetura (CARD-004).
 
-Estado: **fundação** (CARD-001 + CARD-002). Configuração tipada, app FastAPI
-com health check e infraestrutura local no Docker Compose. Nenhuma lógica de
-domínio ainda.
+Estado: **fatia vertical fechada** (até o CARD-010). O aluno manda áudio no
+`POST /v1/sessions/{id}/turns`, o worker transcreve/pensa/fala em cascata, e o
+cliente acompanha por SSE — com o `GET /v1/turns/{id}` como contrato de recuo.
+Falta o cliente (CARD-011/012) e a autenticação (fase própria).
 
 ---
 
@@ -123,11 +124,15 @@ backend/
         │   │   ├── turn_queue.py       # enfileirar um turn (ADR-0005)
         │   │   └── turn_events.py      # canal worker→API (ADR-0035)
         │   └── use_cases/
-        │       └── process_turn.py     # A CASCATA (ADR-0037) — o pipeline inteiro
+        │       ├── process_turn.py     # A CASCATA (ADR-0037) — o pipeline inteiro
+        │       ├── start_turn.py       # a borda aceita a fala (ADR-0039/0042)
+        │       └── stream_turn_events.py # retomada + canal ao vivo (ADR-0041)
+        │   └── result.py               # Ok/Err — desfecho esperado (ADR-0039)
         ├── adapters/
         │   ├── health.py           # checks de Postgres, Redis, MinIO e worker
         │   ├── readiness_keys.py   # a chave que api e worker compartilham
-        │   ├── persistence/  # models, mappers, repositories, engine, seed
+        │   ├── persistence/  # models, mappers, repositories, engine, seed,
+        │   │                  # unit_of_work (traduz unicidade — ADR-0042)
         │   ├── stt/          # dois adapters de STT + fábrica (ADR-0027)
         │   ├── tts/          # Piper + fábrica + codificação AAC (ADR-0032/0033)
         │   ├── storage/      # adapter S3 e lifecycle do bucket (ADR-0034)
@@ -137,9 +142,12 @@ backend/
         │                     # fábrica e prompts/teacher/v1.md (ADR-0030/0031)
         ├── api/
         │   ├── app.py        # create_app() — composition root
-        │   ├── dependencies.py
-        │   ├── routes/health.py
-        │   └── schemas/health.py
+        │   ├── lifespan.py   # pools do processo: engine, arq, redis, S3 (CARD-010)
+        │   ├── errors.py     # exception handlers → Problem Details (ADR-0040)
+        │   ├── audio_intake.py # valida e MEDE o upload, em executor (ADR-0029)
+        │   ├── dependencies.py # composição por request: uma porta, um provider
+        │   ├── routes/       # __init__ monta o /v1; health, sessions, turns
+        │   └── schemas/      # health, problem (RFC 9457), turns (UM schema)
         └── worker/
             ├── main.py       # composition root do worker: ctx, on_startup (ADR-0025)
             └── readiness.py  # a chave voicecoach:worker:ready + heartbeat
@@ -166,6 +174,55 @@ A **forma** da cascata é contrato (ADR-0037): uma corrotina sintetiza, outra
 grava, ligadas por uma `asyncio.Queue`. Trocar isso por `asyncio.create_task` por
 sentença grava os trechos **fora de ordem** — às vezes com
 `OutOfOrderAudioChunkError`, mais frequentemente em silêncio.
+
+### A API (`/v1`) — ADR-0008, 0026, 0039, 0040, 0041, 0042
+
+```bash
+uv run uvicorn voicecoach.api.app:create_app --factory --reload
+```
+
+| Rota | O que responde |
+|---|---|
+| `POST /v1/sessions` | abre a conversa |
+| `POST /v1/sessions/{id}/turns` | multipart + **`Idempotency-Key` obrigatória** → `202 {turn_id, replayed}` |
+| `GET /v1/turns/{id}` | o turno completo, com `chunks[]` e URLs assinadas — **o contrato de recuo** |
+| `GET /v1/turns/{id}/events` | `text/event-stream` com os cinco eventos, `Last-Event-ID` e prazo |
+
+Cinco coisas que não são óbvias e custam caro se esquecidas:
+
+| | Por quê |
+|---|---|
+| **Os pools vivem no `lifespan`, nunca por request** | Um engine de SQLAlchemy por request esgota o Postgres; uma conexão de Redis por stream SSE esgota o Redis com dez alunos. O `check_redis` do readiness abre e fecha por chamada **de propósito** (é probe, roda raramente) — **não copie aquele padrão para o caminho quente** |
+| **A borda MEDE a duração do upload** | Ela decodifica o áudio (reusando o `decode` do STT) em vez de aceitar um número do cliente. Um campo declarado seria mentiroso por construção, e a quota do CARD-015 mediria ficção. Roda em **executor**: `decode` é síncrono e CPU-bound, e na corrotina congelaria o event loop da API inteira |
+| **A idempotência é uma coluna, não uma chave no Redis** | A chave e o Turn nascem no mesmo commit, então não existe estado em que a chave aponte para nada (ADR-0042). O caminho repetido **enfileira de novo** — o `_job_id` do arq torna isso seguro, e é o que cura o crash entre gravar e publicar |
+| **`Result` para desfecho esperado, exceção para invariante** | A pergunta que separa não é "deu erro?", é **"quem chamou tem um bug?"** (ADR-0039). Sessão inexistente é `Err`; sessão **encerrada** levanta, porque é invariante do agregado |
+| **Erro 4xx é decidido ANTES de a resposta começar** | Num stream, o código HTTP já saiu quando o primeiro byte sai — um `exception_handler` que dispare depois é recusado pelo Starlette. Por isso o `Last-Event-ID` é validado na rota, não no gerador (ADR-0040, item 7) |
+
+**O que a porta `TurnEvents.subscribe` compra sendo um context manager.** O corpo
+de um gerador assíncrono não roda até a primeira iteração — se ela devolvesse o
+iterador direto, o `SUBSCRIBE` ainda não teria acontecido quando o caso de uso
+fosse ler o banco, e todo evento publicado nessa janela cairia no chão (pub/sub
+não guarda nada, ADR-0035). O sintoma seria um trecho de áudio que não chega, de
+forma intermitente. Com o `async with`, a ordem é garantida: **assina, depois lê**.
+
+**Latência do canal, medida** (`tests/adapters/test_turn_events_integracao.py`,
+contra Redis real, 6 trechos): **mediana 0,31 ms, pior caso 1,17 ms** — o
+critério do CARD-010 é 100 ms. É esse número que paga o ADR-0026.
+
+**Proxy que buferiza `text/event-stream`** mata a entrega progressiva **sem erro
+nenhum**: o produto fica tão lento quanto o polling que o SSE veio substituir. O
+`docker-compose.yml` deste repositório não tem proxy (o uvicorn é falado direto),
+e o stream manda `Cache-Control: no-cache` + `X-Accel-Buffering: no` mesmo assim.
+
+**Os tipos TypeScript saem do OpenAPI** (ADR-0008) e são **commitados**:
+
+```bash
+cd backend && uv run python -c "import json, pathlib; from voicecoach.api.app import create_app; pathlib.Path('openapi.json').write_text(json.dumps(create_app().openapi(), indent=2) + '\n')"
+cd .. && pnpm --filter @voicecoach/api-client run generate
+```
+
+O CI compara com o que está no repositório: mudança de contrato vira **diff
+revisável no PR**, e esquecer de regenerar vira build vermelho.
 
 ### Banco e migrations (ADR-0004)
 
@@ -337,6 +394,9 @@ reconhecem `sk-ant-...`, e essa é a única credencial paga do projeto
 |---|---|---|
 | `GET /health` | "o processo está vivo?" | **não** — se dependesse do banco, um supervisor mataria uma API sadia por causa de um vizinho |
 | `GET /health/ready` | "posso receber tráfego?" | sim: Postgres (`SELECT 1`), Redis (`PING`), MinIO (**`head_bucket` com credencial real** — ADR-0034) e **worker** (a chave de prontidão existe? — ADR-0025) |
+
+> `/health` e `/health/ready` ficam **fora do `/v1`** de propósito: probe de
+> infraestrutura não é contrato de produto e não versiona junto com ele.
 
 A quarta entrada não é como as outras três: elas perguntam se um serviço
 responde, ela pergunta se **existe worker com os modelos carregados**. Um turn

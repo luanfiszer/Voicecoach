@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -110,6 +111,9 @@ class FakeTurnRepository:
 
     async def get(self, turn_id: UUID) -> Turn | None:
         return self.turns.get(turn_id)
+
+    async def get_by_idempotency_key(self, key: str) -> Turn | None:
+        return next((t for t in self.turns.values() if t.idempotency_key == key), None)
 
     async def update(self, turn: Turn) -> None:
         self.updates += 1
@@ -302,14 +306,54 @@ class Publicado:
 
 
 class FakeTurnEvents:
+    """Canal em memória. Publica numa lista e entrega por fila aos assinantes.
+
+    A fila é o que torna o fake útil para o SSE: um teste publica de um lado e
+    o `async for` do outro acorda, exatamente como o pub/sub real — sem Redis e
+    sem `sleep` para "dar tempo" de a mensagem chegar.
+    """
+
     def __init__(self, *, erro: Exception | None = None) -> None:
         self.publicados: list[Publicado] = []
         self._erro = erro
+        self._assinantes: dict[UUID, list[asyncio.Queue[TurnEvent]]] = {}
 
     async def publish(self, turn_id: UUID, event: TurnEvent) -> None:
         if self._erro is not None:
             raise self._erro
         self.publicados.append(Publicado(turn_id, event))
+        for fila in self._assinantes.get(turn_id, []):
+            fila.put_nowait(event)
+
+    @asynccontextmanager
+    async def subscribe(self, turn_id: UUID) -> AsyncIterator[AsyncIterator[TurnEvent]]:
+        """Assina ANTES de devolver o iterador — como o adapter real.
+
+        A fila é criada e registrada no `__aenter__`; é isso que faz o fake
+        reproduzir a garantia da porta (nada publicado depois do `async with`
+        se perde enquanto o caso de uso lê o banco). Um fake que registrasse a
+        fila só na primeira iteração passaria nos mesmos testes e esconderia
+        exatamente a corrida que a porta existe para fechar.
+        """
+        fila: asyncio.Queue[TurnEvent] = asyncio.Queue()
+        self._assinantes.setdefault(turn_id, []).append(fila)
+
+        async def eventos() -> AsyncIterator[TurnEvent]:
+            while True:
+                yield await fila.get()
+
+        try:
+            yield eventos()
+        finally:
+            self._assinantes[turn_id].remove(fila)
+
+    def assinantes(self, turn_id: UUID) -> int:
+        """Quantos streams estão ouvindo este turn AGORA.
+
+        Público de propósito: é a única forma de um teste provar que o
+        fechamento aconteceu — que a conexão foi devolvida em vez de vazar.
+        """
+        return len(self._assinantes.get(turn_id, []))
 
     @property
     def eventos(self) -> list[TurnEvent]:

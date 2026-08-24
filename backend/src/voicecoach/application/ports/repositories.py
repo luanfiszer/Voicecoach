@@ -28,6 +28,26 @@ if TYPE_CHECKING:
     from voicecoach.domain.turn import Turn
 
 
+class ConflictingWriteError(RuntimeError):
+    """O armazenamento recusou a escrita por violar uma restrição de unicidade.
+
+    Mora na porta, como o ``TurnQueueError`` e o ``MediaStorageError``, e pela
+    mesma razão (ADR-0031, item 5): quem a captura é o caso de uso, em
+    ``application``, que não pode importar ``adapters`` para conhecer o
+    ``IntegrityError`` do SQLAlchemy.
+
+    **Ela existe por causa de uma corrida específica**, e vale nomeá-la: entre
+    "consultei se esta ``Idempotency-Key`` já existe" e "inseri o Turn", outra
+    requisição com a mesma chave pode ter inserido. A consulta é uma foto, o
+    índice único é a lei — e sem esta tradução o desfecho seria um 500 em cima
+    de um duplo toque no botão, que é o caso mais banal que a idempotência
+    existe para tratar.
+
+    Não é ``DomainError``: nenhuma invariante de negócio foi violada (ADR-0017).
+    É o armazenamento informando um fato que só ele sabia.
+    """
+
+
 class UnitOfWork(Protocol):
     """Confirma o que os repositórios registraram.
 
@@ -84,6 +104,20 @@ class TurnRepository(Protocol):
     async def add(self, turn: Turn) -> None: ...
 
     async def get(self, turn_id: UUID) -> Turn | None: ...
+
+    async def get_by_idempotency_key(self, key: str) -> Turn | None:
+        """O turn que já nasceu daquela chave de idempotência, se existir.
+
+        Existe porque a chave é **unicidade do banco**, e um índice único só
+        conta a história pela metade: ele impede o segundo INSERT, mas quem
+        precisa responder ao cliente precisa do ``turn_id`` do PRIMEIRO. Sem
+        este método, o caso de uso saberia que houve repetição e não saberia
+        dizer de quê — que é o oposto do que o ``202`` promete.
+
+        Devolve ``None`` quando a chave é nova. Ausência aqui é o caminho
+        feliz, não erro: a esmagadora maioria dos POSTs traz chave inédita.
+        """
+        ...
 
     async def update(self, turn: Turn) -> None: ...
 

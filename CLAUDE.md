@@ -108,13 +108,16 @@ O que ainda é TBD está marcado como tal, com o card que resolve.
 - **Camadas e o que é proibido em cada uma:** [ADR-0012](docs/adr/0012-regra-de-camada-como-contrato-executavel.md)
   e [ADR-0013](docs/adr/0013-configuracao-tipada-fora-das-camadas.md), verificados
   por `uv run lint-imports`. Resumo em `backend/README.md`.
-- **Padrão de erro:** decidido pela metade no CARD-005
-  ([ADR-0017](docs/adr/0017-erro-de-dominio-e-excecao-result-fica-para-o-caso-de-uso.md)).
-  **Invariante de domínio violada levanta exceção** (`DomainError` como raiz),
-  traduzida na borda para Problem Details. **`Result` para falha *esperada* de
-  caso de uso segue TBD**, com gatilho escrito: o primeiro desfecho que é normal
-  do negócio e não bug (quota estourada, `Idempotency-Key` repetida, convite já
-  usado). Naquele card decide-se e vira ADR — não inventar antes.
+- **Padrão de erro: decidido por inteiro.** A metade antiga é o
+  [ADR-0017](docs/adr/0017-erro-de-dominio-e-excecao-result-fica-para-o-caso-de-uso.md)
+  (**invariante de domínio violada levanta exceção**, `DomainError` como raiz); a
+  outra metade fechou no CARD-010 com o
+  [ADR-0039](docs/adr/0039-result-minimo-para-desfecho-esperado-de-caso-de-uso.md)
+  (**`Result` mínimo próprio** — `Ok`/`Err`, união fechada, `match` +
+  `assert_never` — para o desfecho **esperado** de caso de uso). A pergunta que
+  separa os dois não é *"deu erro?"*, é **"quem chamou tem um bug?"**. Toda
+  tradução para HTTP acontece num lugar só, em Problem Details
+  ([ADR-0040](docs/adr/0040-formato-de-erro-da-api-problem-details.md)).
 - **Não persistir o que se consegue derivar**
   ([ADR-0016](docs/adr/0016-ciclo-de-vida-do-turn-estado-grosso-e-etapa-derivada.md)):
   a etapa exibida de um `Turn` e o "sessão ativa?" são calculados, não colunas.

@@ -27,6 +27,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+    from contextlib import AbstractAsyncContextManager
     from uuid import UUID
 
 
@@ -110,6 +112,56 @@ type TurnEvent = Transcribed | ChunkReady | FeedbackAvailable | Completed | Fail
 
 
 class TurnEvents(Protocol):
-    """Publica o que aconteceu com um turn, para quem estiver ouvindo."""
+    """Publica o que aconteceu com um turn — e, do outro lado, escuta.
+
+    A porta nasceu no CARD-009 só com ``publish``, porque só havia produtor. O
+    CARD-010 trouxe o consumidor e ela cresceu por **extensão**, que é o mesmo
+    movimento que o ADR-0036 registrou quando ``MediaStorage`` ganhou ``get``:
+    o primeiro consumidor é quem revela o que faltava.
+
+    A assimetria é deliberada e vale a pena nomear: **o worker só publica, a
+    API só assina**, e mesmo assim é uma porta só. Duas portas dariam a cada
+    lado um `Protocol` com um método, ao custo de dois fakes por teste e de a
+    pergunta "onde mora o canal do turn?" passar a ter duas respostas. É o
+    mesmo desenho de ``MediaStorage``, onde escrever é do worker e assinar é da
+    API.
+    """
 
     async def publish(self, turn_id: UUID, event: TurnEvent) -> None: ...
+
+    def subscribe(
+        self, turn_id: UUID
+    ) -> AbstractAsyncContextManager[AsyncIterator[TurnEvent]]:
+        """Assinatura ativa do canal do turn, como **context manager**.
+
+        **Por que um context manager e não simplesmente um ``AsyncIterator``.**
+        Esta é a decisão que fecha uma corrida que nenhum teste com fake pega.
+        O corpo de um gerador assíncrono **não roda até a primeira iteração**:
+        se a porta devolvesse o iterador direto, ``events.subscribe(id)`` não
+        teria emitido ``SUBSCRIBE`` coisa nenhuma, e o caso de uso — que lê o
+        banco antes de começar a iterar — deixaria uma janela aberta. Todo
+        evento publicado nessa janela cai no chão, porque pub/sub não guarda
+        nada (ADR-0035). O sintoma seria um trecho de áudio que simplesmente
+        não chega, de forma intermitente e dependente do tempo do banco.
+
+        Com o context manager, ``__aenter__`` faz a assinatura **antes** de
+        devolver o iterador. O caso de uso então tem a garantia que precisa:
+        *assino, depois leio o banco* — e o que for publicado durante a leitura
+        fica esperando na assinatura em vez de se perder.
+
+        Contraste com ``TeacherLlm.respond_streaming`` (ADR-0031), que é um
+        gerador puro: lá não existe estado a estabelecer antes de iterar, e o
+        que se quer é justamente que abandonar a iteração pare a geração. Aqui
+        há uma conexão a tomar do pool, e o momento em que ela é tomada é
+        contrato.
+
+        **Fechar continua sendo do consumidor**, agora explicitamente: sair do
+        ``async with`` desfaz a assinatura e devolve a conexão. Segurá-la viva
+        depois que o aluno foi embora é vazar uma conexão de Redis por turn
+        esquecido — o que o timeout do ADR-0026 item 5 existe para limitar.
+
+        **Este iterador não conhece histórico.** Quem assina recebe o que for
+        publicado a partir de agora e nada do que passou; reconstituir é do
+        banco, e é o caso de uso quem costura as duas metades.
+        """
+        ...

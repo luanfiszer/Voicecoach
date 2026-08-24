@@ -39,10 +39,13 @@ from voicecoach.adapters.persistence.seed import (
     DEV_STUDENT_DISPLAY_NAME,
     DEV_STUDENT_ID,
 )
+from voicecoach.adapters.persistence.unit_of_work import SqlAlchemyUnitOfWork
 from voicecoach.application.ports.repositories import (
+    ConflictingWriteError,
     SessionRepository,
     StudentRepository,
     TurnRepository,
+    UnitOfWork,
 )
 from voicecoach.domain.session import Session
 from voicecoach.domain.student import Student
@@ -461,3 +464,110 @@ async def test_gravar_sobre_estado_defasado_e_erro_de_adapter(
 
     with pytest.raises(StaleTurnError):
         await repository.update(defasado)
+
+
+# --- idempotência do POST contra o banco de verdade (ADR-0042) --------------
+
+
+async def test_a_chave_de_idempotencia_faz_roundtrip_e_e_consultavel(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    turn = sessao_persistida.start_turn(
+        turn_id=uuid4(),
+        input_audio_ref="dev/entrada.m4a",
+        audio_duration=timedelta(seconds=4),
+        now=NOW,
+        idempotency_key="chave-do-cliente-abc",
+    )
+    await repository.add(turn)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    encontrado = await repository.get_by_idempotency_key("chave-do-cliente-abc")
+
+    assert encontrado == turn
+    assert await repository.get_by_idempotency_key("nunca-usada") is None
+
+
+async def test_o_indice_unico_recusa_a_mesma_chave_duas_vezes(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """**A garantia que a consulta sozinha não dá** (ADR-0042, item 5).
+
+    Duas requisições simultâneas passam as duas pela consulta "esta chave já
+    existe?" e as duas tentam inserir. Quem impede a segunda é o índice, e é por
+    isso que ele existe além do `SELECT`.
+    """
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    for _ in range(2):
+        await repository.add(
+            sessao_persistida.start_turn(
+                turn_id=uuid4(),
+                input_audio_ref="dev/entrada.m4a",
+                audio_duration=timedelta(seconds=4),
+                now=NOW,
+                idempotency_key="a-mesma-chave",
+            )
+        )
+
+    with pytest.raises(IntegrityError):
+        await db_session.commit()
+
+
+async def test_o_indice_e_parcial_e_varios_turns_sem_chave_convivem(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """Turn criado fora da borda HTTP (worker, teste, backfill) tem chave nula.
+
+    Se o índice não fosse parcial — ou se a coluna fosse `NOT NULL` — este
+    cenário seria impossível, e o pipeline do CARD-009 quebraria.
+    """
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    for _ in range(3):
+        await repository.add(
+            sessao_persistida.start_turn(
+                turn_id=uuid4(),
+                input_audio_ref="dev/entrada.m4a",
+                audio_duration=timedelta(seconds=4),
+                now=NOW,
+            )
+        )
+
+    await db_session.commit()  # não levanta
+
+    linhas = await db_session.execute(
+        text("SELECT count(*) FROM turns WHERE idempotency_key IS NULL")
+    )
+    assert linhas.scalar_one() >= 3
+
+
+async def test_o_unit_of_work_traduz_a_violacao_de_unicidade_para_erro_de_porta(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """A tradução que permite ao caso de uso tratar a corrida (ADR-0042).
+
+    Sem ela, `application` teria de conhecer `sqlalchemy.exc.IntegrityError` —
+    que o contrato de camada proíbe — ou capturar `Exception` genérica, que o
+    ADR-0015 proíbe. E o desfecho seria 500 num duplo toque no botão.
+    """
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    uow: UnitOfWork = SqlAlchemyUnitOfWork(db_session)
+    for _ in range(2):
+        await repository.add(
+            sessao_persistida.start_turn(
+                turn_id=uuid4(),
+                input_audio_ref="dev/entrada.m4a",
+                audio_duration=timedelta(seconds=4),
+                now=NOW,
+                idempotency_key="chave-em-corrida",
+            )
+        )
+
+    with pytest.raises(ConflictingWriteError):
+        await uow.commit()
+
+    # E a sessão continua utilizável: o `rollback` do wrapper é o que permite ao
+    # caso de uso RECONSULTAR quem chegou primeiro. Sem ele, a consulta seguinte
+    # falharia com `PendingRollbackError`.
+    assert await repository.get_by_idempotency_key("chave-em-corrida") is None
