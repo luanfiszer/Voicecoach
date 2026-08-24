@@ -1,7 +1,7 @@
 # CARD-011 — App Expo: esqueleto, tela de conversa e gravação de áudio
 
 - **ID:** CARD-011 · **Épico:** Fase 1 — Fatia vertical
-- **Plataforma:** mobile · **Esforço:** M · **Status:** em execução (2026-08-24)
+- **Plataforma:** mobile · **Esforço:** M · **Status:** em execução — falta só o aparelho físico (2026-08-24)
 - **Dependências:** CARD-001 (workspace); contrato pode ser mockado até CARD-010
 
 ## Contexto
@@ -110,10 +110,11 @@ Conferido contra a lista "Quando um ADR é OBRIGATÓRIO" de `docs/adr/README.md`
 |---|---|---|
 | App sobe no Simulador | ✅ | `iOS Bundled 3488ms node_modules/.pnpm/expo-router@57.0.15_…/entry.js (1280 modules)` — captura enviada |
 | App sobe no aparelho físico | ⏳ | **não verificado** — depende do desenvolvedor |
-| Permissão: pede ao tocar em gravar | ⏳ | implementado (`useGravacao.iniciar`); **não verificado no Simulador** |
+| Permissão: pede ao tocar em gravar | ✅ | o desenvolvedor tocou, concedeu e gravou no Simulador |
 | Negada ⇒ caminho para configurações | ⏳ | implementado (artboard 13 + `Linking.openSettings()`); **exige aparelho físico** — o Simulador não reproduz "negada permanentemente" |
-| Para sozinha no limite e informa | ⏳ | implementado (reage a `durationMillis`, `limite = 90 s` de `app.json > extra`); **não verificado** |
-| Ouvir o gravado e regravar | ⏳ | implementado (`PlayerLocal` + `descartar`); **não verificado** |
+| Para sozinha no limite e informa | ✅ | **par completo**: limite baixado para 5 s em `app.json > extra`, app recarregado, gravação iniciada e deixada correr. Parou **sozinha em 0:05** e informou — *"Chegamos ao limite de 5s — sua fala foi guardada até aqui."* — com o áudio preservado (player `0:00 / 0:05`). Limite revertido para 90 s |
+| Ouvir o gravado e regravar | ✅ | player local com `0:01 / 0:01` e o link `regravar`, sem sair da tela |
+| Estado "gravando" (sem artboard) derivado do style guide | ✅ | capturado: `Gravando…`, contador `0:02 / 0:05`, botão em **quadrado**, halo de **pulso**, "Toque para parar" |
 | Compila contra os tipos gerados | ✅ | ver "O gate morde" abaixo |
 | Tokens do design num lugar só | ✅ | `src/theme/tokens.ts`, com os hex do artboard 17 |
 | Spike de SSE respondido | ✅ | ver abaixo |
@@ -206,12 +207,27 @@ pushado.
 como cumprido (LEARNING-0004): explicação do agente e demonstração executada não
 fecham item de aprendizado.
 
+### Correção de UX feita durante a verificação
+
+No estado `gravado`, o rótulo abaixo do botão dizia *"Ouça o que você falou"* —
+mas o botão ali **grava de novo**, não toca. O rótulo descrevia o player que está
+no meio da tela. Trocado por **"Toque para gravar de novo"**: o rótulo descreve o
+botão que está embaixo dele.
+
+### Uma observação de layout que NÃO é bug
+
+O player aparece centralizado no vazio da tela, e no artboard 01 ele está
+ancorado ao fim da resposta do professor. **A diferença é ausência de conteúdo,
+não erro de layout:** não existe lista de turns (bolha do aluno, resposta,
+card de correção) porque ela é do CARD-012/CARD-016. Montá-la agora seria pior
+que adiar — a ordem desenhada está **invertida** em relação à cascata
+(ADR-0022/0023), e a lista nasceria errada.
+
 ### Pendências
 
 | O que falta | Quem resolve |
 |---|---|
-| **Verificar os quatro critérios de gravação/permissão no Simulador e no aparelho** | esta sessão, assim que o desenvolvedor interagir com a tela |
-| **Permissão negada permanentemente em aparelho físico** | idem — o Simulador não reproduz o estado |
+| **Permissão negada permanentemente + microfone real, em aparelho físico** | o único critério que falta. O Simulador não reproduz o estado, e sem ele o item da DoD não pode ser marcado |
 | Fonte `Instrument Sans` (`expo-font` + `@expo-google-fonts/instrument-sans`) | card próprio de UI |
 | Dark mode verificado na prática (os tokens existem; `userInterfaceStyle: automatic`) | idem |
 | Gate de teste automatizado no cliente | ADR-0043 item 6, com gatilho |

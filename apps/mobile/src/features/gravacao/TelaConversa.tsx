@@ -112,8 +112,11 @@ function rotulo(estado: 'ocioso' | 'gravando' | 'gravado'): string {
       return 'Toque para falar';
     case 'gravando':
       return 'Toque para parar';
+    // O rótulo descreve o BOTÃO, não o player: no estado `gravado` o botão
+    // grava de novo. "Ouça o que você falou" ficava embaixo dele e sugeria
+    // que tocá-lo reproduziria o áudio.
     case 'gravado':
-      return 'Ouça o que você falou';
+      return 'Toque para gravar de novo';
   }
 }
 
