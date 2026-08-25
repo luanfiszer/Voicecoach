@@ -22,6 +22,10 @@ export const cores = {
     tinta: '#171614',
     secundario: '#6E6A62',
     acento: '#B44B31',
+    // Texto sobre o acento. Não é "branco": é o papel "o que se lê em cima do
+    // botão cheio", e ele continua claro nos dois esquemas porque os dois
+    // acentos são escuros o bastante para isso.
+    sobreAcento: '#FFFFFF',
   },
   dark: {
     fundo: '#121211',
@@ -32,6 +36,7 @@ export const cores = {
     // como divergência no card — não é valor do designer.
     secundario: '#8F8B83',
     acento: '#E4795C',
+    sobreAcento: '#1A1918',
   },
 } as const;
 

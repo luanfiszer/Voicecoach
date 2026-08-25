@@ -1,7 +1,7 @@
 # CARD-012 — Upload com retry, consumo do stream e playback encadeado (fecha a fatia)
 
 - **ID:** CARD-012 · **Épico:** Fase 1 — Fatia vertical em cascata (fecha a fase)
-- **Plataforma:** mobile · **Esforço:** M · **Status:** backlog
+- **Plataforma:** mobile · **Esforço:** M · **Status:** em execução
 - **Dependências:** CARD-010, CARD-011; ADR-0026
 
 ## Contexto
@@ -88,3 +88,116 @@ Dois problemas novos, ambos do cliente:
 Máquina de estados async na UI de RN com `AbortController`, backoff e o caminho
 triste como cidadão de primeira classe; e o consumo de tipos gerados na prática
 — mudança de contrato quebra o build do app.
+
+---
+
+## Execução (2026-08-25)
+
+Branch `card-012-upload-stream-playback`. **Status: em execução** — o critério de
+saída da Fase 1 **não está fechado** (falta o aparelho físico), e nenhum item foi
+marcado como cumprido sem evidência.
+
+### As decisões que foram ao desenvolvedor antes da primeira linha de código
+
+| Decisão | Escolha | Onde ficou registrada |
+|---|---|---|
+| Branch base (PR #16 estava aberto) | **Mergear o #16 primeiro** | commit `ec8c07d` |
+| Host da URL assinada (§4.1 do prompt) | **`s3_public_endpoint_url` em `Settings`** | [ADR-0045](../adr/0045-o-host-que-assina-a-url-e-o-do-leitor-nao-o-do-servidor.md) |
+| Forma do client | **Função-fábrica com objeto de funções**, `fetch` injetável | [ADR-0046](../adr/0046-a-forma-do-client-typescript-e-o-contrato-do-sse-no-openapi.md) |
+| Onde mora a fila de playback | **Hook próprio em `apps/mobile`** | [ADR-0047](../adr/0047-fila-de-playback-com-um-player-por-trecho-e-a-rota-de-medicao.md) |
+| **Payloads do SSE fora do OpenAPI** (achado no meio da sessão) | **Fazer o FastAPI emiti-los** | ADR-0046 §5 |
+
+### Item de ADR da DoD — critérios citados (LEARNING-0003)
+
+Conferido contra a lista "Quando um ADR é OBRIGATÓRIO" de `docs/adr/README.md`:
+
+- **ADR-0045** — critério **2** (altera fronteira: campo novo em `Settings` e
+  muda o endereço que a API entrega ao cliente) e critério **4** (privacidade:
+  é o endereço por onde a voz do aluno trafega).
+- **ADR-0046** — critério **2**, duas vezes: o client é a superfície por onde
+  todo o produto fala com o backend, e os payloads do SSE entrando no OpenAPI são
+  compromisso aditivo permanente (ADR-0008). O critério **1** foi **avaliado e
+  não se aplicou**: nenhuma dependência entrou no pacote.
+- **ADR-0047** — critério **1** (`expo-asset`) e critério **5** (a fila é como o
+  produto entrega o seu diferencial; trocá-la depois de a UI depender dela custa
+  mais que uma sessão).
+- **O que NÃO virou ADR, e por quê:** o `updateInterval` de 50 ms, o mapa de
+  MIME por extensão e o watchdog de carga são **implementação dentro de decisões
+  já tomadas** (ADR-0047 e ADR-0024) — estão documentados no código e no ADR que
+  os governa, não em ADR próprio.
+
+### Evidência dos critérios de aceite
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| **≤ 2,4 s p50** até a primeira palavra | ❌ **não atingido** | **2,47 s** (N=10, Simulador). Tabela completa em [`medicao-latencia.md` §11.2](../medicao-latencia.md). Erra por **70 ms** |
+| …no **aparelho físico** | ⏳ **não verificado** | depende do desenvolvedor. **É o critério de saída da Fase 1 e continua aberto** |
+| **Gap < 150 ms**, sem reordenação | ✅ | **143 ms p50, 145 ms no pior caso**, n=10. Resolução do instrumento: 50 ms (§11.3) |
+| Background 5 s e volta retoma sem repetir | ✅ | app para Ajustes por 6 s e de volta: `concluido sse`, **2 trechos e UM gap** (6.082 ms = o tempo congelado). Um trecho retocado teria produzido transição a mais |
+| Recuo por polling com SSE desligado por flag | ✅ | `sseHabilitado: false` ⇒ tela mostra `via = polling` e o turn **completa**: total 4,18 s, gap 444 ms (§11.5) |
+| Retry com a mesma chave não duplica turn | ✅ parcial | **servidor provado**: 3 envios com a mesma `Idempotency-Key` ⇒ `replayed: false, true, true`, mesmo `turn_id`, e `select count(*) from turns` = **1**. **O reuso da chave PELO CLIENTE não foi exercitado com falha de rede forçada** — é parâmetro de `enviarTurn` e o laço de retry o reusa, mas isso está provado por leitura, não por execução |
+| Falha depois de 2 trechos sem apagar o ouvido | ⏳ **não exercitado** | implementado (`ListaDoTurno` §4 + `delivered_partially`); forçar um `failed` **depois** de trechos exigiria derrubar o MinIO na janela de ~1 s entre o último trecho e a concatenação |
+| URL de trecho expirada tratada | ⚠️ **implementado, não disparado** | com `MEDIA_URL_TTL=PT1S` o turn **completou com áudio** (`concluido sse`, gaps 144 ms). É achado do desenho: o player é criado quando o evento chega, então a janela entre assinar e baixar é ~300 ms, e o TTL curto não morde. O caminho de recuperação (watchdog → repedir o `GET` → `full` → áudio indisponível) existe e está tipado, mas **não foi executado** |
+| Ordem por `index` com ≥ 10 trechos | ⏳ **não exercitado** | as 10 execuções produziram **2 trechos cada**. A ordenação é numérica (`a.index - b.index`) e a dedup é por índice, mas sem turn longo não há prova |
+| Tela reflete a ordem da cascata | ✅ código, ⏳ captura | `ListaDoTurno.tsx` monta transcrição → **áudio** → correção → falha. A captura com um turn real na tela de conversa exige **um toque** (o agente não consegue tocar) |
+| `spike-sse.tsx` saiu do repositório | ✅ | `git rm apps/mobile/app/spike-sse.tsx`; virou a rota `/medicao`, que é instrumento e não spike |
+| Pendência do CARD-011 (permissão negada permanentemente) | ⏳ **não fechada** | exige aparelho físico |
+
+### O que a sessão descobriu e o card não previa
+
+1. **Quatro dos cinco payloads do SSE não existiam no OpenAPI.** A promessa
+   central do ADR-0008 (*"mudança de contrato quebra o cliente em build"*) era
+   **falsa justamente para o stream**, porque a rota devolve `EventSourceResponse`
+   e não modelo pydantic. Corrigido (ADR-0046 §5); os cinco agora são tipos
+   gerados.
+2. **`audio/m4a` não está na lista aceita pelo servidor.** O tipo fixo que o
+   cliente mandaria dá **415** — `audio/x-m4a` é o nome aceito. Descoberto com um
+   415 real, não lendo a lista. O tipo passou a ser derivado da extensão.
+3. **O idioma de upload de todo tutorial de React Native não funciona aqui.**
+   Medido no Expo Go SDK 57, contra o endpoint real:
+
+   ```
+   uri+name+type -> ERRO Unsupported FormDataPart implementation
+   uri só        -> ERRO Unsupported FormDataPart implementation
+   blob          -> HTTP 202
+   ```
+
+   O `enviarTurn` passou a aceitar **só `Blob`**, e a conversão mora no app.
+4. **A primeira leva de medição mediu o relógio.** Gap p50 de 594 ms com o
+   `updateInterval` no default de 500 ms. Ver §11.3 da medição.
+5. **A cauda de latência é do worker.** `process_turn` de 19–22 s com o Anthropic
+   respondendo 200. **Causa não isolada** — pendência abaixo.
+6. **O terminal desta máquina não alcança a LAN.** `ping` responde, TCP dá
+   timeout, firewall desligado: é a permissão **"Rede local"** do macOS, a mesma
+   classe do acesso assistivo da §3.3. Não afeta telefone→Mac.
+
+### Regra do explicador — desfecho de cada item (LEARNING-0004)
+
+| Pergunta | Momento | Desfecho |
+|---|---|---|
+| **P1** — URL assinada para `localhost` com o host trocado para o IP da LAN: o que o MinIO responde? | antes de escrever o `s3_public_endpoint_url`, no ponto da decisão | **1ª resposta errada** ("200 — funciona"). Demonstrado com as três execuções (`localhost` → 200; host trocado → **403 `SignatureDoesNotMatch`**; assinada já para o outro host → 200) e explicado o `X-Amz-SignedHeaders=host`. **Reformulada uma vez** (dois clientes boto3, objeto gravado por um e lido pela URL do outro) e **respondida corretamente**. ✅ **fechada** |
+| **P2** — um player por trecho vs. um player com `replace(url)`: qual a consequência observável? | antes de escrever a fila | **respondida corretamente na primeira** ("em (A) o gap contém download+decodificação"). ✅ **fechada** |
+| Perguntas seguintes | — | **dispensadas pelo desenvolvedor** (*"pule essas perguntas"*). Registrado como dispensa, **não** como cumprido |
+| **Q14, Q13, Q7** (fila de `perguntas-em-aberto.md`) | reapresentadas na abertura, antes do plano | **sem resposta e sem dispensa** — seguem na fila |
+| **Decisão sobre a regra** (§0 do prompt, pendência de topo há 7 sessões) | reapresentada na abertura, com os três caminhos por escrito | **sem resposta** — continua sendo a pendência de topo |
+
+### Custo (ADR-0010)
+
+**~40 execuções do pipeline com `claude-haiku-4-5` real**, entre a leva
+descartada (instrumento grosso), a leva definitiva (N=10), o recuo por polling, a
+idempotência e os testes de background e TTL. A ~US$ 0,02 cada: **≈ US$ 0,80**.
+
+### Dívidas explícitas
+
+| Dívida | Gatilho / card |
+|---|---|
+| **O número no aparelho físico** — critério de saída da Fase 1 | próxima sessão com o aparelho; `S3_PUBLIC_ENDPOINT_URL` e `apiBaseUrl` têm de apontar para o IP da LAN (ADR-0045) |
+| Permissão negada permanentemente (herdada do CARD-011) | mesma ida ao aparelho |
+| **p50 de 2,47 s contra o alvo de 2,4 s** | a cauda do worker (abaixo) é a alavanca mais provável |
+| **Cauda de 19–22 s em `process_turn`, causa não isolada** | card próprio; candidatos: recarga do `mlx-whisper`, contenção de GPU, cauda do provedor |
+| Ordem por `index` com ≥ 10 trechos, não exercitada | insumo que produza resposta longa |
+| Falha depois de 2 trechos, não exercitada | ver acima |
+| Recuperação de URL expirada, implementada e não disparada | ver acima |
+| Reuso da `Idempotency-Key` pelo cliente, provado por leitura | precisa de falha de rede forçada — depende do gate de teste do cliente (ADR-0043 item 6) |
+| **Problem Details fora do OpenAPI** | ADR-0046 §6, com gatilho |
+| Dedup e recuo vivem no app, não no pacote | 1º card da web que consuma o stream |

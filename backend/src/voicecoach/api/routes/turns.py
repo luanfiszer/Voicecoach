@@ -46,6 +46,7 @@ from voicecoach.api.schemas.turns import (
     FeedbackPayload,
     TranscribedPayload,
     TurnAcceptedResponse,
+    TurnEventPayloads,
     TurnResponse,
 )
 from voicecoach.application.ports.media_storage import MediaStorage
@@ -193,6 +194,31 @@ async def obter_turn(
     "/turns/{turn_id}/events",
     summary="Entrega progressiva por SSE (ADR-0026)",
     response_class=EventSourceResponse,
+    # **O `responses` aqui não é documentação decorativa** — é o que faz os cinco
+    # payloads do SSE existirem no OpenAPI e, por consequência, nos tipos
+    # gerados. Sem ele, quatro dos cinco eventos ficavam fora do contrato e o
+    # cliente teria de escrevê-los à mão, que é o drift que o ADR-0008 proíbe.
+    # Ver o docstring de `TurnEventPayloads`.
+    # `response_model` e não `responses`: assim o media type sai do
+    # `response_class` (`text/event-stream`) em vez de um `application/json`
+    # que mentiria sobre o corpo. O FastAPI **não valida** o retorno quando o
+    # endpoint devolve um `Response` — aqui ele é documentação e nada mais.
+    response_model=TurnEventPayloads,
+    # O `response_model` acima registra os cinco payloads em
+    # `components.schemas`; este `responses` diz o media type de verdade e
+    # aponta para eles. Com `responses` sozinho o FastAPI acrescentaria um
+    # `application/json` que mentiria sobre o corpo do stream.
+    responses={
+        200: {
+            "description": "Fluxo `text/event-stream`. Cada evento carrega, em "
+            "`data`, o payload do seu `event:` — o mapa é `TurnEventPayloads`.",
+            "content": {
+                "text/event-stream": {
+                    "schema": {"$ref": "#/components/schemas/TurnEventPayloads"}
+                }
+            },
+        }
+    },
 )
 async def acompanhar_turn(
     request: Request,

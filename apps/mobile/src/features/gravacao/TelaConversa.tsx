@@ -21,18 +21,21 @@
  */
 
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BotaoGravar } from '@/features/gravacao/BotaoGravar';
 import { OverlayPermissao } from '@/features/gravacao/OverlayPermissao';
 import { PlayerLocal } from '@/features/gravacao/PlayerLocal';
 import { useGravacao } from '@/features/gravacao/useGravacao';
+import { ListaDoTurno } from '@/features/turno/ListaDoTurno';
+import { type EstadoDoTurn, useTurno } from '@/features/turno/useTurno';
 import { alvo, espaco, texto, useCores } from '@/theme/tokens';
 
 export function TelaConversa() {
   const cores = useCores();
   const gravacao = useGravacao();
+  const turno = useTurno();
   const [overlayDispensado, setOverlayDispensado] = useState(false);
 
   const precisaDeAjustes =
@@ -43,21 +46,21 @@ export function TelaConversa() {
       <View style={estilos.cabecalho}>
         <Text style={[texto.display, { color: cores.tinta }]}>Sessão de hoje</Text>
         <Text style={[texto.apoio, { color: cores.secundario }]}>
-          {gravacao.estado === 'gravando' ? 'Gravando…' : 'Nenhum turno ainda'}
+          {subtitulo(gravacao.estado === 'gravando', turno.estado)}
         </Text>
       </View>
 
-      <View style={estilos.centro}>
-        {gravacao.estado === 'gravado' && gravacao.uri ? (
-          <PlayerLocal key={gravacao.uri} uri={gravacao.uri} />
-        ) : null}
+      <ScrollView style={estilos.centro} contentContainerStyle={estilos.conteudo}>
+        {gravacao.uri ? <PlayerLocal key={gravacao.uri} uri={gravacao.uri} /> : null}
+
+        <ListaDoTurno turno={turno} />
 
         {gravacao.pararaPorLimite ? (
           <Text style={[texto.apoio, estilos.aviso, { color: cores.acento }]}>
             Chegamos ao limite de {gravacao.limite}s — sua fala foi guardada até aqui.
           </Text>
         ) : null}
-      </View>
+      </ScrollView>
 
       <View style={estilos.rodape}>
         {gravacao.estado === 'gravando' ? (
@@ -72,9 +75,15 @@ export function TelaConversa() {
           aoTocar={() => {
             setOverlayDispensado(false);
             if (gravacao.estado === 'gravando') {
-              void gravacao.parar();
+              // O marco 1 é o instante em que `stop()` retorna — o dedo saiu do
+              // botão. Ele é capturado AQUI e viaja junto, para que o upload não
+              // comece a contar de um relógio diferente do da gravação.
+              void gravacao.parar().then((uri) => {
+                if (uri) void turno.enviar(uri, Date.now());
+              });
               return;
             }
+            turno.limpar();
             void gravacao.iniciar();
           }}
         />
@@ -104,6 +113,31 @@ export function TelaConversa() {
       />
     </SafeAreaView>
   );
+}
+
+/**
+ * O subtítulo do cabeçalho — **a etapa da cascata, não a do desenho antigo**.
+ *
+ * Os artboards 03–06 descrevem uma sequência anterior à cascata (transcrevendo →
+ * pensando → texto → áudio). Hoje o áudio começa antes de o texto do feedback
+ * fechar (ADR-0022/0023), e o vocabulário aqui reflete a ordem real.
+ */
+function subtitulo(gravando: boolean, turno: EstadoDoTurn): string {
+  if (gravando) return 'Gravando…';
+  switch (turno) {
+    case 'ocioso':
+      return 'Nenhum turno ainda';
+    case 'enviando':
+      return 'Enviando…';
+    case 'transcrevendo':
+      return 'Transcrevendo…';
+    case 'ouvindo':
+      return 'O professor está falando…';
+    case 'concluido':
+      return 'Sua vez';
+    case 'falhou':
+      return 'Algo deu errado';
+  }
 }
 
 function rotulo(estado: 'ocioso' | 'gravando' | 'gravado'): string {
@@ -136,9 +170,12 @@ const estilos = StyleSheet.create({
   },
   centro: {
     flex: 1,
-    alignItems: 'center',
+  },
+  conteudo: {
+    flexGrow: 1,
     justifyContent: 'center',
     gap: espaco.md,
+    paddingVertical: espaco.md,
   },
   aviso: {
     textAlign: 'center',

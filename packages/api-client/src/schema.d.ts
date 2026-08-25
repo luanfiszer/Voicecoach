@@ -181,6 +181,14 @@ export interface components {
             text: string;
         };
         /**
+         * CompletedPayload
+         * @description Evento ``completed``. Carrega a URL do áudio inteiro, já assinada.
+         */
+        CompletedPayload: {
+            /** Reply Audio Url */
+            reply_audio_url: string;
+        };
+        /**
          * DependencyCheck
          * @description Estado de uma dependência de infraestrutura.
          */
@@ -194,6 +202,34 @@ export interface components {
             latency_ms: number;
             /** Error */
             error?: string | null;
+        };
+        /**
+         * FailedPayload
+         * @description Evento ``failed`` — inclusive depois de entrega parcial (ADR-0023).
+         */
+        FailedPayload: {
+            /** Reason */
+            reason: string;
+            /** Delivered Partially */
+            delivered_partially: boolean;
+        };
+        /**
+         * FeedbackPayload
+         * @description Evento ``feedback``.
+         *
+         *     **O único evento que a retomada não reconstrói**, porque correção só é
+         *     persistida no CARD-013 (ADR-0035). Um cliente que reconecte depois de ele ter
+         *     passado o verá no histórico, mais tarde — não neste stream.
+         */
+        FeedbackPayload: {
+            /** Has Mistakes */
+            has_mistakes: boolean;
+            /** Original */
+            original: string;
+            /** Corrected */
+            corrected: string;
+            /** Tip */
+            tip: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -254,6 +290,14 @@ export interface components {
             is_active: boolean;
         };
         /**
+         * TranscribedPayload
+         * @description Evento ``transcribed``.
+         */
+        TranscribedPayload: {
+            /** Transcript */
+            transcript: string;
+        };
+        /**
          * TurnAcceptedResponse
          * @description ``202`` do ``POST`` — o turn está aceito e a caminho.
          */
@@ -268,6 +312,31 @@ export interface components {
              * @description true quando a Idempotency-Key já tinha sido usada: nenhum turn novo foi criado e nada é reprocessado.
              */
             replayed: boolean;
+        };
+        /**
+         * TurnEventPayloads
+         * @description **Não é resposta de rota nenhuma.** Existe para o OpenAPI enxergar o SSE.
+         *
+         *     O ADR-0008 promete que mudança de contrato quebra o cliente **em build**. Essa
+         *     promessa era **falsa para quatro dos cinco eventos**: a rota do stream devolve
+         *     ``EventSourceResponse``, que não é modelo pydantic, então os payloads nunca
+         *     chegavam ao OpenAPI — e portanto nunca chegavam aos tipos gerados. Só
+         *     ``ChunkPayload`` escapava, por carona em ``TurnResponse.chunks``.
+         *
+         *     Descoberto no CARD-012, ao escrever o primeiro consumidor. Este envelope é a
+         *     correção mínima: declarado no ``responses`` da rota, ele arrasta os cinco para
+         *     ``components.schemas``. Um campo renomeado em qualquer evento passa a virar
+         *     ``error TS2339`` no app, que é o ponto inteiro do ADR-0008.
+         *
+         *     Os nomes dos campos são os cinco nomes de evento do ADR-0026 — de propósito:
+         *     quem ler o tipo gerado descobre o mapa ``event: → payload`` sem sair dele.
+         */
+        TurnEventPayloads: {
+            transcribed: components["schemas"]["TranscribedPayload"];
+            chunk: components["schemas"]["ChunkPayload"];
+            feedback: components["schemas"]["FeedbackPayload"];
+            completed: components["schemas"]["CompletedPayload"];
+            failed: components["schemas"]["FailedPayload"];
         };
         /**
          * TurnResponse
@@ -521,12 +590,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Fluxo `text/event-stream`. Cada evento carrega, em `data`, o payload do seu `event:` — o mapa é `TurnEventPayloads`. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "text/event-stream": components["schemas"]["TurnEventPayloads"];
+                };
             };
             /** @description Validation Error */
             422: {

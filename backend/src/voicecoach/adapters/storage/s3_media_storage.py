@@ -61,7 +61,12 @@ class S3MediaStorage:
     e a verificação está escrita como uma anotação no teste da porta.
     """
 
-    def __init__(self, client: Any, bucket: str) -> None:  # noqa: ANN401 — ver abaixo
+    def __init__(
+        self,
+        client: Any,  # noqa: ANN401 — ver abaixo
+        bucket: str,
+        signer: Any = None,  # noqa: ANN401 — mesmo motivo do `client`
+    ) -> None:
         # `Any` é deliberado e não preguiça: o `boto3` monta os clientes em
         # RUNTIME a partir de arquivos JSON de serviço, então `client("s3")` não
         # tem um tipo estático que se possa nomear sem o pacote `types-boto3`.
@@ -70,6 +75,11 @@ class S3MediaStorage:
         # está tipado.
         self._client = client
         self._bucket = bucket
+        # O cliente que ASSINA. Quase sempre é o mesmo que fala com o storage;
+        # ele se separa quando o host que o servidor usa não é o host que o
+        # aparelho do aluno alcança (ADR-0045). Default `None` = o mesmo, para
+        # que nada mude onde a separação não existe.
+        self._signer = signer if signer is not None else client
 
     async def put(self, key: str, data: bytes, content_type: str) -> None:
         """Grava o objeto **já com a tag de retenção** derivada da chave.
@@ -120,7 +130,7 @@ class S3MediaStorage:
         método bloqueia?" toda vez que alguém ler o arquivo.
         """
         url = await self._in_executor(
-            self._client.generate_presigned_url,
+            self._signer.generate_presigned_url,
             ClientMethod="get_object",
             Params={"Bucket": self._bucket, "Key": key},
             ExpiresIn=int(ttl.total_seconds()),
@@ -192,13 +202,26 @@ def create_media_storage(settings: Settings) -> S3MediaStorage:
     `signature_version="s3v4"` é explícito porque o default varia com a região e
     o MinIO só aceita v4: deixar implícito é como se descobre, em produção, que
     a URL assinada localmente não vale no provedor real.
+
+    **Podem sair DOIS clientes** (ADR-0045). Um fala com o storage; o outro só
+    assina, com o host que o aparelho do aluno alcança. Assinar é HMAC local —
+    o segundo cliente nunca abre conexão nenhuma —, e o objeto é o mesmo para os
+    dois porque quem o identifica é `(bucket, key)`, não o endpoint: `endpoint`
+    é para onde a requisição VAI, e a URL assinada descreve a requisição que o
+    **leitor** fará.
     """
-    client = boto3.client(
-        "s3",
-        endpoint_url=settings.s3_endpoint_url,
-        aws_access_key_id=settings.s3_access_key,
-        aws_secret_access_key=settings.s3_secret_key,
-        region_name=settings.s3_region,
-        config=Config(signature_version="s3v4"),
-    )
-    return S3MediaStorage(client, settings.s3_bucket)
+
+    def montar(endpoint: str) -> Any:  # noqa: ANN401 — o boto3 não é tipado
+        return boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=settings.s3_access_key,
+            aws_secret_access_key=settings.s3_secret_key,
+            region_name=settings.s3_region,
+            config=Config(signature_version="s3v4"),
+        )
+
+    client = montar(settings.s3_endpoint_url)
+    assinatura = settings.s3_signing_endpoint_url
+    signer = client if assinatura == settings.s3_endpoint_url else montar(assinatura)
+    return S3MediaStorage(client, settings.s3_bucket, signer)

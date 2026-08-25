@@ -177,3 +177,28 @@ class FailedPayload(BaseModel):
 
     reason: str
     delivered_partially: bool
+
+
+class TurnEventPayloads(BaseModel):
+    """**Não é resposta de rota nenhuma.** Existe para o OpenAPI enxergar o SSE.
+
+    O ADR-0008 promete que mudança de contrato quebra o cliente **em build**. Essa
+    promessa era **falsa para quatro dos cinco eventos**: a rota do stream devolve
+    ``EventSourceResponse``, que não é modelo pydantic, então os payloads nunca
+    chegavam ao OpenAPI — e portanto nunca chegavam aos tipos gerados. Só
+    ``ChunkPayload`` escapava, por carona em ``TurnResponse.chunks``.
+
+    Descoberto no CARD-012, ao escrever o primeiro consumidor. Este envelope é a
+    correção mínima: declarado no ``responses`` da rota, ele arrasta os cinco para
+    ``components.schemas``. Um campo renomeado em qualquer evento passa a virar
+    ``error TS2339`` no app, que é o ponto inteiro do ADR-0008.
+
+    Os nomes dos campos são os cinco nomes de evento do ADR-0026 — de propósito:
+    quem ler o tipo gerado descobre o mapa ``event: → payload`` sem sair dele.
+    """
+
+    transcribed: TranscribedPayload
+    chunk: ChunkPayload
+    feedback: FeedbackPayload
+    completed: CompletedPayload
+    failed: FailedPayload

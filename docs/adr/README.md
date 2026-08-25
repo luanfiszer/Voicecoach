@@ -81,6 +81,9 @@ Escreva um ADR sempre que a decisão:
 | [0042](0042-idempotencia-do-post-por-coluna-no-postgres.md) | A idempotência do `POST` mora numa coluna do Postgres, não no Redis | aceito |
 | [0043](0043-quality-gates-do-cliente-typescript-com-biome.md) | Os quality gates do cliente: `tsc --strict` e Biome, nos mesmos três anéis | aceito (estende 0015 ao cliente; torna verificável o 0008) |
 | [0044](0044-dependencias-de-arranque-do-app-expo-e-convivencia-com-pnpm.md) | As dependências de arranque do app Expo, e a convivência do Metro com o pnpm | aceito (executa 0002; dispensa o polyfill previsto no 0026) |
+| [0045](0045-o-host-que-assina-a-url-e-o-do-leitor-nao-o-do-servidor.md) | O host que assina a URL de mídia é o do **leitor**, não o do servidor | aceito (completa 0024) |
+| [0046](0046-a-forma-do-client-typescript-e-o-contrato-do-sse-no-openapi.md) | A forma do client TypeScript, e os eventos do SSE entrando no contrato | aceito (completa 0008; torna verdadeira a promessa dele para o stream) |
+| [0047](0047-fila-de-playback-com-um-player-por-trecho-e-a-rota-de-medicao.md) | Fila de playback com um player por trecho, e a rota de medição como instrumento | aceito |
 
 ## ADRs pendentes de decisão de produto
 

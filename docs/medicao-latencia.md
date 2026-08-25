@@ -568,3 +568,122 @@ pior — **não medido**, e é a pendência que fica.
 - **Respostas longas.** O insumo produziu 2 trechos; o ADR-0023 prevê 3 a 6. Com
   mais trechos, o tempo até o **primeiro** não deve mudar (é o ponto da cascata),
   mas o turn completo cresce linearmente.
+
+## 11. CARD-012 — o primeiro número do PRODUTO, medido no cliente
+
+- **Data:** 2026-08-25
+- **Onde:** app Expo (SDK 57) no **Simulador iOS 26.5**, contra o backend e o
+  worker desta máquina (Apple Silicon), com Postgres, Redis e MinIO **reais** do
+  `docker-compose.yml` — não fakes, ao contrário da §10.
+- **Método:** rota `/medicao` do app, disparada por deep link
+  (`exp://…/--/medicao?execucoes=10&auto=1`), **N = 10**, insumo fixo: o mesmo
+  WAV de 2,3 s das §§2–10. Professor `claude-haiku-4-5` real.
+- **Resolução do instrumento:** `updateInterval` do `expo-audio` em **50 ms**
+  (ver §11.3 — a primeira leva foi medida com o default de 500 ms e o número era
+  o relógio).
+
+### 11.1 Os quatro marcos, e o que cada um significa
+
+| Marco | Instante exato |
+|---|---|
+| 1. início | o envio começou (**não** "o dedo saiu do botão" — ver §11.4) |
+| 2. upload completo | o `202` do `POST` chegou, com `turn_id` |
+| 3. primeiro trecho | o evento `chunk` de índice 0 foi lido do stream |
+| 4. **primeiro áudio audível** | o player reportou `playing && currentTime > 0` |
+
+O marco 4 é o traiçoeiro e está escrito de propósito: `player.play()` **retornar**
+não é o som saindo do alto-falante.
+
+### 11.2 O número
+
+| # | upload | → 1º trecho | → audível | **TOTAL** | gap |
+|---|---|---|---|---|---|
+| 1 | 0,32 s | 1,80 s | 0,26 s | 2,38 s | 143 ms |
+| 2 | 0,25 s | 2,01 s | 0,18 s | 2,43 s | 135 ms |
+| 3 | 0,33 s | 2,42 s | 0,34 s | 3,09 s | 144 ms |
+| 4 | 0,25 s | 2,33 s | 0,19 s | 2,77 s | 144 ms |
+| 5 | 0,23 s | 2,31 s | 0,18 s | 2,71 s | 145 ms |
+| 6 | 0,21 s | 2,14 s | 0,17 s | 2,51 s | 143 ms |
+| 7 | 0,20 s | 1,71 s | 0,17 s | 2,08 s | 142 ms |
+| 8 | 0,20 s | **4,17 s** | 0,18 s | **4,55 s** | 144 ms |
+| 9 | 0,22 s | 1,81 s | 0,18 s | 2,21 s | 144 ms |
+| 10 | 0,24 s | 1,98 s | 0,18 s | 2,40 s | 143 ms |
+| **p50** | **0,24 s** | **2,08 s** | **0,18 s** | **2,47 s** | **143 ms** |
+
+**O alvo do CARD-012 era ≤ 2,4 s p50. O número é 2,47 s — não atingido, por
+70 ms.** Está escrito aqui em vez de arredondado: foi assim que o ADR-0021
+nasceu.
+
+**O gap entre trechos era < 150 ms. O número é 143 ms p50, 145 ms no pior caso —
+atingido**, com a ressalva de que a resolução do instrumento é 50 ms.
+
+### 11.3 A primeira leva mediu o relógio, não o produto
+
+Dez execuções antes desta deram **gap p50 de 594 ms**, quase idêntico em 6 de 7
+rodadas. O `playbackStatusUpdate` do `expo-audio` tem `updateInterval` **default
+de 500 ms**: o número era uma tick. Baixado para 50 ms, o gap caiu para 143 ms e
+o marco 4 caiu de 0,63 s para 0,18 s — **meio segundo daquele número era
+medição**. Um instrumento mais grosso que o critério não decide nada (§1).
+
+### 11.4 O custo de composição, agora do lado de fora
+
+A §10 mediu **1,56–1,61 s** até o primeiro trecho **gravado**, dentro do worker,
+com storage e repositório em memória. O que este card acrescenta é o que sobra
+por fora:
+
+| Parcela | p50 |
+|---|---|
+| upload do cliente (1,4 MB de WAV) | 0,24 s |
+| pickup da fila + pipeline com infra real + transporte SSE | 2,08 s |
+| download do trecho + decodificação + início do playback | **0,18 s** |
+
+A terceira linha é a que **nunca havia sido medida** e era o risco escrito no
+card (*"decodificar áudio no RN tem latência própria não medida"*). Ela é
+pequena: **0,18 s**, e não domina nada — porque o player do trecho é criado
+quando o evento chega, não quando o trecho anterior termina (ADR-0047).
+
+A segunda linha cresceu em relação à §10 (2,08 s vs. 1,56–1,61 s), e a diferença
+é o que a §10 declarou não cobrir: fila do `arq`, Postgres, MinIO e o transporte.
+
+### 11.5 O recuo por polling, quantificado
+
+Com `sseHabilitado: false` (ADR-0026 item 4), o turn **completa** — e custa:
+
+| | SSE (p50, n=10) | Polling (n=1) |
+|---|---|---|
+| até o 1º trecho | 2,08 s | **3,54 s** |
+| total até audível | 2,47 s | **4,18 s** |
+| gap entre trechos | 143 ms | **444 ms** |
+
+**+1,7 s e 3× o gap.** É a primeira medição do que o ADR-0026 argumentou com
+estimativas — e ela justifica o SSE como caminho principal com número, não com
+raciocínio.
+
+### 11.6 A cauda é do WORKER, não do cliente
+
+A execução #8 (4,17 s até o primeiro trecho) e outras fora desta leva (18–22 s)
+têm origem medida no log do `arq`:
+
+```
+19.48s ← turn:4c0135f0-…:process_turn ●
+22.08s ← turn:7de5735c-…:process_turn ●
+```
+
+A chamada ao Anthropic devolveu **200** nas duas. **A causa não foi isolada** e
+é pendência: candidatos são recarga do `mlx-whisper`, contenção de GPU, ou
+latência de cauda do provedor. Não é o cliente, e não é o que este card
+construiu.
+
+### 11.7 O que esta medição NÃO cobre
+
+- **Aparelho físico.** É Simulador, que compartilha CPU, rede e disco do Mac. O
+  critério de saída da Fase 1 exige o aparelho, e ele **continua em aberto**.
+- **O custo de parar a gravação.** O insumo é um WAV empacotado, não o
+  microfone: o marco 1 é "o envio começou". Com gravação real, some o tempo de
+  `recorder.stop()` e o arquivo é `.m4a` (menor que o WAV de 1,4 MB — o upload
+  tende a **melhorar**).
+- **Respostas com mais de 2 trechos.** Todas as 10 execuções produziram 2. O
+  ADR-0023 prevê 3 a 6, e a ordenação por `index` com ≥ 10 trechos **não foi
+  exercitada**.
+- **Rede móvel.** Tudo em loopback. 4G/5G muda upload e transporte, não o
+  pipeline.

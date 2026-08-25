@@ -50,7 +50,12 @@ export type Gravacao = {
   /** URI local do arquivo gravado, quando existe. */
   uri: string | null;
   iniciar: () => Promise<void>;
-  parar: () => Promise<void>;
+  /**
+   * Para e **devolve a URI**. Devolver, e não só guardar no estado, porque quem
+   * chama precisa dela na mesma tarefa: ler `gravacao.uri` logo depois daria o
+   * valor congelado do render em que o `onPress` nasceu.
+   */
+  parar: () => Promise<string | null>;
   descartar: () => void;
 };
 
@@ -78,13 +83,15 @@ export function useGravacao(): Gravacao {
     void getRecordingPermissionsAsync().then((r) => setPermissao(classificar(r)));
   }, []);
 
-  const pararInterno = useCallback(async () => {
+  const pararInterno = useCallback(async (): Promise<string | null> => {
     await recorder.stop();
-    setUri(recorder.uri ?? null);
+    const gravado = recorder.uri ?? null;
+    setUri(gravado);
     // No iOS, o modo de áudio que permite gravar joga o playback para o
     // alto-falante do ouvido, baixinho. Desligar `allowsRecording` ao terminar
     // é o que faz o "ouvir o que gravei" sair no alto-falante de verdade.
     await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+    return gravado;
   }, [recorder]);
 
   const iniciar = useCallback(async () => {
@@ -104,9 +111,9 @@ export function useGravacao(): Gravacao {
     recorder.record();
   }, [recorder]);
 
-  const parar = useCallback(async () => {
-    if (!estadoNativo.isRecording) return;
-    await pararInterno();
+  const parar = useCallback(async (): Promise<string | null> => {
+    if (!estadoNativo.isRecording) return null;
+    return pararInterno();
   }, [estadoNativo.isRecording, pararInterno]);
 
   // O limite de duração. Reage ao relógio do microfone, e o critério de aceite

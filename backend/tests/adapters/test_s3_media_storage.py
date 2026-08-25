@@ -333,3 +333,95 @@ def test_as_tres_regras_de_lifecycle_existem_com_os_ttls_da_config(
     assert all(
         r["Filter"]["Tag"] == {"Key": "retention", "Value": r["ID"]} for r in lidas
     )
+
+
+# --- O host da assinatura (ADR-0045) -----------------------------------------
+#
+# Estes três testes existem por causa de um modo de falha que só aparece em
+# APARELHO FÍSICO e se disfarça de "o playback não funciona": o servidor assina
+# a URL com `localhost`, e para o telefone `localhost` é o próprio telefone.
+#
+# O `minio_endpoint` do testcontainer é `http://localhost:PORTA`; o cliente de
+# assinatura destes testes aponta para `http://127.0.0.1:PORTA` — MESMO serviço,
+# STRING DE HOST DIFERENTE, que é exatamente a distinção que o SigV4 enxerga.
+
+
+@pytest.fixture
+def endpoint_alternativo(minio_endpoint: str) -> str:
+    """O mesmo MinIO por outro nome de host."""
+    return minio_endpoint.replace("localhost", "127.0.0.1")
+
+
+@pytest.fixture
+def signer(endpoint_alternativo: str) -> Any:
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint_alternativo,
+        aws_access_key_id=ACCESS_KEY,
+        aws_secret_access_key=SECRET_KEY,
+        region_name="us-east-1",
+        config=BotoConfig(signature_version="s3v4"),
+    )
+
+
+async def test_trocar_o_host_depois_de_assinar_invalida_a_assinatura(
+    storage: S3MediaStorage, endpoint_alternativo: str, minio_endpoint: str
+) -> None:
+    """**A armadilha.** É o teste que justifica o ADR-0045 existir.
+
+    O `X-Amz-SignedHeaders=host` da própria query já diz: o `Host` entra no
+    canonical request, com o seu valor. Reescrever a URL no cliente — a saída
+    "óbvia" para um app que não alcança `localhost` — devolve 403, e não há
+    conserto possível do lado do cliente.
+    """
+    chave = reply_chunk_key(STUDENT, SESSION, TURN, 7, "aac")
+    await storage.put(chave, b"\xff\xf1trecho", "audio/aac")
+
+    url = await storage.presigned_get_url(chave, timedelta(minutes=5))
+    remendada = url.replace(minio_endpoint, endpoint_alternativo)
+
+    async with httpx.AsyncClient() as client:
+        resposta = await client.get(remendada)
+
+    assert resposta.status_code == 403
+    assert "SignatureDoesNotMatch" in resposta.text
+
+
+async def test_a_url_assinada_pelo_segundo_cliente_baixa_o_que_o_primeiro_gravou(
+    s3_client: Any, signer: Any, endpoint_alternativo: str
+) -> None:
+    """A decisão: assina-se com o host do LEITOR, não com o host do servidor.
+
+    O objeto é gravado pelo cliente de `localhost` e lido por uma URL assinada
+    pelo de `127.0.0.1`. Funciona porque `(bucket, key)` é o que identifica o
+    objeto — `endpoint_url` é só para onde a requisição vai, e a assinatura
+    descreve a requisição que o **leitor** fará.
+    """
+    storage = S3MediaStorage(s3_client, BUCKET, signer)
+    chave = reply_chunk_key(STUDENT, SESSION, TURN, 8, "aac")
+    conteudo = b"\xff\xf1trecho-para-o-aparelho"
+
+    await storage.put(chave, conteudo, "audio/aac")
+    url = await storage.presigned_get_url(chave, timedelta(minutes=5))
+
+    assert url.startswith(endpoint_alternativo)
+
+    async with httpx.AsyncClient() as client:
+        resposta = await client.get(url)
+
+    assert resposta.status_code == 200
+    assert resposta.content == conteudo
+
+
+def test_sem_endpoint_publico_a_assinatura_usa_o_mesmo_host() -> None:
+    """O default não muda nada: Simulador e CI seguem como estavam."""
+    padrao = Settings(anthropic_api_key="x", _env_file=None)  # type: ignore[call-arg]
+    assert padrao.s3_signing_endpoint_url == padrao.s3_endpoint_url
+
+    publico = Settings(  # type: ignore[call-arg]
+        anthropic_api_key="x",
+        s3_public_endpoint_url="http://192.168.15.98:9000",
+        _env_file=None,
+    )
+    assert publico.s3_signing_endpoint_url == "http://192.168.15.98:9000"
+    assert publico.s3_endpoint_url == "http://localhost:9000"
