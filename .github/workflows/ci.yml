@@ -63,6 +63,36 @@ jobs:
         # errar. Reaproveita o .coverage do passo anterior.
         run: uv run coverage report --include="*/domain/*,*/application/*" --fail-under=90
 
+  mobile:
+    name: cliente (biome, tsc)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: pnpm/action-setup@v6.0.10
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - name: Instala as dependências
+        # `--frozen-lockfile` é o par do `uv sync --frozen` do job do backend:
+        # se o pnpm-lock.yaml não bate com os package.json, o job falha em vez
+        # de resolver outra coisa.
+        run: pnpm install --frozen-lockfile
+
+      - name: biome (formatação + lint, uma ferramenta só)
+        run: pnpm run lint
+
+      - name: tsc --noEmit (strict)
+        # É ESTE passo que torna verdadeira a promessa do ADR-0008: "mudança de
+        # API quebra os clientes em BUILD, não em runtime". O job `openapi`
+        # abaixo prova que os tipos gerados estão em dia; sem alguém COMPILAR o
+        # app contra eles, ninguém descobre que o app parou de casar com o
+        # contrato.
+        run: pnpm run typecheck
+
   openapi:
     name: contrato OpenAPI e tipos TypeScript
     runs-on: ubuntu-latest

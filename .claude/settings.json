@@ -10,6 +10,12 @@
             "command": "jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case \"$f\" in */backend/*.py) root=\"${f%%/backend/*}/backend\"; cd \"$root\" || exit 0; out=$(uv run ruff format \"$f\" 2>&1 && uv run ruff check --fix \"$f\" 2>&1 && uv run mypy 2>&1) || { echo \"$out\" >&2; exit 2; };; esac; }",
             "timeout": 60,
             "statusMessage": "ruff + mypy no arquivo editado"
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case \"$f\" in */apps/*.ts|*/apps/*.tsx|*/packages/*.ts|*/packages/*.tsx) root=\"${f%%/apps/*}\"; root=\"${root%%/packages/*}\"; cd \"$root\" || exit 0; out=$(pnpm exec biome check --write \"$f\" 2>&1 && pnpm -r --if-present run typecheck 2>&1) || { echo \"$out\" >&2; exit 2; };; esac; }",
+            "timeout": 120,
+            "statusMessage": "biome + tsc no arquivo editado"
           }
         ]
       }

@@ -7,5 +7,15 @@
   "engines": {
     "node": ">=26"
   },
-  "license": "UNLICENSED"
+  "scripts": {
+    "format": "biome format --write .",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "gates": "pnpm run lint && pnpm run typecheck"
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.10"
+  }
 }

@@ -81,3 +81,22 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+
+      # Os gates do CLIENTE (CARD-011). Mesma lógica dos hooks do backend, com
+      # a mesma justificativa para `language: system`: o Biome e o tsc precisam
+      # do node_modules do workspace, que o virtualenv do pre-commit não tem.
+      - id: biome
+        name: biome check --write (cliente)
+        entry: pnpm exec biome check --write --no-errors-on-unmatched
+        language: system
+        files: ^(apps|packages)/.*\.(ts|tsx|js|jsx|json)$
+
+      - id: tsc
+        name: tsc --noEmit (cliente)
+        # `pass_filenames: false` pelo MESMO motivo do mypy acima: tipagem é
+        # propriedade do grafo, não do arquivo. Trocar a assinatura de um hook
+        # quebra quem o chama, e quem o chama pode não estar no commit.
+        entry: bash -c 'pnpm -r --if-present run typecheck'
+        language: system
+        files: ^(apps|packages)/.*\.(ts|tsx)$
+        pass_filenames: false
