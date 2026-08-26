@@ -172,6 +172,42 @@ perguntas que nunca tiveram resposta verificada.
 > muda. Ela é a única linha desta fila que não depende de mais uma sessão de
 > trabalho para ser resolvida — depende de uma decisão de uma frase.
 
+> **CARD-012 (2026-08-25): a fila FOI reapresentada na abertura** — Q14, Q13 e
+> Q7, e desta vez as três tocavam o card **de verdade, não por paralelo**: a Q14
+> nasceu no CARD-011 e é sobre a medição em que o transporte inteiro deste card
+> se apoia; a Q13 é a mesma janela do lado do cliente (entre abrir o stream e
+> começar a consumir), que é a dedup do ADR-0041 item 3; a Q7 ganhou a segunda
+> metade no repositório, porque o client de `packages/api-client` é a primeira
+> porta do lado TypeScript. A **decisão sobre a regra** foi reapresentada como
+> pendência de topo, com os três caminhos por escrito (manter e responder /
+> reescrever / manter e aceitar o vermelho como dívida declarada). **Nenhuma das
+> quatro foi respondida nem dispensada:** o desenvolvedor respondeu as quatro
+> decisões de escopo (merge do PR #16, `s3_public_endpoint_url`, forma do client,
+> fila no app) e a sessão seguiu.
+>
+> **As duas perguntas NOVAS desta sessão fecharam — as duas.** É a primeira vez
+> que isso acontece desde o CARD-005.
+>
+> - **P1** (host na assinatura SigV4), feita **antes** de escrever o
+>   `s3_public_endpoint_url`: 1ª resposta **errada** ("200 — funciona"),
+>   demonstrada com três execuções contra o MinIO real (`localhost` → 200; host
+>   trocado → **403 `SignatureDoesNotMatch`**; assinada já para o outro host →
+>   200), explicado o `X-Amz-SignedHeaders=host`, **reformulada uma vez** e
+>   **respondida corretamente**. Virou o ADR-0045 e dois testes.
+> - **P2** (um player por trecho vs. `replace(url)`), feita **antes** de escrever
+>   a fila: **respondida corretamente na primeira**. Virou o ADR-0047.
+>
+> Depois da P2 o desenvolvedor pediu *"pule essas perguntas"* — registrado como
+> **dispensa** para as seguintes, nunca como cumprido (LEARNING-0004).
+>
+> **Oitava sessão seguida com Q7/Q13/Q14 abertas.** Mas o item da DoD desta
+> sessão **não** é vermelho pelo mesmo motivo das anteriores: as perguntas do
+> ponto da decisão foram feitas, respondidas e verificadas com execução. O que
+> segue vermelho é a **fila antiga**, e a pendência de topo continua sendo a
+> mesma desde o CARD-009: decidir se a **regra** muda. Ela é a única linha desta
+> fila que não depende de mais uma sessão de trabalho — depende de uma decisão
+> de uma frase.
+
 ## Fechadas
 
 | # | Pergunta | Fechada em | Como |

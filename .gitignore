@@ -44,6 +44,13 @@ temp_audio/
 # verificável na máquina de quem gravou o áudio.
 !backend/tests/fixtures/stt/*.wav
 
+# Exceção: o insumo da rota de medição do app (CARD-012). É uma CÓPIA do
+# arquivo acima — mesma voz sintética, mesmos 72 KB. Duplicado de propósito: o
+# Metro empacota a partir de `apps/mobile/`, e apontar para fora do app
+# atravessaria a fronteira que o monorepo mantém. Sem ele, o critério de saída
+# da Fase 1 (p50 com N ≥ 10) só é reproduzível na máquina de quem copiou.
+!apps/mobile/assets/medicao/*.wav
+
 # OS / editor
 .DS_Store
 .idea/

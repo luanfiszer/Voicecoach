@@ -13,6 +13,7 @@
   "dependencies": {
     "@voicecoach/api-client": "workspace:*",
     "expo": "~57.0.15",
+    "expo-asset": "~57.0.14",
     "expo-audio": "~57.0.4",
     "expo-constants": "~57.0.13",
     "expo-linking": "~57.0.7",

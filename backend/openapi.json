@@ -231,7 +231,14 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response"
+            "description": "Fluxo `text/event-stream`. Cada evento carrega, em `data`, o payload do seu `event:` \u2014 o mapa \u00e9 `TurnEventPayloads`.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnEventPayloads"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -296,6 +303,20 @@
         "title": "ChunkPayload",
         "description": "Um trecho toc\u00e1vel da resposta \u2014 no GET e no evento ``chunk``.\n\n``url`` \u00e9 uma URL **pr\u00e9-assinada e de vida curta** (ADR-0024): ela \u00e9 montada\nno momento da entrega, com TTL de ``media_url_ttl``. N\u00e3o \u00e9 endere\u00e7o est\u00e1vel e\nn\u00e3o deve ser guardada pelo cliente al\u00e9m do playback do turn."
       },
+      "CompletedPayload": {
+        "properties": {
+          "reply_audio_url": {
+            "type": "string",
+            "title": "Reply Audio Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reply_audio_url"
+        ],
+        "title": "CompletedPayload",
+        "description": "Evento ``completed``. Carrega a URL do \u00e1udio inteiro, j\u00e1 assinada."
+      },
       "DependencyCheck": {
         "properties": {
           "status": {
@@ -329,6 +350,54 @@
         ],
         "title": "DependencyCheck",
         "description": "Estado de uma depend\u00eancia de infraestrutura."
+      },
+      "FailedPayload": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "delivered_partially": {
+            "type": "boolean",
+            "title": "Delivered Partially"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "delivered_partially"
+        ],
+        "title": "FailedPayload",
+        "description": "Evento ``failed`` \u2014 inclusive depois de entrega parcial (ADR-0023)."
+      },
+      "FeedbackPayload": {
+        "properties": {
+          "has_mistakes": {
+            "type": "boolean",
+            "title": "Has Mistakes"
+          },
+          "original": {
+            "type": "string",
+            "title": "Original"
+          },
+          "corrected": {
+            "type": "string",
+            "title": "Corrected"
+          },
+          "tip": {
+            "type": "string",
+            "title": "Tip"
+          }
+        },
+        "type": "object",
+        "required": [
+          "has_mistakes",
+          "original",
+          "corrected",
+          "tip"
+        ],
+        "title": "FeedbackPayload",
+        "description": "Evento ``feedback``.\n\n**O \u00fanico evento que a retomada n\u00e3o reconstr\u00f3i**, porque corre\u00e7\u00e3o s\u00f3 \u00e9\npersistida no CARD-013 (ADR-0035). Um cliente que reconecte depois de ele ter\npassado o ver\u00e1 no hist\u00f3rico, mais tarde \u2014 n\u00e3o neste stream."
       },
       "HTTPValidationError": {
         "properties": {
@@ -413,6 +482,20 @@
         "title": "SessionResponse",
         "description": "``POST /v1/sessions`` \u2014 o m\u00ednimo para o cliente ter onde falar."
       },
+      "TranscribedPayload": {
+        "properties": {
+          "transcript": {
+            "type": "string",
+            "title": "Transcript"
+          }
+        },
+        "type": "object",
+        "required": [
+          "transcript"
+        ],
+        "title": "TranscribedPayload",
+        "description": "Evento ``transcribed``."
+      },
       "TurnAcceptedResponse": {
         "properties": {
           "turn_id": {
@@ -433,6 +516,35 @@
         ],
         "title": "TurnAcceptedResponse",
         "description": "``202`` do ``POST`` \u2014 o turn est\u00e1 aceito e a caminho."
+      },
+      "TurnEventPayloads": {
+        "properties": {
+          "transcribed": {
+            "$ref": "#/components/schemas/TranscribedPayload"
+          },
+          "chunk": {
+            "$ref": "#/components/schemas/ChunkPayload"
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/FeedbackPayload"
+          },
+          "completed": {
+            "$ref": "#/components/schemas/CompletedPayload"
+          },
+          "failed": {
+            "$ref": "#/components/schemas/FailedPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "transcribed",
+          "chunk",
+          "feedback",
+          "completed",
+          "failed"
+        ],
+        "title": "TurnEventPayloads",
+        "description": "**N\u00e3o \u00e9 resposta de rota nenhuma.** Existe para o OpenAPI enxergar o SSE.\n\nO ADR-0008 promete que mudan\u00e7a de contrato quebra o cliente **em build**. Essa\npromessa era **falsa para quatro dos cinco eventos**: a rota do stream devolve\n``EventSourceResponse``, que n\u00e3o \u00e9 modelo pydantic, ent\u00e3o os payloads nunca\nchegavam ao OpenAPI \u2014 e portanto nunca chegavam aos tipos gerados. S\u00f3\n``ChunkPayload`` escapava, por carona em ``TurnResponse.chunks``.\n\nDescoberto no CARD-012, ao escrever o primeiro consumidor. Este envelope \u00e9 a\ncorre\u00e7\u00e3o m\u00ednima: declarado no ``responses`` da rota, ele arrasta os cinco para\n``components.schemas``. Um campo renomeado em qualquer evento passa a virar\n``error TS2339`` no app, que \u00e9 o ponto inteiro do ADR-0008.\n\nOs nomes dos campos s\u00e3o os cinco nomes de evento do ADR-0026 \u2014 de prop\u00f3sito:\nquem ler o tipo gerado descobre o mapa ``event: \u2192 payload`` sem sair dele."
       },
       "TurnResponse": {
         "properties": {

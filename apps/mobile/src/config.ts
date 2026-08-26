@@ -20,6 +20,15 @@ import Constants from 'expo-constants';
 type Extra = {
   limiteGravacaoSegundos: number;
   apiBaseUrl: string;
+  /**
+   * Liga o SSE. Desligada, o app usa só `GET /v1/turns/{id}` — o contrato de
+   * recuo do ADR-0026 item 4.
+   *
+   * **A flag é ESCOPO, não conveniência**: o recuo que ninguém testa apodrece,
+   * e um app que só saiba consumir SSE torna o `GET` um endpoint morto que o CI
+   * acha que funciona.
+   */
+  sseHabilitado: boolean;
 };
 
 function lerExtra(): Extra {
@@ -38,7 +47,12 @@ function lerExtra(): Extra {
     throw new Error(`extra.apiBaseUrl inválido: ${String(url)}`);
   }
 
-  return { limiteGravacaoSegundos: limite, apiBaseUrl: url };
+  const sse = bruto.sseHabilitado;
+  if (typeof sse !== 'boolean') {
+    throw new Error(`extra.sseHabilitado inválido: ${String(sse)}`);
+  }
+
+  return { limiteGravacaoSegundos: limite, apiBaseUrl: url, sseHabilitado: sse };
 }
 
 export const config: Extra = lerExtra();

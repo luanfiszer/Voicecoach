@@ -192,10 +192,33 @@ class Settings(BaseSettings):
     )
     redis_url: str = "redis://localhost:6379/0"
     s3_endpoint_url: str = "http://localhost:9000"
+
+    # **O host com que a URL assinada é ASSINADA** — separado do de cima porque
+    # os dois têm consumidores diferentes (ADR-0045). O worker e a API falam com
+    # o MinIO por `s3_endpoint_url`; quem baixa o trecho é o **aparelho do
+    # aluno**, e para ele `localhost` é o próprio telefone.
+    #
+    # Não é cosmético: no SigV4 o `Host` entra no cálculo (a query traz
+    # `X-Amz-SignedHeaders=host`), então trocar o host DEPOIS de assinar devolve
+    # `SignatureDoesNotMatch` — medido no CARD-012. Não há conserto do lado do
+    # cliente; ou o servidor assina com um host alcançável, ou o áudio não toca.
+    #
+    # `None` (o default) significa "mesmo host": em Simulador e em CI nada muda.
+    # Em aparelho físico, aponte para o IP da máquina na LAN.
+    s3_public_endpoint_url: str | None = None
     s3_access_key: str = "voicecoach"
     s3_secret_key: str = "voicecoach-dev-secret"
     s3_bucket: str = "voicecoach-media"
     s3_region: str = "us-east-1"
+
+    @property
+    def s3_signing_endpoint_url(self) -> str:
+        """O host que vai na URL assinada — o público, se houver.
+
+        Uma propriedade e não um segundo campo com o mesmo default: dois campos
+        com o mesmo literal saem de sincronia no dia em que alguém mudar um só.
+        """
+        return self.s3_public_endpoint_url or self.s3_endpoint_url
 
 
 @lru_cache(maxsize=1)

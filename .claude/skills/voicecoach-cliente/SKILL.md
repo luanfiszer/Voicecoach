@@ -10,7 +10,8 @@ Regras **destiladas dos ADRs** (`docs/adr/`) e do design (`docs/design/`).
 reavaliá-la, está em [REFERENCE.md](REFERENCE.md).
 
 > **Cobertura desta skill:** ADRs 0001, 0002, 0003, 0007, 0008, 0010, 0023,
-> 0024, 0026, 0043, 0044, e o style guide de `docs/design/README.md`. Se a skill
+> 0024, 0026, 0043, 0044, 0045, 0046, 0047, e o style guide de
+> `docs/design/README.md`. Se a skill
 > contradisser um ADR, **o ADR ganha**.
 >
 > O produto deste projeto é o conhecimento do desenvolvedor; o código é
@@ -56,6 +57,14 @@ apps/mobile/
     features/<nome>/    ← a feature inteira: hook de estado + componentes
 ```
 
+```
+packages/api-client/src/
+  schema.d.ts         ← GERADO do OpenAPI. Nunca editado à mão (ADR-0008)
+  cliente.ts          ← criarCliente({baseUrl, fetch?, token?}) (ADR-0046)
+  eventos.ts          ← leitura do text/event-stream (ADR-0044, ADR-0046)
+  index.ts            ← a porta de entrada do pacote
+```
+
 | Preciso de… | Vai em | Fonte |
 |---|---|---|
 | uma tela nova | `app/<rota>.tsx`, montando um componente de `src/features/` | ADR-0044 §3 |
@@ -63,7 +72,9 @@ apps/mobile/
 | cor, tamanho de fonte, alvo de toque | `src/theme/tokens.ts` — **nunca** hex no componente | design §17 |
 | um valor configurável (limite, URL) | `app.json > extra` + validação em `src/config.ts` | ADR-0044 §4 |
 | um tipo da API | `src/api/contrato.ts`, alias do gerado | ADR-0008 |
-| chamar a API | `packages/api-client` — **nunca** montar URL à mão | ADR-0008 |
+| chamar a API | `criarCliente()` de `packages/api-client` — **nunca** montar URL à mão | ADR-0008, ADR-0046 |
+| dedup, recuo, reconexão, `AppState` | a máquina de estados **no app** — o client não faz nada disso | ADR-0046 §3 |
+| subir um arquivo do aparelho | converta para `Blob` primeiro (`arquivoLocal.ts`) | ADR-0046 §4 |
 | guardar token de sessão | `expo-secure-store` (Keychain/Keystore) | ADR-0007 |
 
 ## O que NÃO fazer
@@ -92,6 +103,17 @@ apps/mobile/
   **achado**, e vira ADR ou dívida no card (ADR-0002, ADR-0010).
 - ❌ **`any`, `!` (non-null assertion) e dependência de hook omitida.** São erro
   no Biome, não aviso (ADR-0043).
+- ❌ **`formData.append('audio', { uri, name, type })`.** É o idioma que todo
+  tutorial de RN ensina e **ele não funciona** no Expo Go SDK 57: `Unsupported
+  FormDataPart implementation`. Medido — só `Blob` passa (ADR-0046 §4).
+- ❌ **Reescrever o host de uma URL assinada.** O `Host` entra na assinatura
+  SigV4 (`X-Amz-SignedHeaders=host`): trocar depois dá 403 `SignatureDoesNotMatch`,
+  e **não há conserto no cliente**. Quem assina com o host certo é o servidor,
+  por `S3_PUBLIC_ENDPOINT_URL` (ADR-0045).
+- ❌ **Medir com um relógio mais grosso que o critério.** O
+  `playbackStatusUpdate` do `expo-audio` tem `updateInterval` default de
+  **500 ms**; medir um gap de 150 ms com ele produz o número do relógio
+  (ADR-0047 §6).
 
 ## Permissões: são três estados, não dois
 
@@ -107,6 +129,11 @@ terceiro com o **artboard 13** (microcopy pronta: "Precisamos do microfone" →
 > **O Simulador não prova permissão.** O microfone é o do Mac e o estado
 > "negada permanentemente" não se reproduz. Esse fluxo se aceita **em aparelho
 > físico**, ou você testou outra coisa.
+>
+> **E o aparelho físico não é alcançável por Expo Go** (ADR-0048): a App Store
+> está no SDK 54 e o projeto no 57. O caminho é `npx expo run:ios --device`
+> (dev build local, custo zero). Não invente que o Simulador basta — a dívida
+> está declarada no CARD-012, e ela é do canal, não do trabalho.
 
 ## Áudio (ADR-0002, ADR-0044)
 
@@ -132,6 +159,15 @@ terceiro com o **artboard 13** (microcopy pronta: "Precisamos do microfone" →
   stream** — medido no Expo Go, sem polyfill e sem dev build (ADR-0044).
   Cuidado: o separador de eventos é **`\r\n\r\n`**; procurar `\n\n` faz o
   stream chegar e nenhum evento ser reconhecido, **sem erro**.
+- **Os cinco payloads do SSE são tipos GERADOS** desde o ADR-0046. Se um evento
+  novo aparecer sem tipo, o furo é no `responses` da rota do stream — não se
+  escreve o tipo à mão para contornar.
+- **A `Idempotency-Key` é parâmetro do `enviarTurn`**, gerada **uma vez** ao
+  concluir a gravação. Gerá-la por tentativa duplica turn (ADR-0042/0046 §2).
+- **Dedup por `id` de evento é do cliente também**: histórico e canal ao vivo
+  podem entregar o mesmo evento, e o sintoma é o professor repetindo frases
+  (ADR-0041 item 3). `feedback` **não** volta na retomada — nada pode esperá-lo
+  para sair do carregamento.
 - **O polling (`GET /v1/turns/{id}`) é o contrato de recuo e precisa continuar
   funcionando** (ADR-0026 item 4). Dois caminhos, ambos exercitados, ou o recuo
   apodrece.
@@ -174,7 +210,8 @@ gatilho escrito (ADR-0043 item 6); não invente um sem ADR.
 - [ ] Permissão tratada nos **três** estados, com caminho para os Ajustes
 - [ ] Dependência nova tem ADR **com a alternativa descartada** e checou a
       Parte F da visão (critério 1 de `docs/adr/README.md`)
-- [ ] O que só o **aparelho físico** prova foi verificado lá, não no Simulador
+- [ ] O que só o **aparelho físico** prova foi verificado lá, não no Simulador —
+      e, se não foi, a dívida está **escrita** com o motivo (ADR-0048)
 - [ ] Card em `docs/backlog/` atualizado; **regra do explicador** cumprida
 - [ ] Regra desta skill que não bateu com o código virou ADR ou correção —
       **nunca afrouxada em silêncio**
