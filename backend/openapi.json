@@ -317,6 +317,58 @@
         "title": "CompletedPayload",
         "description": "Evento ``completed``. Carrega a URL do \u00e1udio inteiro, j\u00e1 assinada."
       },
+      "CorrectionPayload": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index",
+            "description": "0-based e denso; \u00e9 a ordem pedag\u00f3gica."
+          },
+          "type": {
+            "$ref": "#/components/schemas/CorrectionType"
+          },
+          "original_excerpt": {
+            "type": "string",
+            "title": "Original Excerpt",
+            "description": "Trecho verbatim da fala do aluno."
+          },
+          "corrected_form": {
+            "type": "string",
+            "title": "Corrected Form"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity",
+            "description": "Escala fechada. O r\u00f3tulo em pt-BR \u00e9 do cliente, n\u00e3o daqui."
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "type",
+          "original_excerpt",
+          "corrected_form",
+          "explanation",
+          "severity"
+        ],
+        "title": "CorrectionPayload",
+        "description": "Uma corre\u00e7\u00e3o tipada \u2014 no ``GET`` e no evento ``feedback``.\n\nMesma garantia do ``ChunkPayload`` e pela mesma raz\u00e3o (ADR-0026): o payload\ndo evento e o do ``GET`` descrevem a mesma coisa, ent\u00e3o **saem do mesmo\nschema** ou divergem no primeiro campo que algu\u00e9m acrescentar a um s\u00f3.\n\n``index`` viaja porque ele n\u00e3o \u00e9 detalhe de armazenamento: \u00e9 a **ordem\npedag\u00f3gica**, e \u00e9 o contrato que diz ao cliente qual corre\u00e7\u00e3o destacar\nquando s\u00f3 couber uma na tela (CARD-016)."
+      },
+      "CorrectionType": {
+        "type": "string",
+        "enum": [
+          "grammar",
+          "vocabulary",
+          "preposition",
+          "word_order",
+          "other"
+        ],
+        "title": "CorrectionType",
+        "description": "A natureza do erro. Enum **fechado**, como ``TurnStatus``.\n\nAcrescentar um valor \u00e9 aditivo e permitido; renomear n\u00e3o \u00e9 (ADR-0008), e a\nconsequ\u00eancia de renomear \u00e9 dupla \u2014 quebra o cliente antigo **e** invalida\ntodo valor j\u00e1 gravado na coluna, porque o Postgres guarda o texto do membro.\n\n``OTHER`` existe para que o modelo tenha para onde ir quando a corre\u00e7\u00e3o n\u00e3o\ncouber nas outras quatro. Sem essa sa\u00edda, o custo de uma classifica\u00e7\u00e3o\nimposs\u00edvel seria uma resposta fora do schema \u2014 ou seja, ``LlmError`` e turn\nfalho por um erro de taxonomia."
+      },
       "DependencyCheck": {
         "properties": {
           "status": {
@@ -374,19 +426,31 @@
         "properties": {
           "has_mistakes": {
             "type": "boolean",
-            "title": "Has Mistakes"
+            "title": "Has Mistakes",
+            "description": "LEGADO \u2014 derivado de corrections."
           },
           "original": {
             "type": "string",
-            "title": "Original"
+            "title": "Original",
+            "description": "LEGADO \u2014 corrections[0].original_excerpt."
           },
           "corrected": {
             "type": "string",
-            "title": "Corrected"
+            "title": "Corrected",
+            "description": "LEGADO \u2014 corrections[0].corrected_form."
           },
           "tip": {
             "type": "string",
-            "title": "Tip"
+            "title": "Tip",
+            "description": "LEGADO \u2014 corrections[0].explanation."
+          },
+          "corrections": {
+            "items": {
+              "$ref": "#/components/schemas/CorrectionPayload"
+            },
+            "type": "array",
+            "title": "Corrections",
+            "description": "Corre\u00e7\u00f5es tipadas (CARD-013). Campo ADITIVO."
           }
         },
         "type": "object",
@@ -397,7 +461,7 @@
           "tip"
         ],
         "title": "FeedbackPayload",
-        "description": "Evento ``feedback``.\n\n**O \u00fanico evento que a retomada n\u00e3o reconstr\u00f3i**, porque corre\u00e7\u00e3o s\u00f3 \u00e9\npersistida no CARD-013 (ADR-0035). Um cliente que reconecte depois de ele ter\npassado o ver\u00e1 no hist\u00f3rico, mais tarde \u2014 n\u00e3o neste stream."
+        "description": "Evento ``feedback`` \u2014 agora reconstru\u00eddo na retomada (CARD-013).\n\nEra **o \u00fanico evento que a retomada n\u00e3o reconstru\u00eda**, porque corre\u00e7\u00e3o n\u00e3o\nera persistida (ADR-0035, ADR-0041 item 5). Com ``turn.corrections`` no\nbanco, o gatilho que aquele ADR deixou escrito disparou e ele volta como\nqualquer outro.\n\n**Os quatro campos velhos continuam aqui, e continuam obrigat\u00f3rios**\n(ADR-0008: proibido remover ou renomear dentro de ``/v1`` \u2014 a restri\u00e7\u00e3o dura\n\u00e9 o app na loja que n\u00e3o atualiza quando queremos). O que mudou \u00e9 de onde\nsaem: eles s\u00e3o **derivados** de ``corrections`` por ``legacy_summary``, e n\u00e3o\nmais gerados pelo modelo. Quando morrem: no ``/v2``, ou antes, quando o app\nm\u00ednimo suportado j\u00e1 ler ``corrections[]``."
       },
       "HTTPValidationError": {
         "properties": {
@@ -481,6 +545,16 @@
         ],
         "title": "SessionResponse",
         "description": "``POST /v1/sessions`` \u2014 o m\u00ednimo para o cliente ter onde falar."
+      },
+      "Severity": {
+        "type": "string",
+        "enum": [
+          "minor",
+          "moderate",
+          "major"
+        ],
+        "title": "Severity",
+        "description": "Quanto o erro pesa. Tr\u00eas n\u00edveis, e o n\u00famero \u00e9 a decis\u00e3o.\n\nA UI apresenta severidade em **palavras** (\"pequeno ajuste\", \"vale revisar\")\n\u2014 o que s\u00f3 \u00e9 traduz\u00edvel a partir de uma escala pequena e est\u00e1vel. Tr\u00eas \u00e9 o\nmenor n\u00famero que ainda permite ordenar e destacar sem virar escala falsa;\ndois perderiam o meio-termo, e um quarto n\u00edvel (\"critical\") seria um r\u00f3tulo\nque nem o modelo nem o produto sabem definir num tutor de conversa, ainda\nmais sem eval (Fase 4).\n\n**O r\u00f3tulo em pt-BR n\u00e3o mora aqui.** Tradu\u00e7\u00e3o \u00e9 apresenta\u00e7\u00e3o e vive no\ncliente (CARD-016): o dia em que a mesma corre\u00e7\u00e3o precisar aparecer em duas\nl\u00ednguas, o dom\u00ednio n\u00e3o muda."
       },
       "TranscribedPayload": {
         "properties": {
@@ -628,6 +702,14 @@
             "type": "array",
             "title": "Chunks",
             "description": "Campo ADITIVO (ADR-0008)."
+          },
+          "corrections": {
+            "items": {
+              "$ref": "#/components/schemas/CorrectionPayload"
+            },
+            "type": "array",
+            "title": "Corrections",
+            "description": "Corre\u00e7\u00f5es tipadas e persistidas (CARD-013). Campo ADITIVO."
           }
         },
         "type": "object",

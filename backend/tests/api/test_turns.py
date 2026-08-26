@@ -9,6 +9,7 @@ Este arquivo é a metade do polling.
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import get_args
 from uuid import uuid4
 
 import pytest
@@ -16,7 +17,13 @@ from httpx import AsyncClient
 
 from fakes_api import AGORA, TURN_ID, Fakes, turn_pronto, wav_de
 from voicecoach.api.schemas.problem import CONTENT_TYPE
+from voicecoach.api.schemas.turns import (
+    CorrectionPayload,
+    FeedbackPayload,
+    TurnResponse,
+)
 from voicecoach.config import Settings
+from voicecoach.domain.correction import Correction, CorrectionType, Severity
 
 CHAVE = {"Idempotency-Key": "chave-do-cliente-0001"}
 
@@ -255,3 +262,96 @@ async def test_criar_sessao_devolve_uma_sessao_ativa(
     assert corpo["is_active"] is True
     assert corpo["student_id"] == "00000000-0000-0000-0000-000000000001"
     assert corpo["id"] in {str(s) for s in fakes.sessions.sessions}
+
+
+# --- corrections no contrato /v1 (CARD-013) --------------------------------
+
+
+CORRECOES = (
+    Correction(
+        index=0,
+        type=CorrectionType.VOCABULARY,
+        original_excerpt="very stressful",
+        corrected_form="quite stressful",
+        explanation="'quite' soa mais natural aqui.",
+        severity=Severity.MINOR,
+    ),
+    Correction(
+        index=1,
+        type=CorrectionType.WORD_ORDER,
+        original_excerpt="always I go",
+        corrected_form="I always go",
+        explanation="O advérbio vem depois do sujeito.",
+        severity=Severity.MAJOR,
+    ),
+)
+
+
+async def test_o_get_devolve_as_correcoes_tipadas(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    """Critério de aceite do CARD-013 na borda: 2 correções ⇒ 2 no payload."""
+    turn = turn_pronto(fakes, trechos=1, transcript="hi")
+    turn.attach_reply("Nice.", AGORA)
+    turn.attach_corrections(CORRECOES)
+
+    corpo = (await client.get(f"/v1/turns/{turn.id}")).json()
+
+    assert [c["index"] for c in corpo["corrections"]] == [0, 1]
+    assert corpo["corrections"][1]["type"] == "word_order"
+    assert corpo["corrections"][1]["severity"] == "major"
+    assert corpo["corrections"][0]["original_excerpt"] == "very stressful"
+
+
+async def test_os_quatro_campos_velhos_continuam_no_contrato_e_saem_da_primeira(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    """ADR-0008: proibido remover ou renomear campo dentro de ``/v1``.
+
+    O que muda no CARD-013 é a ORIGEM dos quatro, não a existência deles: o
+    modelo parou de gerá-los e eles passaram a ser derivados de
+    ``corrections[0]``. Um cliente antigo não percebe diferença — que é
+    literalmente o que a política aditiva promete.
+    """
+    turn = turn_pronto(fakes, trechos=1, transcript="hi")
+    turn.attach_reply("Nice.", AGORA)
+    turn.attach_corrections(CORRECOES)
+
+    payload = FeedbackPayload.de_correcoes(turn.corrections).model_dump()
+
+    assert payload["has_mistakes"] is True
+    assert payload["original"] == "very stressful"
+    assert payload["corrected"] == "quite stressful"
+    assert payload["tip"] == "'quite' soa mais natural aqui."
+    assert len(payload["corrections"]) == 2
+
+
+def test_o_get_e_o_evento_usam_a_mesma_classe_de_correcao() -> None:
+    """A garantia do ADR-0026 estendida a ``corrections`` (CARD-013).
+
+    Duas classes com os mesmos seis campos passariam em todos os testes de hoje
+    e divergiriam no primeiro campo que alguém acrescentasse a uma só. Este teste
+    existe porque a garantia é por construção — e construção se desfaz sem
+    querer.
+    """
+    do_get = get_args(TurnResponse.model_fields["corrections"].annotation)
+    do_evento = get_args(FeedbackPayload.model_fields["corrections"].annotation)
+
+    # `is`, e não `==`: duas classes pydantic com os mesmos seis campos são
+    # diferentes mas comparariam iguais em quase todo teste. O que se quer
+    # afirmar é que existe UMA classe, não duas equivalentes.
+    assert do_get[0] is CorrectionPayload
+    assert do_evento[0] is CorrectionPayload
+
+
+async def test_turn_sem_erro_nenhum_devolve_corrections_vazio(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    """Lista vazia é o desfecho ESPERADO, não ausência de dado."""
+    turn = turn_pronto(fakes, trechos=1, transcript="hi")
+    turn.attach_reply("Nice.", AGORA)
+    turn.attach_corrections([])
+
+    corpo = (await client.get(f"/v1/turns/{turn.id}")).json()
+
+    assert corpo["corrections"] == []

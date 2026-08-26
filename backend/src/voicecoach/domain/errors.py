@@ -53,3 +53,22 @@ class OutOfOrderAudioChunkError(DomainError):
             f"Turn: trecho de áudio fora de ordem — esperado índice {expected}, "
             f"recebido {received}."
         )
+
+
+class OutOfOrderCorrectionError(DomainError):
+    """Correção chegou com índice repetido ou furado (CARD-013).
+
+    Gêmea de ``OutOfOrderAudioChunkError``, e a simetria é deliberada: as duas
+    coleções filhas do Turn usam o índice denso como identidade natural, e é ele
+    que vira a chave primária composta ``(turn_id, index)`` no banco. Um furo
+    aqui não causa silêncio no playback — causa uma chave que o banco recusa ou,
+    pior, uma correção que some da lista sem ninguém notar.
+    """
+
+    def __init__(self, *, expected: int, received: int) -> None:
+        self.expected = expected
+        self.received = received
+        super().__init__(
+            f"Turn: correção fora de ordem — esperado índice {expected}, "
+            f"recebido {received}."
+        )

@@ -246,16 +246,25 @@ class ProcessTurnHandler:
             message = "o professor fechou o fluxo sem entregar o feedback"
             raise LlmError(message)
 
+        # As correções entram na entidade ANTES do `_gravar` que já existia:
+        # elas viram N inserts na MESMA escrita, e não numa nova. É a resposta à
+        # pergunta "em que momento do pipeline as correções são gravadas?" —
+        # aqui, e não no fechamento, por duas razões:
+        #
+        # 1. **Custo zero no caminho crítico.** Este ponto vem DEPOIS do último
+        #    trecho de áudio (o `FeedbackReady` fecha o fluxo do professor), e o
+        #    `_gravar` já acontecia. Gravar no fechamento não pouparia nada e
+        #    ainda assim seria mais tarde.
+        # 2. **Falha posterior não apaga o que já é do aluno.** É o mesmo
+        #    princípio do ADR-0023 item 6 aplicado ao dado mais valioso do
+        #    produto: se o `reply/full` falhar depois disto, o turn fica `failed`
+        #    — e as correções continuam lá, para o histórico do CARD-016.
         turn.attach_reply(feedback.feedback.spoken_reply, self._clock())
+        turn.attach_corrections(feedback.feedback.corrections)
         await self._gravar(turn)
         await self._publicar(
             turn.id,
-            FeedbackAvailable(
-                has_mistakes=feedback.feedback.has_mistakes,
-                original=feedback.feedback.original,
-                corrected=feedback.feedback.corrected,
-                tip=feedback.feedback.tip,
-            ),
+            FeedbackAvailable(corrections=feedback.feedback.corrections),
         )
 
         await self._fechar(turn, student_id, sintetizados)

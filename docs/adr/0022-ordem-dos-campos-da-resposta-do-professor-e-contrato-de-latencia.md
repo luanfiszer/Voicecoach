@@ -1,6 +1,6 @@
 # ADR-0022 — A ordem dos campos da resposta do professor é contrato de latência, não estilo
 
-- **Status:** aceito
+- **Status:** aceito — **a REGRA continua valendo; a lista de campos que ela ordena foi trocada pelo [ADR-0049](0049-correction-e-entidade-persistida-e-os-campos-texto-viram-derivacao.md)** (2026-08-26): `spoken_reply` segue primeiro, e o último passou a ser `corrections` (o mais caro de gerar) em vez de `translation_pt` (o mais descartável)
 - **Data:** 2026-08-19
 - **Relacionado:** ADR-0003 (costura 4 — pipeline componível), ADR-0009 (modelos),
   CARD-007 (adapter do professor)

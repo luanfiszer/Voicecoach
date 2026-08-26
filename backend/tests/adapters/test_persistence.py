@@ -47,6 +47,7 @@ from voicecoach.application.ports.repositories import (
     TurnRepository,
     UnitOfWork,
 )
+from voicecoach.domain.correction import Correction, CorrectionType, Severity
 from voicecoach.domain.session import Session
 from voicecoach.domain.student import Student
 from voicecoach.domain.turn import Turn, TurnStatus
@@ -571,3 +572,116 @@ async def test_o_unit_of_work_traduz_a_violacao_de_unicidade_para_erro_de_porta(
     # caso de uso RECONSULTAR quem chegou primeiro. Sem ele, a consulta seguinte
     # falharia com `PendingRollbackError`.
     assert await repository.get_by_idempotency_key("chave-em-corrida") is None
+
+
+# --- correções persistidas (CARD-013) --------------------------------------
+
+
+def _correcao(index: int) -> Correction:
+    return Correction(
+        index=index,
+        type=CorrectionType.PREPOSITION if index else CorrectionType.GRAMMAR,
+        original_excerpt=f"trecho errado {index}",
+        corrected_form=f"trecho certo {index}",
+        explanation=f"explicação {index}",
+        severity=Severity.MAJOR if index else Severity.MINOR,
+    )
+
+
+async def test_duas_correcoes_persistem_ligadas_ao_turn(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """Critério de aceite do CARD-013, contra Postgres real (ADR-0018).
+
+    A última asserção é a que cobre mais: ``recarregado == turn`` compara a
+    **lista inteira** de correções com um ``==`` só, e isso só funciona porque
+    ``Correction`` é ``@dataclass(frozen=True)`` — o ``__eq__`` gerado é por
+    valor, não por identidade de objeto. Um campo que voltasse errado do banco
+    (o enum guardado pelo NOME em vez do valor, por exemplo) reprova aqui sem
+    precisar de uma asserção por campo.
+    """
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    turn = await _turn_em_processamento(repository, sessao_persistida)
+    turn.attach_reply("Nice!", NOW)
+    turn.attach_corrections([_correcao(0), _correcao(1)])
+
+    await repository.update(turn)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    recarregado = await repository.get(turn.id)
+
+    assert recarregado is not None
+    assert len(recarregado.corrections) == 2
+    assert [c.index for c in recarregado.corrections] == [0, 1]
+    assert recarregado.corrections[1].type is CorrectionType.PREPOSITION
+    assert recarregado.corrections[1].severity is Severity.MAJOR
+    assert recarregado == turn
+
+
+async def test_o_enum_e_gravado_com_o_valor_do_membro_nao_com_o_nome(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """``values_callable``: o banco guarda ``word_order``, não ``WORD_ORDER``.
+
+    O roundtrip acima passaria dos dois jeitos — o SQLAlchemy converte na ida e
+    na volta. O que quebra sem isto é tudo que lê o banco **por fora** da
+    aplicação, e o JSON do contrato, que trafega o valor. Por isso este teste
+    desce a SQL crua: é a única forma de ver o que está gravado de fato.
+    """
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    turn = await _turn_em_processamento(repository, sessao_persistida)
+    turn.attach_reply("Nice!", NOW)
+    turn.attach_corrections(
+        [
+            Correction(
+                index=0,
+                type=CorrectionType.WORD_ORDER,
+                original_excerpt="always I go",
+                corrected_form="I always go",
+                explanation="Adverb goes after the subject.",
+                severity=Severity.MODERATE,
+            )
+        ]
+    )
+    await repository.update(turn)
+    await db_session.commit()
+
+    # Escopado pelo turn: o banco do container é compartilhado pela suíte
+    # inteira (fixture de sessão), então um `SELECT` sem `WHERE` leria também as
+    # correções dos outros testes.
+    gravado = await db_session.execute(
+        text(
+            "SELECT type::text, severity::text FROM turn_corrections "
+            "WHERE turn_id = :id"
+        ),
+        {"id": turn.id},
+    )
+
+    assert [tuple(linha) for linha in gravado.all()] == [("word_order", "moderate")]
+
+
+async def test_o_delete_do_turn_leva_as_correcoes_junto(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """``ondelete=CASCADE`` no banco, não só ``delete-orphan`` no ORM.
+
+    A diferença aparece num ``DELETE`` que não passa pelo ORM — o delete de
+    conta do CARD-017, ou uma limpeza feita na mão. Sem a regra no Postgres, ele
+    falharia por violação de foreign key.
+    """
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    turn = await _turn_em_processamento(repository, sessao_persistida)
+    turn.attach_reply("Nice!", NOW)
+    turn.attach_corrections([_correcao(0)])
+    await repository.update(turn)
+    await db_session.commit()
+
+    await db_session.execute(text("DELETE FROM turns WHERE id = :id"), {"id": turn.id})
+    await db_session.commit()
+
+    restantes = await db_session.execute(
+        text("SELECT count(*) FROM turn_corrections WHERE turn_id = :id"),
+        {"id": turn.id},
+    )
+    assert restantes.scalar_one() == 0

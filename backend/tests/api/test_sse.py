@@ -24,6 +24,7 @@ from voicecoach.application.ports.turn_events import (
     FeedbackAvailable,
 )
 from voicecoach.config import Settings
+from voicecoach.domain.correction import Correction, CorrectionType, Severity
 
 PRAZO = 5.0
 
@@ -78,10 +79,16 @@ async def test_o_stream_entrega_o_historico_e_depois_o_que_chega_ao_vivo(
         await fakes.canal.publish(
             turn.id,
             FeedbackAvailable(
-                has_mistakes=True,
-                original="I has a dog",
-                corrected="I have a dog",
-                tip="have, com I",
+                corrections=(
+                    Correction(
+                        index=0,
+                        type=CorrectionType.GRAMMAR,
+                        original_excerpt="I has a dog",
+                        corrected_form="I have a dog",
+                        explanation="have, com I",
+                        severity=Severity.MODERATE,
+                    ),
+                )
             ),
         )
         await fakes.canal.publish(turn.id, Completed(reply_audio_key="reply/full.aac"))

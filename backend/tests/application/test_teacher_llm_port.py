@@ -39,11 +39,11 @@ if TYPE_CHECKING:
 
 FEEDBACK = TeacherFeedback(
     spoken_reply="Nice. Tell me more about it.",
-    has_mistakes=False,
-    original="I work in a hospital",
-    corrected="",
-    tip="",
     translation_pt="Legal. Me conte mais sobre isso.",
+    # Lista vazia é o desfecho ESPERADO na maior parte dos turns: o prompt v2
+    # manda o professor ser conservador, e "não houve erro" tem de ser
+    # representável sem campo sentinela.
+    corrections=(),
 )
 USO = TokenUsage(
     input_tokens=1084,

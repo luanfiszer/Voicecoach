@@ -13,11 +13,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from voicecoach.adapters.persistence.models import (
+    CorrectionRow,
     SessionRow,
     StudentRow,
     TurnAudioChunkRow,
     TurnRow,
 )
+from voicecoach.domain.correction import Correction
 from voicecoach.domain.session import Session
 from voicecoach.domain.student import Student
 from voicecoach.domain.turn import Turn, TurnAudioChunk
@@ -99,6 +101,9 @@ def turn_to_row(turn: Turn) -> TurnRow:
         started_processing_at=turn.started_processing_at,
         completed_at=turn.completed_at,
         audio_chunks=[chunk_to_row(turn.id, chunk) for chunk in turn.audio_chunks],
+        corrections=[
+            correction_to_row(turn.id, correction) for correction in turn.corrections
+        ],
     )
 
 
@@ -124,6 +129,9 @@ def turn_from_row(row: TurnRow) -> Turn:
         # O `order_by` do relationship já entrega ordenado por `index`; a
         # entidade herda a ordem de playback sem reordenar aqui.
         audio_chunks=[chunk_from_row(chunk) for chunk in row.audio_chunks],
+        # Mesma coisa aqui: o `order_by` do relationship entrega a coleção na
+        # ordem pedagógica, que é a ordem que `legacy_summary` lê.
+        corrections=[correction_from_row(c) for c in row.corrections],
     )
 
 
@@ -147,6 +155,7 @@ def apply_turn(turn: Turn, row: TurnRow) -> None:
     row.started_processing_at = turn.started_processing_at
     row.completed_at = turn.completed_at
     _append_new_chunks(turn, row)
+    _append_new_corrections(turn, row)
 
 
 def _append_new_chunks(turn: Turn, row: TurnRow) -> None:
@@ -166,6 +175,53 @@ def _append_new_chunks(turn: Turn, row: TurnRow) -> None:
         )
     for chunk in turn.audio_chunks[ja_gravados:]:
         row.audio_chunks.append(chunk_to_row(turn.id, chunk))
+
+
+def _append_new_corrections(turn: Turn, row: TurnRow) -> None:
+    """Acrescenta à linha as correções que ela ainda não tem.
+
+    Mesma forma de ``_append_new_chunks``, e pela mesma razão — reatribuir a
+    lista faria o ``delete-orphan`` apagar e reinserir —, mas com uma invariante
+    mais forte do lado de cá: ``Turn.attach_corrections`` é **write-once**, então
+    "a linha já tem correções" só pode significar duas coisas, e nenhuma é
+    normal. Ou é uma reexecução do pipeline sobre um turn já respondido (que o
+    handler recusa antes de chegar aqui), ou são dois escritores no mesmo turn.
+
+    Por isso a divergência é ``StaleTurnError``, e não um append silencioso: uma
+    correção duplicada não estoura chave primária — ela ocuparia o índice
+    seguinte e apareceria na tela do aluno como um erro que ele não cometeu.
+    """
+    ja_gravadas = len(row.corrections)
+    if ja_gravadas and ja_gravadas != len(turn.corrections):
+        raise StaleTurnError(
+            f"Turn {turn.id}: a linha tem {ja_gravadas} correções e a entidade "
+            f"{len(turn.corrections)} — gravação sobre estado defasado."
+        )
+    for correction in turn.corrections[ja_gravadas:]:
+        row.corrections.append(correction_to_row(turn.id, correction))
+
+
+def correction_to_row(turn_id: UUID, correction: Correction) -> CorrectionRow:
+    return CorrectionRow(
+        turn_id=turn_id,
+        index=correction.index,
+        type=correction.type,
+        original_excerpt=correction.original_excerpt,
+        corrected_form=correction.corrected_form,
+        explanation=correction.explanation,
+        severity=correction.severity,
+    )
+
+
+def correction_from_row(row: CorrectionRow) -> Correction:
+    return Correction(
+        index=row.index,
+        type=row.type,
+        original_excerpt=row.original_excerpt,
+        corrected_form=row.corrected_form,
+        explanation=row.explanation,
+        severity=row.severity,
+    )
 
 
 def chunk_to_row(turn_id: UUID, chunk: TurnAudioChunk) -> TurnAudioChunkRow:

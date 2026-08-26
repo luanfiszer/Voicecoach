@@ -18,7 +18,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v1"
+# O v1 continua no pacote, intocado, e é o único motivo de esta constante
+# existir: o CARD-013 troca o contrato do professor sem eval (Fase 4), então a
+# comparação v1 vs. v2 com casos fixos é a única rede — e ela precisa dos dois
+# prompts carregáveis lado a lado. Gatilho para apagar o v1: o eval existir.
+PROMPT_VERSION = "v2"
 
 
 def load_teacher_prompt(version: str = PROMPT_VERSION) -> str:

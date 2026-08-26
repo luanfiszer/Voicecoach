@@ -26,6 +26,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
+from voicecoach.domain.correction import Correction
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
     from contextlib import AbstractAsyncContextManager
@@ -68,21 +70,24 @@ class ChunkReady:
 class FeedbackAvailable:
     """As correções fecharam. Vira o evento ``feedback``.
 
-    **Este é o único evento que a retomada não consegue reconstruir**, porque
-    correção ainda não é persistida — o CARD-013 é quem cria a tabela. Até lá,
-    um cliente que reconecte no meio do turn perde o feedback deste turn e o vê
-    só no histórico, depois. Dívida registrada no card, com o CARD-013 como
-    gatilho.
+    **Era o único evento que a retomada não conseguia reconstruir**, e deixou de
+    ser: o CARD-013 persiste as correções, o que dispara o gatilho escrito no
+    ADR-0041 item 5. Agora ele é reconstruído de ``turn.corrections`` como
+    qualquer outro, e ``historico()`` o emite.
 
-    ``translation_pt`` fica de fora porque o ADR-0026 fixou o payload do evento
-    ``feedback`` sem ela — é o campo mais descartável (ADR-0022) e não paga o
-    tráfego no caminho crítico.
+    **Carrega só ``corrections``.** Os quatro campos texto do payload HTTP
+    (``has_mistakes``, ``original``, ``corrected``, ``tip``) não viajam aqui
+    porque são **derivados** deles por ``legacy_summary`` — mandá-los pelo canal
+    seria transportar a mesma verdade duas vezes e abrir a chance de o evento ao
+    vivo e a retomada discordarem, que é precisamente o defeito que o ADR-0028
+    nomeia ao proibir a borda de recalcular o que o domínio deriva.
+
+    ``translation_pt`` continua de fora porque o ADR-0026 fixou o payload do
+    evento ``feedback`` sem ela — é o campo mais descartável (ADR-0022) e não
+    paga o tráfego no caminho crítico.
     """
 
-    has_mistakes: bool
-    original: str
-    corrected: str
-    tip: str
+    corrections: tuple[Correction, ...]
 
 
 @dataclass(frozen=True, slots=True)

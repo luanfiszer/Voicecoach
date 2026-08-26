@@ -30,6 +30,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from voicecoach.domain.correction import CorrectionType, Severity
 from voicecoach.domain.turn import TurnStatus
 
 
@@ -52,6 +53,23 @@ _Timestamp = DateTime(timezone=True)
 _TurnStatusType = Enum(
     TurnStatus,
     name="turn_status",
+    values_callable=lambda enum: [member.value for member in enum],
+)
+
+# Os dois enums da correção seguem exatamente a mesma regra, e ela morde mais
+# aqui: `values_callable` é o que faz o Postgres guardar "word_order" e não
+# "WORD_ORDER". Sem ele, o valor no banco divergiria do valor no JSON — e a
+# política aditiva do ADR-0008 (acrescentar membro pode, renomear não) passaria
+# a ter DOIS nomes para proteger em vez de um.
+_CorrectionTypeType = Enum(
+    CorrectionType,
+    name="correction_type",
+    values_callable=lambda enum: [member.value for member in enum],
+)
+
+_SeverityType = Enum(
+    Severity,
+    name="correction_severity",
     values_callable=lambda enum: [member.value for member in enum],
 )
 
@@ -162,6 +180,22 @@ class TurnRow(Base):
         cascade="all, delete-orphan",
     )
 
+    # A segunda coleção filha (CARD-013), declarada com exatamente as mesmas três
+    # opções — e a repetição é deliberada, não copy-paste esquecido:
+    #
+    # - `order_by` fixa a ordem PEDAGÓGICA na definição, do mesmo jeito que a de
+    #   playback: quem carrega recebe ordenado sem lembrar de pedir, e é dessa
+    #   ordem que `legacy_summary` tira a correção que representa o turn;
+    # - `lazy="raise_on_sql"` transforma o "esqueci o eager load" de N+1
+    #   silencioso em erro na hora (ver o docstring do repositório);
+    # - `cascade="all, delete-orphan"` diz que a correção não vive sem o turn, o
+    #   que mantém o delete de conta do CARD-017 ignorante desta tabela.
+    corrections: Mapped[list[CorrectionRow]] = relationship(
+        order_by="CorrectionRow.index",
+        lazy="raise_on_sql",
+        cascade="all, delete-orphan",
+    )
+
 
 class TurnAudioChunkRow(Base):
     """Um trecho de áudio da resposta (ADR-0023).
@@ -193,3 +227,36 @@ class TurnAudioChunkRow(Base):
     duration_seconds: Mapped[float] = mapped_column(Float)
     text: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(_Timestamp)
+
+
+class CorrectionRow(Base):
+    """Uma correção da fala do aluno (CARD-013) — a entidade mais valiosa do produto.
+
+    **Chave primária composta ``(turn_id, index)``**, pelo mesmo motivo do
+    trecho de áudio: o par já é a identidade natural, e a PK composta entrega de
+    graça a unicidade que a invariante de índice denso exige do lado do banco.
+
+    O que **não** está aqui: nenhuma coluna de timestamp. Todas as correções de
+    um turn nascem no instante do ``replied_at`` dele, e uma coluna por linha
+    para repetir esse valor N vezes é o dado duplicado que o ADR-0016 recusa.
+    Nenhuma coluna ``has_mistakes``/``original``/``corrected``/``tip`` também: os
+    quatro campos do contrato ``/v1`` são **derivados** desta tabela por
+    ``legacy_summary``, e persisti-los seria a mesma verdade gravada duas vezes.
+
+    ``Text`` e não ``String(n)`` nos três campos livres: nenhum deles tem limite
+    que o negócio saiba defender, e um ``VARCHAR`` apertado transformaria uma
+    explicação longa do professor em erro de escrita no fim do pipeline. No
+    Postgres os dois têm o mesmo desempenho.
+    """
+
+    __tablename__ = "turn_corrections"
+
+    turn_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("turns.id", ondelete="CASCADE"), primary_key=True
+    )
+    index: Mapped[int] = mapped_column(Integer, primary_key=True)
+    type: Mapped[CorrectionType] = mapped_column(_CorrectionTypeType)
+    original_excerpt: Mapped[str] = mapped_column(Text)
+    corrected_form: Mapped[str] = mapped_column(Text)
+    explanation: Mapped[str] = mapped_column(Text)
+    severity: Mapped[Severity] = mapped_column(_SeverityType)

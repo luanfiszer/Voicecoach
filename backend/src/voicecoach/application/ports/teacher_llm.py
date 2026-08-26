@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
+from voicecoach.domain.correction import Correction
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
 
@@ -85,16 +87,31 @@ class TeacherFeedback:
 
     A ordem dos campos aqui espelha o ADR-0022 e **não é escolha de
     legibilidade**: ``spoken_reply`` primeiro porque é o único campo no caminho
-    crítico até o aluno ouvir alguma coisa; ``translation_pt`` por último porque
-    é o mais descartável. Mexer nisto exige ADR novo.
+    crítico até o aluno ouvir alguma coisa. Mexer nisto exige ADR novo.
+
+    **O que mudou no CARD-013.** ``has_mistakes``, ``original``, ``corrected`` e
+    ``tip`` saíram daqui e ``corrections`` entrou no lugar. Três consequências
+    que valem estar escritas:
+
+    1. **Isto não fere o ADR-0008.** A política aditiva protege o contrato
+       ``/v1``, que é HTTP; esta é uma **porta interna**, e os quatro campos
+       continuam existindo na borda — derivados por ``legacy_summary``.
+    2. **O modelo passa a gerar menos**, não mais. Trocar três strings por um
+       array de objetos aumentaria a saída; parar de pedir as três de volta
+       compensa parte disso, e o número real está medido no CARD-013.
+    3. ``corrections`` vem **por último** de propósito: é o campo mais longo, e
+       cada byte gerado antes de ``spoken_reply`` fechar é atraso no primeiro
+       áudio audível. É o ADR-0022 aplicado a um campo que ele não previa.
+
+    ``tuple`` e não ``list``: o ``frozen=True`` só congela as *referências* — uma
+    lista dentro de um dataclass congelado continua mutável, e o objeto deixaria
+    de ser hasheável. É a diferença entre um ``record`` com ``IReadOnlyList`` e
+    um com ``List`` em C#, com a agravante de que aqui o compilador não avisa.
     """
 
     spoken_reply: str
-    has_mistakes: bool
-    original: str
-    corrected: str
-    tip: str
     translation_pt: str
+    corrections: tuple[Correction, ...]
 
 
 @dataclass(frozen=True, slots=True)

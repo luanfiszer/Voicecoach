@@ -189,6 +189,52 @@ export interface components {
             reply_audio_url: string;
         };
         /**
+         * CorrectionPayload
+         * @description Uma correção tipada — no ``GET`` e no evento ``feedback``.
+         *
+         *     Mesma garantia do ``ChunkPayload`` e pela mesma razão (ADR-0026): o payload
+         *     do evento e o do ``GET`` descrevem a mesma coisa, então **saem do mesmo
+         *     schema** ou divergem no primeiro campo que alguém acrescentar a um só.
+         *
+         *     ``index`` viaja porque ele não é detalhe de armazenamento: é a **ordem
+         *     pedagógica**, e é o contrato que diz ao cliente qual correção destacar
+         *     quando só couber uma na tela (CARD-016).
+         */
+        CorrectionPayload: {
+            /**
+             * Index
+             * @description 0-based e denso; é a ordem pedagógica.
+             */
+            index: number;
+            type: components["schemas"]["CorrectionType"];
+            /**
+             * Original Excerpt
+             * @description Trecho verbatim da fala do aluno.
+             */
+            original_excerpt: string;
+            /** Corrected Form */
+            corrected_form: string;
+            /** Explanation */
+            explanation: string;
+            /** @description Escala fechada. O rótulo em pt-BR é do cliente, não daqui. */
+            severity: components["schemas"]["Severity"];
+        };
+        /**
+         * CorrectionType
+         * @description A natureza do erro. Enum **fechado**, como ``TurnStatus``.
+         *
+         *     Acrescentar um valor é aditivo e permitido; renomear não é (ADR-0008), e a
+         *     consequência de renomear é dupla — quebra o cliente antigo **e** invalida
+         *     todo valor já gravado na coluna, porque o Postgres guarda o texto do membro.
+         *
+         *     ``OTHER`` existe para que o modelo tenha para onde ir quando a correção não
+         *     couber nas outras quatro. Sem essa saída, o custo de uma classificação
+         *     impossível seria uma resposta fora do schema — ou seja, ``LlmError`` e turn
+         *     falho por um erro de taxonomia.
+         * @enum {string}
+         */
+        CorrectionType: "grammar" | "vocabulary" | "preposition" | "word_order" | "other";
+        /**
          * DependencyCheck
          * @description Estado de uma dependência de infraestrutura.
          */
@@ -215,21 +261,46 @@ export interface components {
         };
         /**
          * FeedbackPayload
-         * @description Evento ``feedback``.
+         * @description Evento ``feedback`` — agora reconstruído na retomada (CARD-013).
          *
-         *     **O único evento que a retomada não reconstrói**, porque correção só é
-         *     persistida no CARD-013 (ADR-0035). Um cliente que reconecte depois de ele ter
-         *     passado o verá no histórico, mais tarde — não neste stream.
+         *     Era **o único evento que a retomada não reconstruía**, porque correção não
+         *     era persistida (ADR-0035, ADR-0041 item 5). Com ``turn.corrections`` no
+         *     banco, o gatilho que aquele ADR deixou escrito disparou e ele volta como
+         *     qualquer outro.
+         *
+         *     **Os quatro campos velhos continuam aqui, e continuam obrigatórios**
+         *     (ADR-0008: proibido remover ou renomear dentro de ``/v1`` — a restrição dura
+         *     é o app na loja que não atualiza quando queremos). O que mudou é de onde
+         *     saem: eles são **derivados** de ``corrections`` por ``legacy_summary``, e não
+         *     mais gerados pelo modelo. Quando morrem: no ``/v2``, ou antes, quando o app
+         *     mínimo suportado já ler ``corrections[]``.
          */
         FeedbackPayload: {
-            /** Has Mistakes */
+            /**
+             * Has Mistakes
+             * @description LEGADO — derivado de corrections.
+             */
             has_mistakes: boolean;
-            /** Original */
+            /**
+             * Original
+             * @description LEGADO — corrections[0].original_excerpt.
+             */
             original: string;
-            /** Corrected */
+            /**
+             * Corrected
+             * @description LEGADO — corrections[0].corrected_form.
+             */
             corrected: string;
-            /** Tip */
+            /**
+             * Tip
+             * @description LEGADO — corrections[0].explanation.
+             */
             tip: string;
+            /**
+             * Corrections
+             * @description Correções tipadas (CARD-013). Campo ADITIVO.
+             */
+            corrections?: components["schemas"]["CorrectionPayload"][];
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -289,6 +360,23 @@ export interface components {
             /** Is Active */
             is_active: boolean;
         };
+        /**
+         * Severity
+         * @description Quanto o erro pesa. Três níveis, e o número é a decisão.
+         *
+         *     A UI apresenta severidade em **palavras** ("pequeno ajuste", "vale revisar")
+         *     — o que só é traduzível a partir de uma escala pequena e estável. Três é o
+         *     menor número que ainda permite ordenar e destacar sem virar escala falsa;
+         *     dois perderiam o meio-termo, e um quarto nível ("critical") seria um rótulo
+         *     que nem o modelo nem o produto sabem definir num tutor de conversa, ainda
+         *     mais sem eval (Fase 4).
+         *
+         *     **O rótulo em pt-BR não mora aqui.** Tradução é apresentação e vive no
+         *     cliente (CARD-016): o dia em que a mesma correção precisar aparecer em duas
+         *     línguas, o domínio não muda.
+         * @enum {string}
+         */
+        Severity: "minor" | "moderate" | "major";
         /**
          * TranscribedPayload
          * @description Evento ``transcribed``.
@@ -387,6 +475,11 @@ export interface components {
              * @description Campo ADITIVO (ADR-0008).
              */
             chunks?: components["schemas"]["ChunkPayload"][];
+            /**
+             * Corrections
+             * @description Correções tipadas e persistidas (CARD-013). Campo ADITIVO.
+             */
+            corrections?: components["schemas"]["CorrectionPayload"][];
         };
         /**
          * TurnStage

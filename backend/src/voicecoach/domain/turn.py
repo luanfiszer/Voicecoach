@@ -28,12 +28,19 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import StrEnum
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from voicecoach.domain.errors import (
     InvalidStateTransitionError,
     OutOfOrderAudioChunkError,
+    OutOfOrderCorrectionError,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from voicecoach.domain.correction import Correction
 
 
 class TurnStatus(StrEnum):
@@ -167,6 +174,13 @@ class Turn:
     # forma de dizer "chame isto a cada construção".
     audio_chunks: list[TurnAudioChunk] = field(default_factory=list)
 
+    # A segunda coleção filha do agregado, e a mais valiosa do produto
+    # (visão §A). Diferente dos trechos, ela é escrita de **uma vez só**: o
+    # professor entrega todas as correções juntas, no fim do JSON, e não há
+    # cenário em que uma correção chegue depois. Por isso `attach_corrections`
+    # é write-once, e não append-only como `append_audio_chunk`.
+    corrections: list[Correction] = field(default_factory=list)
+
     failure_reason: str | None = None
     failed_at: datetime | None = None
 
@@ -285,6 +299,40 @@ class Turn:
         )
         self.audio_chunks.append(chunk)
         return chunk
+
+    def attach_corrections(self, corrections: Sequence[Correction]) -> None:
+        """Grava as correções do professor. **Uma vez só** (CARD-013).
+
+        Duas invariantes, e as duas nascem da forma como a correção é produzida:
+
+        1. **Só em ``processing``, e só uma vez.** As correções vêm todas juntas
+           no ``FeedbackReady``, que é o último evento do fluxo do professor
+           (ADR-0031). Um segundo `attach` significaria ou reprocessamento de um
+           turn já respondido — que o pipeline recusa — ou dois escritores no
+           mesmo turn, que é o bug que o ``StaleTurnError`` do mapeador existe
+           para denunciar. Substituir em silêncio apagaria a correção que o aluno
+           já viu na tela.
+        2. **Índice denso e 0-based**, como o do trecho de áudio: ele é a
+           identidade natural da linha filha e a ordem pedagógica da lista.
+
+        **Não recebe ``now``**, e a ausência é a decisão: todas as correções de
+        um turn existem no mesmo instante — o ``replied_at``, gravado por
+        ``attach_reply``. Um timestamp por correção seria o mesmo valor repetido
+        N vezes, que é o dado duplicado que o ADR-0016 recusa.
+        """
+        self._require(TurnStatus.PROCESSING, action="attach_corrections")
+        if self.corrections:
+            raise InvalidStateTransitionError(
+                entity="Turn",
+                action="attach_corrections",
+                state="processing (as correções já foram gravadas)",
+            )
+        for esperado, correcao in enumerate(corrections):
+            if correcao.index != esperado:
+                raise OutOfOrderCorrectionError(
+                    expected=esperado, received=correcao.index
+                )
+        self.corrections = list(corrections)
 
     def attach_reply_audio(self, reply_audio_ref: str, now: datetime) -> None:
         """O áudio inteiro concatenado ficou pronto no storage."""

@@ -27,11 +27,18 @@ from __future__ import annotations
 # Importados em runtime, não sob TYPE_CHECKING: o pydantic RESOLVE as anotações
 # ao construir o modelo, e um nome que só existe para o type checker faz a classe
 # nascer inválida (ver a mesma nota em `api/dependencies.py`).
+from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from voicecoach.domain.correction import (
+    Correction,
+    CorrectionType,
+    Severity,
+    legacy_summary,
+)
 from voicecoach.domain.turn import Turn, TurnAudioChunk, TurnStage, TurnStatus
 
 
@@ -56,6 +63,39 @@ class ChunkPayload(BaseModel):
             url=url,
             duration_seconds=chunk.duration_seconds,
             text=chunk.text,
+        )
+
+
+class CorrectionPayload(BaseModel):
+    """Uma correção tipada — no ``GET`` e no evento ``feedback``.
+
+    Mesma garantia do ``ChunkPayload`` e pela mesma razão (ADR-0026): o payload
+    do evento e o do ``GET`` descrevem a mesma coisa, então **saem do mesmo
+    schema** ou divergem no primeiro campo que alguém acrescentar a um só.
+
+    ``index`` viaja porque ele não é detalhe de armazenamento: é a **ordem
+    pedagógica**, e é o contrato que diz ao cliente qual correção destacar
+    quando só couber uma na tela (CARD-016).
+    """
+
+    index: int = Field(description="0-based e denso; é a ordem pedagógica.")
+    type: CorrectionType
+    original_excerpt: str = Field(description="Trecho verbatim da fala do aluno.")
+    corrected_form: str
+    explanation: str
+    severity: Severity = Field(
+        description="Escala fechada. O rótulo em pt-BR é do cliente, não daqui."
+    )
+
+    @classmethod
+    def de_correcao(cls, correction: Correction) -> CorrectionPayload:
+        return cls(
+            index=correction.index,
+            type=correction.type,
+            original_excerpt=correction.original_excerpt,
+            corrected_form=correction.corrected_form,
+            explanation=correction.explanation,
+            severity=correction.severity,
         )
 
 
@@ -85,6 +125,10 @@ class TurnResponse(BaseModel):
     failure_reason: str | None = None
     chunks: list[ChunkPayload] = Field(
         default_factory=list, description="Campo ADITIVO (ADR-0008)."
+    )
+    corrections: list[CorrectionPayload] = Field(
+        default_factory=list,
+        description="Correções tipadas e persistidas (CARD-013). Campo ADITIVO.",
     )
 
     @classmethod
@@ -118,6 +162,7 @@ class TurnResponse(BaseModel):
                 ChunkPayload.de_chunk(chunk, url)
                 for chunk, url in zip(turn.audio_chunks, chunk_urls, strict=True)
             ],
+            corrections=[CorrectionPayload.de_correcao(c) for c in turn.corrections],
         )
 
 
@@ -153,17 +198,48 @@ class TranscribedPayload(BaseModel):
 
 
 class FeedbackPayload(BaseModel):
-    """Evento ``feedback``.
+    """Evento ``feedback`` — agora reconstruído na retomada (CARD-013).
 
-    **O único evento que a retomada não reconstrói**, porque correção só é
-    persistida no CARD-013 (ADR-0035). Um cliente que reconecte depois de ele ter
-    passado o verá no histórico, mais tarde — não neste stream.
+    Era **o único evento que a retomada não reconstruía**, porque correção não
+    era persistida (ADR-0035, ADR-0041 item 5). Com ``turn.corrections`` no
+    banco, o gatilho que aquele ADR deixou escrito disparou e ele volta como
+    qualquer outro.
+
+    **Os quatro campos velhos continuam aqui, e continuam obrigatórios**
+    (ADR-0008: proibido remover ou renomear dentro de ``/v1`` — a restrição dura
+    é o app na loja que não atualiza quando queremos). O que mudou é de onde
+    saem: eles são **derivados** de ``corrections`` por ``legacy_summary``, e não
+    mais gerados pelo modelo. Quando morrem: no ``/v2``, ou antes, quando o app
+    mínimo suportado já ler ``corrections[]``.
     """
 
-    has_mistakes: bool
-    original: str
-    corrected: str
-    tip: str
+    has_mistakes: bool = Field(description="LEGADO — derivado de corrections.")
+    original: str = Field(description="LEGADO — corrections[0].original_excerpt.")
+    corrected: str = Field(description="LEGADO — corrections[0].corrected_form.")
+    tip: str = Field(description="LEGADO — corrections[0].explanation.")
+    corrections: list[CorrectionPayload] = Field(
+        default_factory=list,
+        description="Correções tipadas (CARD-013). Campo ADITIVO.",
+    )
+
+    @classmethod
+    def de_correcoes(cls, corrections: Sequence[Correction]) -> FeedbackPayload:
+        """Monta as duas metades do payload a partir de uma origem só.
+
+        Os campos velhos NÃO são recalculados aqui: ``legacy_summary`` mora no
+        domínio, e a borda apenas projeta (ADR-0028). Um ``[0]`` escrito neste
+        arquivo daria ao servidor duas implementações da mesma regra — uma para
+        o evento ao vivo e outra para a retomada —, que é exatamente o defeito
+        que aquele ADR nomeia.
+        """
+        legado = legacy_summary(corrections)
+        return cls(
+            has_mistakes=legado.has_mistakes,
+            original=legado.original,
+            corrected=legado.corrected,
+            tip=legado.tip,
+            corrections=[CorrectionPayload.de_correcao(c) for c in corrections],
+        )
 
 
 class CompletedPayload(BaseModel):
