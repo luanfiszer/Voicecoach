@@ -129,6 +129,11 @@ terceiro com o **artboard 13** (microcopy pronta: "Precisamos do microfone" →
 > **O Simulador não prova permissão.** O microfone é o do Mac e o estado
 > "negada permanentemente" não se reproduz. Esse fluxo se aceita **em aparelho
 > físico**, ou você testou outra coisa.
+>
+> **E o aparelho físico não é alcançável por Expo Go** (ADR-0048): a App Store
+> está no SDK 54 e o projeto no 57. O caminho é `npx expo run:ios --device`
+> (dev build local, custo zero). Não invente que o Simulador basta — a dívida
+> está declarada no CARD-012, e ela é do canal, não do trabalho.
 
 ## Áudio (ADR-0002, ADR-0044)
 
@@ -205,7 +210,8 @@ gatilho escrito (ADR-0043 item 6); não invente um sem ADR.
 - [ ] Permissão tratada nos **três** estados, com caminho para os Ajustes
 - [ ] Dependência nova tem ADR **com a alternativa descartada** e checou a
       Parte F da visão (critério 1 de `docs/adr/README.md`)
-- [ ] O que só o **aparelho físico** prova foi verificado lá, não no Simulador
+- [ ] O que só o **aparelho físico** prova foi verificado lá, não no Simulador —
+      e, se não foi, a dívida está **escrita** com o motivo (ADR-0048)
 - [ ] Card em `docs/backlog/` atualizado; **regra do explicador** cumprida
 - [ ] Regra desta skill que não bateu com o código virou ADR ou correção —
       **nunca afrouxada em silêncio**

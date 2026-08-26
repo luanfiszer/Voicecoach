@@ -167,7 +167,13 @@ Conferido contra a lista "Quando um ADR é OBRIGATÓRIO" de `docs/adr/README.md`
    `updateInterval` no default de 500 ms. Ver §11.3 da medição.
 5. **A cauda de latência é do worker.** `process_turn` de 19–22 s com o Anthropic
    respondendo 200. **Causa não isolada** — pendência abaixo.
-6. **O terminal desta máquina não alcança a LAN.** `ping` responde, TCP dá
+6. **O Expo Go da App Store não roda este projeto.** Ele está em **54.0.2**
+   (publicado em 2025-09-23, SDK 54) nas quatro lojas conferidas; o projeto está
+   no SDK 57. Um iPhone físico só instala pela loja, então o caminho previsto
+   pelo ADR-0002 **não existe** para este SDK. Virou o [ADR-0048](../adr/0048-o-expo-go-da-loja-ficou-para-tras-e-o-aparelho-fisico-vira-divida.md),
+   com as três alternativas investigadas (dev build local, downgrade para o
+   SDK 54, TestFlight) e a decisão do desenvolvedor: seguir verificando no Mac.
+7. **O terminal desta máquina não alcança a LAN.** `ping` responde, TCP dá
    timeout, firewall desligado: é a permissão **"Rede local"** do macOS, a mesma
    classe do acesso assistivo da §3.3. Não afeta telefone→Mac.
 
@@ -191,8 +197,8 @@ idempotência e os testes de background e TTL. A ~US$ 0,02 cada: **≈ US$ 0,80*
 
 | Dívida | Gatilho / card |
 |---|---|
-| **O número no aparelho físico** — critério de saída da Fase 1 | próxima sessão com o aparelho; `S3_PUBLIC_ENDPOINT_URL` e `apiBaseUrl` têm de apontar para o IP da LAN (ADR-0045) |
-| Permissão negada permanentemente (herdada do CARD-011) | mesma ida ao aparelho |
+| **O número no aparelho físico** — critério de saída da Fase 1 | **bloqueado pelo canal, não por trabalho** ([ADR-0048](../adr/0048-o-expo-go-da-loja-ficou-para-tras-e-o-aparelho-fisico-vira-divida.md)): o Expo Go da App Store está no SDK 54 e o projeto no 57. Saída escolhida e verificada: `npx expo run:ios --device` (Xcode 26.6 e iPhone pareado já existem nesta máquina). Quando for cobrada, `S3_PUBLIC_ENDPOINT_URL` e `apiBaseUrl` apontam para o IP da LAN (ADR-0045) |
+| Permissão negada permanentemente (herdada do CARD-011) | mesma ida ao aparelho, mesmo bloqueio |
 | **p50 de 2,47 s contra o alvo de 2,4 s** | a cauda do worker (abaixo) é a alavanca mais provável |
 | **Cauda de 19–22 s em `process_turn`, causa não isolada** | card próprio; candidatos: recarga do `mlx-whisper`, contenção de GPU, cauda do provedor |
 | Ordem por `index` com ≥ 10 trechos, não exercitada | insumo que produza resposta longa |

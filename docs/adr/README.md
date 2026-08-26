@@ -84,6 +84,7 @@ Escreva um ADR sempre que a decisão:
 | [0045](0045-o-host-que-assina-a-url-e-o-do-leitor-nao-o-do-servidor.md) | O host que assina a URL de mídia é o do **leitor**, não o do servidor | aceito (completa 0024) |
 | [0046](0046-a-forma-do-client-typescript-e-o-contrato-do-sse-no-openapi.md) | A forma do client TypeScript, e os eventos do SSE entrando no contrato | aceito (completa 0008; torna verdadeira a promessa dele para o stream) |
 | [0047](0047-fila-de-playback-com-um-player-por-trecho-e-a-rota-de-medicao.md) | Fila de playback com um player por trecho, e a rota de medição como instrumento | aceito |
+| [0048](0048-o-expo-go-da-loja-ficou-para-tras-e-o-aparelho-fisico-vira-divida.md) | O Expo Go da App Store ficou 3 SDKs para trás, e o aparelho físico vira dívida declarada | aceito (ajusta premissa do 0002) |
 
 ## ADRs pendentes de decisão de produto
 
