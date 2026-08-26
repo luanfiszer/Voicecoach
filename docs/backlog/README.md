@@ -29,7 +29,7 @@ O diagnóstico card a card, a ordem e as decisões estão em
 | [015](CARD-015-quotas-e-kill-switch.md) | Quotas + kill switch *(bloqueante comercial)* | 2 | backend | M | 010, 014 | backlog |
 | [017](CARD-017-retencao-lifecycle-delete.md) | Retenção de áudio: lifecycle assimétrico e delete por prefixo | 2 | backend/infra | P | 008, 010 | backlog |
 | [019](CARD-019-spike-stt-e-tts-no-aparelho.md) | **Spike:** STT e TTS no aparelho (sem compromisso) | 2 | mobile/IA | P | 012 | backlog |
-| [013](CARD-013-corrections-persistidas-e-historico.md) | Corrections persistidas + histórico do banco | 3 | backend | M | 009, 010 | backlog |
+| [013](CARD-013-corrections-persistidas-e-historico.md) | **Corrections tipadas persistidas; `feedback` volta na retomada** *(antecipado — rodou antes de 014/015)* | 3 | backend | M | 009, 010 | **concluído** — p50 melhorou para 2,34 s (ADR-0049, ADR-0050) |
 | [016](CARD-016-ui-de-correcoes-no-app.md) | UI de correções + resumo de sessão no app | 3 | mobile | M | 012, 013 | backlog |
 | — | **Contas e auth de verdade** (ADR-0007) | 3 | backend/mobile | — | Fase 2 | a detalhar |
 | [020](CARD-020-planos-assinatura-e-entitlements-no-dominio.md) | Planos, assinatura e entitlements no domínio | 4 | backend | M | 015, auth | backlog |

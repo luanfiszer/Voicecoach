@@ -176,10 +176,12 @@ Uma tarefa só está concluída quando **todos** os itens abaixo forem verdade:
       execução de um card **não** conta como ADR: card é registro de trabalho,
       ADR é registro de decisão
 - [ ] O card correspondente em `docs/backlog/` foi atualizado (status + pendências)
-- [ ] A **regra do explicador** foi cumprida (abaixo), com o desfecho de cada
-      pergunta registrado no card (respondida / dispensada por mim / em aberto).
-      Item fechado pelo agente com a própria explicação **não** conta
-      (origem: [LEARNING-0004])
+- [ ] A **regra do explicador** foi cumprida **nesta sessão** (abaixo): cada
+      pergunta feita no ponto da decisão tem desfecho registrado no card
+      (respondida / dispensada por mim). Item fechado pelo agente com a própria
+      explicação **não** conta (origem: [LEARNING-0004]). A fila de
+      `docs/perguntas-em-aberto.md` é **arquivo** e não mantém este item
+      vermelho (origem: [LEARNING-0005])
 - [ ] Nenhuma regra deste CLAUDE.md foi violada
 
 > Os quality gates automatizados entraram no CARD-003 (P4). O que roda sozinho
@@ -212,14 +214,24 @@ registra no card o que de fato ocorreu:
 
 - **respondida** → item verde;
 - **errada ou "não sei"** → o agente explica e **reformula a pergunta na mesma
-  sessão**, uma vez. Se ainda assim não fechar, vira dívida (abaixo);
+  sessão**, uma vez. Se ainda assim não fechar, ela volta **uma** vez, na
+  abertura da sessão seguinte;
 - **dispensada por mim** → registrada como **"dispensado pelo desenvolvedor"**,
   nunca como cumprida nem como "parcial".
 
-Pergunta não fechada vira linha em `docs/perguntas-em-aberto.md` (pergunta, card
-de origem, data) e é **reapresentada na abertura da próxima sessão**, antes do
-plano. Dívida de aprendizado se cobra no começo de uma sessão, não no fim de uma
-longa.
+**4. O item da DoD é sobre as perguntas DESTA sessão** (origem:
+[LEARNING-0005], depois de oito sessões em que uma fila antiga manteve vermelho
+um item que a sessão corrente tinha cumprido). Ele fica verde quando cada
+pergunta feita no ponto da decisão teve desfecho registrado. Pergunta antiga
+**não** o mantém vermelho: um item que nunca pode ficar verde não governa nada —
+é o defeito do LEARNING-0004 de cabeça para baixo.
+
+**5. A fila é arquivo, não cobrança.** `docs/perguntas-em-aberto.md` guarda o
+histórico e **o que a execução demonstrou** sobre cada pergunta. Só é
+reapresentada na abertura a pergunta da sessão **imediatamente anterior** que
+ficou sem desfecho; sem resposta na segunda vez, é arquivada com a evidência.
+Pergunta arquivada volta quando um card novo tocar a mesma decisão — refeita
+**no ponto da decisão daquele card**, que é onde ela nasceu certa.
 
 ---
 
@@ -230,7 +242,7 @@ longa.
 | `docs/adr/` | Architecture Decision Records — decisões com alternativas e trade-offs |
 | `docs/backlog/` | Um card por arquivo, com objetivo de aprendizado obrigatório |
 | `docs/learnings/` | Post-mortems de erros, cada um gerando uma regra nova aqui |
-| `docs/perguntas-em-aberto.md` | Fila da regra do explicador: pergunta que não fechou, reapresentada na abertura da sessão seguinte |
+| `docs/perguntas-em-aberto.md` | Arquivo da regra do explicador: o que cada pergunta demonstrou, e a única da sessão anterior que volta na abertura |
 | `.claude/commands/` | Slash commands: `/executa-card`, `/card`, `/adr`, `/postmortem`, `/review`, `/explica` |
 | `.claude/skills/` | Skills de arquitetura: `voicecoach-arquitetura` (backend), derivada dos ADRs |
 | `docs/referencias/` | Análises de projetos externos usados como referência, com o que foi aproveitado e o que foi recusado |

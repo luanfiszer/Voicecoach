@@ -36,6 +36,7 @@ from voicecoach.application.ports.turn_events import (
     Transcribed,
     TurnEventsError,
 )
+from voicecoach.domain.correction import Correction, CorrectionType, Severity
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -110,7 +111,15 @@ def parse_wire(payload: str | bytes) -> TurnEvent:
         case "chunk":
             return ChunkReady(**data)
         case "feedback":
-            return FeedbackAvailable(**data)
+            # O único evento que **não** é um `**data` direto, porque é o único
+            # com dataclass aninhada. O `asdict` da publicação achatou cada
+            # `Correction` num dicionário e cada `StrEnum` na sua string; a
+            # volta tem de refazer os dois, ou o evento continuaria "igual" nos
+            # testes (um `StrEnum` É uma `str`, então `==` passa) e quebraria no
+            # primeiro `is` ou na primeira gravação no banco.
+            return FeedbackAvailable(
+                corrections=tuple(_correcao_do_fio(c) for c in data["corrections"])
+            )
         case "completed":
             return Completed(**data)
         case "failed":
@@ -118,6 +127,25 @@ def parse_wire(payload: str | bytes) -> TurnEvent:
         case _:
             message = f"evento desconhecido no canal do turn: {nome!r}"
             raise UnknownWireEventError(message)
+
+
+def _correcao_do_fio(bruto: dict[str, Any]) -> Correction:
+    """Uma correção que voltou do fio, com os dois enums reconstruídos.
+
+    ``CorrectionType(...)`` e ``Severity(...)`` levantam ``ValueError`` para
+    valor fora da escala — e isso é o desejado: um valor que este processo não
+    conhece veio de um worker mais novo, que é o mesmo cenário de
+    ``UnknownWireEventError``, e falhar alto é melhor que gravar uma correção
+    com severidade que o banco vai recusar depois.
+    """
+    return Correction(
+        index=bruto["index"],
+        type=CorrectionType(bruto["type"]),
+        original_excerpt=bruto["original_excerpt"],
+        corrected_form=bruto["corrected_form"],
+        explanation=bruto["explanation"],
+        severity=Severity(bruto["severity"]),
+    )
 
 
 class RedisTurnEvents:

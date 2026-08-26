@@ -69,6 +69,7 @@ from voicecoach.application.use_cases.process_turn import (
     TurnNotFoundError,
     _primeira_falha,
 )
+from voicecoach.domain.correction import Correction, CorrectionType, Severity
 from voicecoach.domain.session import Session
 from voicecoach.domain.turn import Turn, TurnStatus
 
@@ -76,13 +77,18 @@ STUDENT_ID = uuid4()
 SESSION_ID = uuid4()
 INPUT_KEY = f"{STUDENT_ID}/{SESSION_ID}/input.aac"
 
+CORRECAO = Correction(
+    index=0,
+    type=CorrectionType.VOCABULARY,
+    original_excerpt="very stressful",
+    corrected_form="quite stressful",
+    explanation="'quite' soa mais natural aqui.",
+    severity=Severity.MINOR,
+)
 FEEDBACK = TeacherFeedback(
     spoken_reply="That sounds stressful. Have you talked to your manager? It helps.",
-    has_mistakes=True,
-    original="I think my job is very stressful",
-    corrected="I think my job is quite stressful",
-    tip="'quite' soa mais natural aqui.",
     translation_pt="Isso parece estressante.",
+    corrections=(CORRECAO,),
 )
 USAGE = TokenUsage(
     input_tokens=1084,
@@ -259,12 +265,7 @@ async def test_os_eventos_publicados_sao_exatamente_estes() -> None:
             duration_seconds=m.turn.audio_chunks[2].duration_seconds,
             text="It helps.",
         ),
-        FeedbackAvailable(
-            has_mistakes=True,
-            original="I think my job is very stressful",
-            corrected="I think my job is quite stressful",
-            tip="'quite' soa mais natural aqui.",
-        ),
+        FeedbackAvailable(corrections=(CORRECAO,)),
         Completed(reply_audio_key=f"{prefixo}/full.aac"),
     ]
 

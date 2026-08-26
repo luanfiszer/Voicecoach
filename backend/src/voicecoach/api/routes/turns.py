@@ -299,12 +299,11 @@ async def _payload(entrega: Delivery, *, storage: MediaStorage, ttl: timedelta) 
                 text=trecho.text,
             ).model_dump_json()
         case FeedbackAvailable() as feedback:
-            return FeedbackPayload(
-                has_mistakes=feedback.has_mistakes,
-                original=feedback.original,
-                corrected=feedback.corrected,
-                tip=feedback.tip,
-            ).model_dump_json()
+            # Os quatro campos legados saem de `legacy_summary`, dentro do
+            # schema — não de um `[0]` escrito aqui. É o mesmo evento montado
+            # pelo caminho ao vivo e pela retomada, então a regra tem de morar
+            # num lugar só (ADR-0028).
+            return FeedbackPayload.de_correcoes(feedback.corrections).model_dump_json()
         case Completed(reply_audio_key=chave):
             return CompletedPayload(
                 reply_audio_url=await storage.presigned_get_url(chave, ttl)

@@ -29,6 +29,7 @@ from voicecoach.application.use_cases.stream_turn_events import (
     historico,
     posicao,
 )
+from voicecoach.domain.correction import Correction, CorrectionType, Severity
 from voicecoach.domain.turn import Turn, TurnStatus
 
 AGORA = datetime(2026, 8, 23, 12, 0, tzinfo=UTC)
@@ -102,6 +103,16 @@ def test_id_fora_do_esquema_levanta(invalido: str) -> None:
         posicao(invalido)
 
 
+CORRECAO = Correction(
+    index=0,
+    type=CorrectionType.GRAMMAR,
+    original_excerpt="I has",
+    corrected_form="I have",
+    explanation="have, com I",
+    severity=Severity.MODERATE,
+)
+
+
 # --- o histórico reconstruído do banco -------------------------------------
 
 
@@ -113,16 +124,46 @@ def test_o_historico_reconstroi_transcricao_trechos_e_desfecho() -> None:
 
     ids = [d.event_id for d in historico(turn)]
 
-    assert ids == ["transcribed", "chunk:0", "chunk:1", "completed"]
+    assert ids == ["transcribed", "chunk:0", "chunk:1", "feedback", "completed"]
 
 
-def test_o_historico_nao_reconstroi_feedback() -> None:
-    """A dívida do ADR-0035, verificada em vez de escrita só em prosa.
+def test_o_historico_reconstroi_feedback_agora_que_a_correcao_e_persistida() -> None:
+    """**A inversão do CARD-013**, e ela é o gate funcionando, não regressão.
 
-    Correção não é persistida até o CARD-013. Um cliente que reconecte depois de
-    o ``feedback`` ter passado não o recebe neste stream — ele o vê no histórico,
-    mais tarde. Inventar um evento vazio seria pior que não mandar nada.
+    Este teste afirmava o contrário até esta sessão (``all(d.event_id !=
+    "feedback" ...)``): era a dívida do ADR-0035, verificada em vez de escrita só
+    em prosa. O ADR-0041 item 5 registrou o gatilho com todas as letras — *"o
+    CARD-013"* —, e ele disparou: com ``turn.corrections`` no banco, o evento é
+    reconstituível e passa a voltar na retomada como os outros quatro.
     """
+    turn = turn_em_processamento(trechos=1, transcript="hi")
+    turn.attach_reply("Hi.", AGORA)
+    turn.attach_corrections([CORRECAO])
+
+    entregas = {d.event_id: d.event for d in historico(turn)}
+
+    assert isinstance(entregas["feedback"], FeedbackAvailable)
+    assert entregas["feedback"].corrections == (CORRECAO,)
+
+
+def test_o_feedback_volta_mesmo_sem_correcao_nenhuma() -> None:
+    """A condição é ``replied_at``, não ``corrections`` — e a diferença importa.
+
+    Um turn sem erro nenhum **teve** o evento ``feedback``, com a lista vazia.
+    Condicionar a reemissão à existência de correção faria o cliente que
+    reconectasse num turn perfeito ficar esperando para sempre um evento que já
+    passou. É a diferença entre "não houve correção" e "ainda não chegou".
+    """
+    turn = turn_em_processamento(trechos=1, transcript="hi")
+    turn.attach_reply("Hi.", AGORA)
+
+    entregas = {d.event_id: d.event for d in historico(turn)}
+
+    assert entregas["feedback"] == FeedbackAvailable(corrections=())
+
+
+def test_sem_replied_at_o_feedback_nao_aparece() -> None:
+    """O outro lado da mesma condição: o professor ainda não fechou a resposta."""
     turn = turn_em_processamento(trechos=1, transcript="hi")
 
     assert all(d.event_id != "feedback" for d in historico(turn))
@@ -214,7 +255,7 @@ async def test_eventos_ao_vivo_seguem_o_historico_sem_repetir() -> None:
         )
         await canal.publish(
             turn.id,
-            FeedbackAvailable(has_mistakes=False, original="", corrected="", tip=""),
+            FeedbackAvailable(corrections=()),
         )
         await canal.publish(turn.id, Completed(reply_audio_key="reply/full.aac"))
 

@@ -31,6 +31,7 @@ from voicecoach.application.ports.turn_events import (
     TurnEvents,
     TurnEventsError,
 )
+from voicecoach.domain.correction import Correction, CorrectionType, Severity
 
 
 class FakeRedis:
@@ -64,7 +65,7 @@ def test_o_adapter_satisfaz_a_porta() -> None:
             "chunk",
         ),
         (
-            FeedbackAvailable(has_mistakes=False, original="", corrected="", tip=""),
+            FeedbackAvailable(corrections=()),
             "feedback",
         ),
         (Completed(reply_audio_key="k"), "completed"),
@@ -125,7 +126,16 @@ TODOS_OS_EVENTOS: list[TurnEvent] = [
         index=3, storage_key="a/b/c/reply/003.aac", duration_seconds=1.75, text="Hi."
     ),
     FeedbackAvailable(
-        has_mistakes=True, original="I has", corrected="I have", tip="have, com I"
+        corrections=(
+            Correction(
+                index=0,
+                type=CorrectionType.GRAMMAR,
+                original_excerpt="I has",
+                corrected_form="I have",
+                explanation="have, com I",
+                severity=Severity.MODERATE,
+            ),
+        )
     ),
     Completed(reply_audio_key="a/b/c/reply/full.aac"),
     Failed(reason="o TTS caiu", delivered_partially=True),

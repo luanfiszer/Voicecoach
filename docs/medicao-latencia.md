@@ -687,3 +687,75 @@ construiu.
   exercitada**.
 - **Rede móvel.** Tudo em loopback. 4G/5G muda upload e transporte, não o
   pipeline.
+
+---
+
+## 12. CARD-013 — a remedição depois de `corrections[]` entrar no contrato
+
+- **Data:** 2026-08-26
+- **Onde e método:** **idênticos aos da §11**, de propósito — mesma máquina,
+  mesmo Simulador iOS 26.5, mesma rota `/medicao` por deep link, **N = 10**,
+  mesmo WAV de 2,3 s, mesmo `claude-haiku-4-5`. Trocar qualquer coisa do
+  protocolo tornaria os dois números incomparáveis, que é o oposto do ponto.
+- **O que mudou entre as duas:** o professor passou a devolver `corrections[]`
+  tipadas e **parou** de devolver `has_mistakes`/`original`/`corrected`/`tip`
+  (ADR-0049); as correções passaram a ser gravadas (N inserts a mais por turn) e
+  o `feedback` passou a voltar na retomada (ADR-0050).
+
+### 12.1 O número
+
+| Marco | §11 (CARD-012) | §12 (CARD-013) | Δ |
+|---|---|---|---|
+| **p50 até o primeiro áudio audível** | **2,47 s** | **2,34 s** | **−130 ms** |
+| gap entre trechos (p50) | 143 ms | 130 ms | −13 ms |
+| pior gap | 145 ms | 139 ms | −6 ms |
+
+As dez execuções: 9,14 · 2,53 · 2,11 · 2,56 · 2,45 · 2,47 · 2,22 · 1,95 · 1,59 ·
+2,23 s. A #1 é **cold start** (9,14 s, com o `chunk` em 7,01 s) e está na lista
+porque a §11 também teve o seu outlier (a #8, 4,55 s) — remover um e não o outro
+seria escolher o número.
+
+**A latência melhorou, e a explicação não é a que se esperava.** A §4.1 do prompt
+do card previa piora: um array de objetos é mais longo que três strings, e
+`corrections[]` no meio do JSON atrasaria o primeiro áudio. A previsão estava
+certa sobre o mecanismo e errada sobre o saldo, por duas razões que só a medição
+separa:
+
+1. **O v2 gera MENOS**, não mais. Nos seis casos fixos da comparação de prompt:
+   **1.425 tokens de saída no v2 contra 1.558 no v1** (−8,5%). O array custa,
+   mas deixar de pedir os quatro campos texto devolve mais do que ele custa.
+2. **`corrections` é o último campo.** O que atrasa o primeiro áudio é o que vem
+   **antes** de `spoken_reply` fechar, e não há nada antes dele (ADR-0022).
+
+### 12.2 O número que piorou, e ele é real
+
+A comparação de prompt (`benchmarks/llm_prompt_v1_vs_v2.py`, seis casos fixos)
+mede o tempo até a **primeira sentença falável sair do LLM** — um marco mais
+cedo que os quatro da §11.1, e o único que isola o professor:
+
+| | v1 | v2 | Δ |
+|---|---|---|---|
+| 1ª sentença falável (média, 6 casos) | 0,771 s | **0,845 s** | **+74 ms** |
+| tokens de saída (soma, 6 casos) | 1.558 | **1.425** | −133 |
+| tokens de entrada (soma, 6 casos) | 7.451 | **8.927** | +1.476 |
+
+**+74 ms no marco que o aluno sente**, absorvidos mais adiante no pipeline pelos
+133 tokens a menos de geração. O saldo ponta a ponta é negativo (melhor), mas o
+professor ficou mais lento para começar a falar — e isso é o que o ADR-0022 pede
+que não se degrade em silêncio.
+
+**O custo por chamada subiu ~5%**: o prompt v2 é maior, e no `claude-haiku-4-5`
+entrada é 5× mais barata que saída, então +1.476 de entrada não é compensado por
+−133 de saída. Some no dia em que o prompt caching for ligado (ADR-0021), porque
+o prompt é prefixo estável — e é exatamente o tipo de mudança de regime que os
+campos separados de `TokenUsage` existem para detectar.
+
+### 12.3 O que esta medição NÃO cobre
+
+Tudo o que a §11.7 já listava continua valendo sem alteração: **aparelho físico**
+(dívida do ADR-0048), custo de parar a gravação, respostas com mais de 2 trechos
+e rede móvel. Acrescenta-se um item novo:
+
+- **Nenhuma das 10 execuções teve mais de uma correção.** O insumo é um WAV fixo
+  com uma frase, então o caminho "2 correções ⇒ 2 linhas" está provado por teste
+  contra Postgres real e pela comparação de prompt, **não** por esta medição.

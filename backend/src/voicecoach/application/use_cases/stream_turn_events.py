@@ -22,10 +22,12 @@ o ``Last-Event-ID``, mas **não é derivável do banco** — reconstruí-lo exig
 guardá-lo em algum lugar, o que é a segunda fonte de verdade que o ADR-0035
 recusou. O id estruturado o servidor recalcula do próprio Turn.
 
-**O que a retomada não recupera: ``feedback``.** Ele não é persistido até o
-CARD-013, então um cliente que reconecte depois de o feedback ter passado
-simplesmente não o recebe naquele turn — e o vê no histórico depois. Dívida
-registrada no ADR-0035, com o CARD-013 como gatilho.
+**A retomada recupera os cinco eventos, ``feedback`` incluído** (CARD-013). Até
+aqui ele era o buraco declarado do ADR-0041 item 5: correção não era persistida,
+então um cliente que reconectasse depois de o feedback ter passado simplesmente
+não o recebia naquele turn. Com ``turn.corrections`` no banco, ele é
+reconstituível como os outros — e o gatilho que aquele ADR deixou escrito ("o
+CARD-013") disparou.
 
 **Por que este handler levanta em vez de devolver ``Result`` quando o turn não
 existe.** É a limitação honesta do ``Result``: ele não atravessa um gerador. Um
@@ -240,9 +242,11 @@ def historico(turn: Turn) -> Iterator[Delivery]:
     sustenta o critério de aceite "reconectar no 2º trecho recebe do 3º em
     diante".
 
-    ``feedback`` **não** aparece aqui, e a ausência é a dívida do ADR-0035:
-    correções só são persistidas no CARD-013. Não há como reconstruí-lo, e
-    inventar um evento vazio seria pior que não mandar nada.
+    ``feedback`` **passou a aparecer aqui** no CARD-013, e a condição é
+    ``replied_at``, não ``corrections``: um turn sem erro nenhum teve o evento
+    ``feedback`` com a lista vazia, e o cliente que reconectar precisa recebê-lo
+    igual — senão o app fica esperando para sempre um evento que já passou. É a
+    diferença entre "não houve correção" e "ainda não chegou".
 
     A etapa do turn não é recalculada em lugar nenhum deste módulo (ADR-0028) —
     o que se lê são os artefatos, que são o mesmo insumo de ``turn.stage``.
@@ -259,6 +263,11 @@ def historico(turn: Turn) -> Iterator[Delivery]:
                 duration_seconds=chunk.duration_seconds,
                 text=chunk.text,
             ),
+        )
+
+    if turn.replied_at is not None:
+        yield Delivery(
+            FEEDBACK_ID, FeedbackAvailable(corrections=tuple(turn.corrections))
         )
 
     if turn.status is TurnStatus.COMPLETED and turn.reply_audio_ref is not None:

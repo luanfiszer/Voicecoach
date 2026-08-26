@@ -1,34 +1,81 @@
-# Perguntas em aberto — dívida de aprendizado
+# Perguntas da regra do explicador — arquivo e reapresentação
 
-Fila da **regra do explicador** (CLAUDE.md, reescrita no CARD-005 —
-[LEARNING-0004](learnings/0004-regra-do-explicador-pergunta-tarde-e-fecha-sozinha.md)).
+Arquivo da **regra do explicador** (CLAUDE.md, reescrita no CARD-005 pelo
+[LEARNING-0004](learnings/0004-regra-do-explicador-pergunta-tarde-e-fecha-sozinha.md)
+e de novo no CARD-013 pelo
+[LEARNING-0005](learnings/0005-a-fila-de-perguntas-nao-fecha-e-a-metade-nova-da-regra-ja-funciona.md)).
 
-Toda pergunta que não fechou na sessão de origem entra aqui e é
-**reapresentada na abertura da próxima sessão**, antes do plano. Dívida de
-aprendizado se cobra no começo de uma sessão fresca, não no fim de uma longa.
+**O que mudou no CARD-013.** Este arquivo era uma fila de cobrança: toda
+pergunta sem desfecho voltava na abertura de toda sessão seguinte, para sempre.
+Em oito sessões isso produziu **zero** fechamentos e manteve vermelho um item da
+DoD que a sessão corrente já tinha cumprido — enquanto as perguntas feitas **no
+ponto da decisão** fecharam 5 de 5. A metade que funcionava ficou escondida
+atrás do vermelho da que não funcionava.
 
-Ao fechar uma pergunta, mova a linha para "Fechadas" com a data e o desfecho —
-o histórico é o que mostra se o mecanismo novo funciona melhor que o antigo.
+Regra em vigor:
 
-## Abertas
+- **volta na abertura** só a pergunta da sessão **imediatamente anterior** que
+  ficou sem desfecho; sem resposta na segunda vez, é arquivada com a evidência;
+- **arquivada não é esquecida:** ela volta quando um card novo tocar a mesma
+  decisão, refeita **no ponto da decisão daquele card** — que é onde ela nasceu
+  certa;
+- a seção "Arquivadas" registra **o que a execução demonstrou** sobre cada uma.
+  Isso não substitui a resposta do desenvolvedor (LEARNING-0004 continua
+  valendo): registra a evidência que existe no repositório, com a testemunha.
 
-O passivo abaixo veio dos CARDs 001–004, todos fechados pelo mecanismo antigo
-(agente perguntava no fim e fechava o item com a própria explicação). São as
-perguntas que nunca tiveram resposta verificada.
+## A reapresentar na próxima abertura
 
-| # | Pergunta | Card de origem | Desde | Desfecho anterior |
+Uma só, pela regra nova: pergunta da sessão **imediatamente anterior** que ficou
+sem desfecho volta **uma** vez.
+
+| # | Pergunta | Card de origem | Desde | O que aconteceu |
 |---|---|---|---|---|
-| Q1 | Por que o `src/` layout muda o que é exercitado no teste local, e que classe de erro ele revela que a pasta plana esconde? | CARD-001 | 2026-08-17 | explicado, não respondido |
-| Q2 | Por que `api` e `worker` são a **mesma** camada no contrato do import-linter, e que atalho concreto a seta proibida impede? | CARD-001 | 2026-08-17 | explicado, não respondido |
-| Q4 | `@lru_cache` em `get_settings()`: o que exatamente fica em cache, e por que isso morde na suíte de testes? | CARD-002 | 2026-08-17 | "não sei responder" |
-| Q5 | Por que o hook de `mypy` usa `pass_filenames: false`? | CARD-003 | 2026-08-17 | dispensada, sem resposta |
-| Q6 | Por que o limiar de cobertura é travado no valor real de hoje em vez de num número redondo? | CARD-003 | 2026-08-17 | dispensada, sem resposta |
-| Q7 | O que `Protocol` faz que dispensa um framework de mock, e **em que momento** se descobre que um fake não satisfaz a porta? | CARD-004 | 2026-08-17 | reapresentada no CARD-007; **sem resposta e sem dispensa** |
-| Q9 | Igualdade de `@dataclass`: por que dois objetos da mesma entidade com um campo diferente não são iguais, e por que o Python **proíbe** usá-los como chave de dict/set? | CARD-005 | 2026-08-18 | reapresentada no CARD-007; **sem resposta e sem dispensa** |
-| Q11 | Se eu chamar `client.put_object(...)` **direto dentro de uma corrotina**, o que acontece com as outras corrotinas do worker enquanto o upload corre — e como eu provaria isso num teste? | CARD-008 | 2026-08-23 | reapresentada no CARD-009; **sem resposta e sem dispensa** |
-| Q12 | Contratos do import-linter, os dois lados: o `forbidden` segue **cadeias indiretas** (`use_case → encoding → av` reprova mesmo sem `import av` escrito) e o `layers` **só enxerga o grafo interno** (biblioteca externa é invisível para ele). Dado um import, quantos e quais contratos quebram? | CARD-009 | 2026-08-23 | feita no ponto da decisão; 1ª resposta errada (1, era 2), **reformulada uma vez**, 2ª também errada (2, era 1) |
-| Q13 | Um gerador assíncrono não executa nada até o primeiro `__anext__`, então `events.subscribe(turn_id)` devolve o objeto **sem** ter emitido `SUBSCRIBE`. Se o caso de uso lê o banco antes de começar a iterar, e o worker publica o `chunk:0` exatamente nessa janela — o que o aluno vê na tela, e o que acontece com esse trecho? | CARD-010 | 2026-08-23 | feita **antes** de escrever o código, no ponto da decisão; **sem resposta e sem dispensa** |
-| Q14 | Lendo `response.body` do SSE com o **`fetch` global do React Native** (não o `expo/fetch`): o stream chega em pedaços, chega inteiro só no fim, ou dá erro porque `body` não é stream? | CARD-011 | 2026-08-24 | feita **antes** de escrever o spike, no ponto da decisão de dependência; **sem resposta e sem dispensa** |
+| Q15 | Num `@dataclass(frozen=True, slots=True)`, o que acontece se um campo for `list[...]` em vez de `tuple[...]`? | CARD-013 | 2026-08-26 | Foi a **reformulação** da 1ª pergunta da sessão (a original, sobre campo novo com default, teve "não sei"). Resposta: *"mypy vermelho na hora"* — **errada**. Demonstrado na execução: `frozen=True` congela a ligação e não o objeto (`x.itens.append("b")` funcionou), `mypy --strict` deu `Success`, e o `hash(x)` estourou `TypeError: unhashable type: 'list'`. Reformulação já gasta, então não fechou |
+
+> **CARD-013 (2026-08-26): as duas perguntas foram feitas no ponto da decisão**,
+> antes do código, sobre consequência observável, e as duas foram conferidas
+> rodando o comando na hora.
+>
+> - **P1** (campo novo no `TeacherFeedback`): *"não sei"*. Demonstradas as duas
+>   variantes — com default, `mypy: Success` + `28 passed`; obrigatório,
+>   `Found 17 errors in 5 files`. **Reformulada uma vez** (Q15 acima), e a
+>   reformulação foi respondida **errada**. Vira Q15.
+> - **P2** (esquecer o `selectinload` do relacionamento novo): **respondida
+>   corretamente na primeira**. Conferida injetando a omissão de propósito e
+>   rodando o teste contra Postgres real:
+>   `InvalidRequestError: 'TurnRow.corrections' is not available due to
+>   lazy='raise_on_sql'`. Item **verde**.
+>
+> Foi também a sessão em que a **regra mudou** (LEARNING-0005), por decisão do
+> desenvolvedor cobrada na abertura com os três caminhos por escrito. As 11
+> perguntas antigas foram arquivadas com a evidência que a execução produziu
+> sobre cada uma.
+
+## Arquivadas — e o que a execução demonstrou sobre cada uma
+
+Arquivadas em **2026-08-26**, na abertura do CARD-013, por decisão do
+desenvolvedor (LEARNING-0005). O passivo veio dos CARDs 001–011: as quatro
+primeiras nasceram sob o mecanismo antigo (agente perguntava no fim e fechava o
+item com a própria explicação); as demais nasceram certas, no ponto da decisão,
+e ficaram sem desfecho.
+
+**A demonstração de cada uma está no repositório, com teste ou ADR como
+testemunha** — é o que a coluna nova registra. A resposta do desenvolvedor
+continua faltando, e é por isso que nenhuma está em "Fechadas".
+
+| # | Pergunta | Card de origem | Desde | O que a execução demonstrou (testemunha no repo) |
+|---|---|---|---|---|
+| Q1 | Por que o `src/` layout muda o que é exercitado no teste local, e que classe de erro ele revela que a pasta plana esconde? | CARD-001 | 2026-08-17 | CARD-011: o primeiro bundle do Metro saiu de `node_modules/.pnpm/expo-router@57.0.15_…/entry.js` — o que um import resolve depende de **como o pacote foi instalado**, do outro lado do monorepo |
+| Q2 | Por que `api` e `worker` são a **mesma** camada no contrato do import-linter, e que atalho concreto a seta proibida impede? | CARD-001 | 2026-08-17 | CARD-010: a primeira sessão em que api e worker de fato se falam — e falam pelo **canal** (ADR-0035), não por import; nenhum dos dois aparece no `import` do outro |
+| Q4 | `@lru_cache` em `get_settings()`: o que exatamente fica em cache, e por que isso morde na suíte de testes? | CARD-002 | 2026-08-17 | sem demonstração nova desde a origem; a única da lista sem testemunha no repositório |
+| Q5 | Por que o hook de `mypy` usa `pass_filenames: false`? | CARD-003 | 2026-08-17 | **dispensada pelo desenvolvedor** na origem |
+| Q6 | Por que o limiar de cobertura é travado no valor real de hoje em vez de num número redondo? | CARD-003 | 2026-08-17 | **dispensada pelo desenvolvedor** na origem; a decisão foi revista depois pelo ADR-0019 |
+| Q7 | O que `Protocol` faz que dispensa um framework de mock, e **em que momento** se descobre que um fake não satisfaz a porta? | CARD-004 | 2026-08-17 | **seis demonstrações**, sempre no mesmo instante: o `mypy` reprova o fake quando a porta muda, com o `pytest` verde. `MediaStorage.get` (CARD-009, 2 fakes), `TurnRepository.get_by_idempotency_key` e `TurnEvents.subscribe` (CARD-010), `@property` vs. atributo e covariância no `_Client` (CARD-007), e `TurnResponse` renomeado ⇒ `error TS2339` no `tsc` (CARD-011) |
+| Q9 | Igualdade de `@dataclass`: por que dois objetos da mesma entidade com um campo diferente não são iguais, e por que o Python **proíbe** usá-los como chave de dict/set? | CARD-005 | 2026-08-18 | `test_os_eventos_publicados_sao_exatamente_estes` compara **seis eventos com um `==` só**, o que só funciona porque `frozen=True` gera `__eq__` por valor **e** `__hash__` (CARD-009) |
+| Q11 | Se eu chamar `client.put_object(...)` **direto dentro de uma corrotina**, o que acontece com as outras corrotinas do worker enquanto o upload corre — e como eu provaria isso num teste? | CARD-008 | 2026-08-23 | medido: **122 ms de congelamento** com o heartbeat de 10 ms dando **zero** voltas; em executor, 10 voltas e 1 ms de atraso máximo. Virou o `test_o_upload_nao_bloqueia_o_event_loop` e o **ADR-0034** |
+| Q12 | Contratos do import-linter, os dois lados: o `forbidden` segue **cadeias indiretas** (`use_case → encoding → av` reprova mesmo sem `import av` escrito) e o `layers` **só enxerga o grafo interno** (biblioteca externa é invisível para ele). Dado um import, quantos e quais contratos quebram? | CARD-009 | 2026-08-23 | feita no ponto da decisão e conferida rodando `lint-imports` na hora; **errada duas vezes** (1, era 2; depois 2, era 1). O par completo está no CARD-009 e no ADR-0036 — e a segunda metade revelou `starlette` faltando nas listas `forbidden` desde o CARD-001 |
+| Q13 | Um gerador assíncrono não executa nada até o primeiro `__anext__`, então `events.subscribe(turn_id)` devolve o objeto **sem** ter emitido `SUBSCRIBE`. Se o caso de uso lê o banco antes de começar a iterar, e o worker publica o `chunk:0` exatamente nessa janela — o que o aluno vê na tela, e o que acontece com esse trecho? | CARD-010 | 2026-08-23 | a resposta virou desenho: a porta é **context manager**, com a ordem obrigatória `assina → lê o banco → histórico → ao vivo` (ADR-0041 item 2), sustentada por dois testes — um com dublê e um contra Redis real |
+| Q14 | Lendo `response.body` do SSE com o **`fetch` global do React Native** (não o `expo/fetch`): o stream chega em pedaços, chega inteiro só no fim, ou dá erro porque `body` não é stream? | CARD-011 | 2026-08-24 | conferida na hora: **(a) chega em pedaços** — 5 leituras, timestamps crescentes, `chunk 0` em 1,65 s. Dispensou a dependência `react-native-sse` (ADR-0044) |
 
 > **Q7** foi reapresentada na abertura do CARD-006 e **dispensada pelo
 > desenvolvedor** ("vamos pular essas perguntas e finalizar a implementação").

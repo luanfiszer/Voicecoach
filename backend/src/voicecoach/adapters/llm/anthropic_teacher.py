@@ -33,21 +33,48 @@ from voicecoach.application.ports.teacher_llm import (
     TokenUsage,
     Utterance,
 )
+from voicecoach.domain.correction import Correction, CorrectionType, Severity
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
 
 TOOL_NAME = "teacher_feedback"
 
+# O schema de UMA correção. `enum` no JSON Schema é o que faz o provedor recusar
+# um valor fora da escala antes de nós — a validação em `_para_correcao` existe
+# para o caso de ele não cumprir, não no lugar dele.
+CAMPOS_DA_CORRECAO: dict[str, Any] = {
+    "type": {"type": "string", "enum": [m.value for m in CorrectionType]},
+    "original_excerpt": {"type": "string"},
+    "corrected_form": {"type": "string"},
+    "explanation": {"type": "string"},
+    "severity": {"type": "string", "enum": [m.value for m in Severity]},
+}
+
 # A ordem aqui É o ADR-0022, e o teste `test_teacher_prompt.py` a assere. Não
 # reordene por legibilidade: reordenar não quebra nada — só a latência sobe.
-CAMPOS: dict[str, dict[str, str]] = {
+#
+# **`corrections` é o último de propósito** (CARD-013). É o campo mais longo do
+# objeto, e o parse é incremental (ADR-0030): cada byte gerado antes de
+# `spoken_reply` fechar é atraso no primeiro áudio que o aluno ouve. Pelo mesmo
+# motivo os quatro campos texto do protótipo SAÍRAM daqui — eles continuam no
+# contrato `/v1`, derivados de `corrections` por `legacy_summary`, e parar de
+# pedi-los ao modelo devolve parte dos tokens que o array custa.
+CAMPOS: dict[str, dict[str, Any]] = {
     "spoken_reply": {"type": "string"},
-    "has_mistakes": {"type": "boolean"},
-    "original": {"type": "string"},
-    "corrected": {"type": "string"},
-    "tip": {"type": "string"},
     "translation_pt": {"type": "string"},
+    "corrections": {
+        "type": "array",
+        # O teto está no prompt E aqui: o prompt pede no máximo 2 por pedagogia,
+        # o schema impede que o descumprimento vire uma tela com sete correções.
+        "maxItems": 2,
+        "items": {
+            "type": "object",
+            "properties": CAMPOS_DA_CORRECAO,
+            "required": list(CAMPOS_DA_CORRECAO),
+            "additionalProperties": False,
+        },
+    },
 }
 
 TOOL_SCHEMA: dict[str, Any] = {
@@ -139,12 +166,58 @@ def _fala_parcial(buffer: bytes) -> str:
     return valor if isinstance(valor, str) else ""
 
 
+def _para_correcao(bruto: object, index: int) -> Correction:
+    """Converte um item de `corrections[]` em `Correction`, ou levanta.
+
+    **O `index` é atribuído aqui, pela posição no array**, e não vem do modelo.
+    É a mesma escolha do `TurnAudioChunk` (ADR-0023) por uma razão diferente:
+    ali o índice precisa ser conhecido antes, para montar a chave de storage;
+    aqui, pedir o índice ao modelo seria dar a ele a chance de repetir ou furar
+    a sequência — e o furo só apareceria como violação de chave primária, no
+    fundo do pipeline. A ordem do array já é a ordem pedagógica que o prompt
+    pede, então a posição É a informação.
+
+    Os dois `StrEnum` levantam `ValueError` para valor fora da escala, e ele
+    vira `LlmError` como qualquer outro desvio de schema: é o provedor devolvendo
+    algo que não combinamos, não invariante de domínio violada (ADR-0017).
+    """
+    if not isinstance(bruto, dict):
+        message = f"correção {index} não é um objeto: {type(bruto).__name__}"
+        raise LlmError(message)
+
+    faltando = [c for c in CAMPOS_DA_CORRECAO if c not in bruto]
+    if faltando:
+        message = f"correção {index} sem os campos {faltando}"
+        raise LlmError(message)
+
+    errados = [c for c in CAMPOS_DA_CORRECAO if not isinstance(bruto[c], str)]
+    if errados:
+        message = f"correção {index}: campos que deveriam ser texto não são: {errados}"
+        raise LlmError(message)
+
+    try:
+        tipo = CorrectionType(bruto["type"])
+        severidade = Severity(bruto["severity"])
+    except ValueError as exc:
+        message = f"correção {index} fora da escala combinada: {exc}"
+        raise LlmError(message) from exc
+
+    return Correction(
+        index=index,
+        type=tipo,
+        original_excerpt=bruto["original_excerpt"],
+        corrected_form=bruto["corrected_form"],
+        explanation=bruto["explanation"],
+        severity=severidade,
+    )
+
+
 def _para_feedback(bruto: object) -> TeacherFeedback:
     """Converte o input da tool em `TeacherFeedback`, ou levanta.
 
     Validação à mão, e não com pydantic, por regra de camada: pydantic é
-    contrato de API e vive na borda `api/` (ADR-0008). São seis campos de tipo
-    conhecido — a "fronteira anti-corrupção" aqui cabe em vinte linhas, e o
+    contrato de API e vive na borda `api/` (ADR-0008). São três campos de tipo
+    conhecido — a "fronteira anti-corrupção" aqui cabe em trinta linhas, e o
     schema já foi imposto pelo provedor no modo estrito.
 
     Fora do schema é `LlmError`, **nunca** texto cru adiante: o fallback do
@@ -160,23 +233,21 @@ def _para_feedback(bruto: object) -> TeacherFeedback:
         message = f"resposta do professor sem os campos {faltando}"
         raise LlmError(message)
 
-    if not isinstance(bruto["has_mistakes"], bool):
-        message = "has_mistakes não é booleano"
-        raise LlmError(message)
-
-    textos = {c: bruto[c] for c in CAMPOS if c != "has_mistakes"}
+    textos = {c: bruto[c] for c in ("spoken_reply", "translation_pt")}
     errados = [c for c, v in textos.items() if not isinstance(v, str)]
     if errados:
         message = f"campos que deveriam ser texto não são: {errados}"
         raise LlmError(message)
 
+    correcoes = bruto["corrections"]
+    if not isinstance(correcoes, list):
+        message = f"corrections não é um array: {type(correcoes).__name__}"
+        raise LlmError(message)
+
     return TeacherFeedback(
         spoken_reply=textos["spoken_reply"],
-        has_mistakes=bruto["has_mistakes"],
-        original=textos["original"],
-        corrected=textos["corrected"],
-        tip=textos["tip"],
         translation_pt=textos["translation_pt"],
+        corrections=tuple(_para_correcao(item, i) for i, item in enumerate(correcoes)),
     )
 
 

@@ -95,7 +95,18 @@ class SqlAlchemyTurnRepository:
     # do JOIN do `joinedload`. Para coleção é a escolha certa: o JOIN
     # multiplicaria as colunas do turn por trecho (produto cartesiano) e o
     # `order_by` do relationship teria que competir com a ordenação da query.
-    _COM_TRECHOS = selectinload(TurnRow.audio_chunks)
+    #
+    # **São dois, e a lista é o contrato de carregamento deste repositório.**
+    # Esquecer o segundo não é N+1 silencioso — é
+    # `InvalidRequestError: 'TurnRow.corrections' is not available due to
+    # lazy='raise_on_sql'`, na hora, demonstrado no CARD-013 injetando a omissão.
+    # É o contraste que morde para quem vem do EF Core: lá o `.Include()`
+    # esquecido custa desempenho e o código continua correto; aqui ele para o
+    # pipeline, o que é pior de descobrir e muito melhor de ter descoberto.
+    _COM_FILHAS = (
+        selectinload(TurnRow.audio_chunks),
+        selectinload(TurnRow.corrections),
+    )
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -104,7 +115,7 @@ class SqlAlchemyTurnRepository:
         self._session.add(mappers.turn_to_row(turn))
 
     async def get(self, turn_id: UUID) -> Turn | None:
-        row = await self._session.get(TurnRow, turn_id, options=[self._COM_TRECHOS])
+        row = await self._session.get(TurnRow, turn_id, options=self._COM_FILHAS)
         return None if row is None else mappers.turn_from_row(row)
 
     async def get_by_idempotency_key(self, key: str) -> Turn | None:
@@ -116,7 +127,7 @@ class SqlAlchemyTurnRepository:
         stmt = (
             select(TurnRow)
             .where(TurnRow.idempotency_key == key)
-            .options(self._COM_TRECHOS)
+            .options(*self._COM_FILHAS)
         )
         row = (await self._session.scalars(stmt)).one_or_none()
         return None if row is None else mappers.turn_from_row(row)
@@ -132,7 +143,7 @@ class SqlAlchemyTurnRepository:
         precisa comparar os trechos já gravados com os da entidade para saber
         quais acrescentar.
         """
-        row = await self._session.get(TurnRow, turn.id, options=[self._COM_TRECHOS])
+        row = await self._session.get(TurnRow, turn.id, options=self._COM_FILHAS)
         if row is None:
             message = f"Turn {turn.id} não existe."
             raise RowNotFoundError(message)
@@ -161,7 +172,7 @@ class SqlAlchemyTurnRepository:
             )
             .order_by(TurnRow.created_at.desc())
             .limit(limit)
-            .options(self._COM_TRECHOS)
+            .options(*self._COM_FILHAS)
         )
         linhas = (await self._session.scalars(stmt)).all()
         return [mappers.turn_from_row(linha) for linha in reversed(linhas)]

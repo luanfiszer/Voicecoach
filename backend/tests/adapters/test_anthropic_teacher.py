@@ -29,6 +29,7 @@ from voicecoach.application.ports.teacher_llm import (
     TeacherLlm,
     Utterance,
 )
+from voicecoach.domain.correction import CorrectionType, Severity
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -183,7 +184,11 @@ async def test_fluxo_termina_com_feedback_ready_e_as_tres_contagens() -> None:
     ultimo = eventos[-1]
     assert isinstance(ultimo, FeedbackReady)
     assert ultimo.feedback.spoken_reply == FEEDBACK_COMPLETO["spoken_reply"]
-    assert ultimo.feedback.has_mistakes is True
+    # As duas correções chegaram tipadas, com o índice atribuído pela POSIÇÃO no
+    # array — o modelo não manda índice (ver `_para_correcao`).
+    assert [c.index for c in ultimo.feedback.corrections] == [0, 1]
+    assert ultimo.feedback.corrections[0].type is CorrectionType.VOCABULARY
+    assert ultimo.feedback.corrections[1].severity is Severity.MODERATE
     # As três contagens de entrada, separadas (ADR-0021, item 3). Hoje as de
     # cache são 0 em toda chamada — e é exatamente por isso que existem.
     assert ultimo.usage.input_tokens == 1084
@@ -228,14 +233,45 @@ async def test_usage_sem_campos_de_cache_vira_zero() -> None:
     [
         pytest.param({"spoken_reply": "oi"}, "sem os campos", id="campos-faltando"),
         pytest.param(
-            {**FEEDBACK_COMPLETO, "has_mistakes": "sim"},
-            "has_mistakes",
-            id="tipo-errado-no-booleano",
+            {**FEEDBACK_COMPLETO, "corrections": "nem é lista"},
+            "corrections não é um array",
+            id="corrections-nao-e-array",
         ),
         pytest.param(
-            {**FEEDBACK_COMPLETO, "tip": 42},
+            {**FEEDBACK_COMPLETO, "translation_pt": 42},
             "deveriam ser texto",
             id="tipo-errado-no-texto",
+        ),
+        pytest.param(
+            {**FEEDBACK_COMPLETO, "corrections": [{"type": "grammar"}]},
+            "correção 0 sem os campos",
+            id="correcao-incompleta",
+        ),
+        pytest.param(
+            # O provedor impõe o `enum` do schema, então isto não deveria
+            # acontecer — o teste existe porque "não deveria" não é garantia, e
+            # um valor fora da escala viraria uma linha que o banco recusa lá no
+            # fim do pipeline, longe da causa.
+            {
+                "spoken_reply": "oi",
+                "translation_pt": "oi",
+                "corrections": [
+                    {
+                        "type": "grammar",
+                        "original_excerpt": "a",
+                        "corrected_form": "b",
+                        "explanation": "c",
+                        "severity": "catastrophic",
+                    }
+                ],
+            },
+            "fora da escala combinada",
+            id="severidade-inventada",
+        ),
+        pytest.param(
+            {**FEEDBACK_COMPLETO, "corrections": ["nem é objeto"]},
+            "correção 0 não é um objeto",
+            id="item-de-correcao-nao-e-objeto",
         ),
         pytest.param(["nem é objeto"], "não é um objeto", id="nao-e-objeto"),
     ],

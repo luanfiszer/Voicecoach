@@ -125,16 +125,31 @@ class FakeClient:
         self.messages = FakeMessages(pedacos, final)
 
 
-FEEDBACK_COMPLETO = {
+FEEDBACK_COMPLETO: dict[str, object] = {
     "spoken_reply": (
         "That sounds really stressful. Have you tried talking to your manager "
         "about the deadline? It might help a lot."
     ),
-    "has_mistakes": True,
-    "original": "I think my job is very stressful sometimes",
-    "corrected": "I think my job is ~very~ *quite* stressful sometimes",
-    "tip": "Both work, but 'quite' sounds more natural here.",
     "translation_pt": "Isso parece bem estressante.",
+    # Duas correções, porque é o caso que separa o contrato novo do velho: os
+    # campos legados do `/v1` saem da PRIMEIRA (CARD-013), e um fake com uma só
+    # não provaria nada sobre essa escolha.
+    "corrections": [
+        {
+            "type": "vocabulary",
+            "original_excerpt": "very stressful",
+            "corrected_form": "quite stressful",
+            "explanation": "Both work, but 'quite' sounds more natural here.",
+            "severity": "minor",
+        },
+        {
+            "type": "word_order",
+            "original_excerpt": "stressful sometimes",
+            "corrected_form": "sometimes stressful",
+            "explanation": "'sometimes' usually comes before the adjective.",
+            "severity": "moderate",
+        },
+    ],
 }
 
 
