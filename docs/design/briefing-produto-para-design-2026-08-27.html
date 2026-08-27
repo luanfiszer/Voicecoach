@@ -1,0 +1,1207 @@
+<title>Voicecoach por dentro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=DM+Mono:wght@400;500&display=swap">
+
+<style>
+  :root {
+    /* Paleta do próprio app — docs/design/artboards/17-style-guide.png,
+       transcrita em apps/mobile/src/theme/tokens.ts. */
+    --ground: #F7F5F2;
+    --surface: #FFFFFF;
+    --sunken: #F0ECE6;
+    --ink: #171614;
+    --muted: #6E6A62;
+    --accent: #B44B31;
+    --accent-soft: #F6E7E1;
+    --hairline: #E3DED6;
+    --hairline-strong: #D3CCC1;
+    --on-accent: #FFFFFF;
+
+    --sans: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+    --mono: "DM Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --measure: 34rem;
+    --wide: 60rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #121211;
+      --surface: #1A1918;
+      --sunken: #201E1C;
+      --ink: #F2F0EC;
+      --muted: #8F8B83;
+      --accent: #E4795C;
+      --accent-soft: #33231E;
+      --hairline: #2A2825;
+      --hairline-strong: #3B3833;
+      --on-accent: #1A1918;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #121211;
+    --surface: #1A1918;
+    --sunken: #201E1C;
+    --ink: #F2F0EC;
+    --muted: #8F8B83;
+    --accent: #E4795C;
+    --accent-soft: #33231E;
+    --hairline: #2A2825;
+    --hairline-strong: #3B3833;
+    --on-accent: #1A1918;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.6;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: 0 1.5rem 6rem;
+  }
+
+  /* ---------- cabeçalho ---------- */
+
+  header.hero {
+    padding: 5rem 0 3rem;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 1.25rem;
+  }
+
+  h1 {
+    font-size: clamp(2.4rem, 6vw, 3.6rem);
+    line-height: 1.04;
+    letter-spacing: -0.03em;
+    font-weight: 600;
+    margin: 0 0 1.5rem;
+    text-wrap: balance;
+    max-width: 18ch;
+  }
+
+  .standfirst {
+    font-size: 1.2rem;
+    line-height: 1.5;
+    color: var(--muted);
+    max-width: var(--measure);
+    margin: 0;
+  }
+
+  .standfirst strong { color: var(--ink); font-weight: 600; }
+
+  /* ---------- os três números ---------- */
+
+  .numbers {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1px;
+    background: var(--hairline);
+    border: 1px solid var(--hairline);
+    margin: 3rem 0 0;
+  }
+
+  .numbers div { background: var(--ground); padding: 1.5rem 1.25rem; }
+
+  .numbers dt {
+    font-family: var(--mono);
+    font-size: 2rem;
+    font-weight: 500;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    margin: 0 0 0.4rem;
+  }
+
+  .numbers dd {
+    margin: 0;
+    font-size: 0.9rem;
+    line-height: 1.45;
+    color: var(--muted);
+  }
+
+  /* ---------- navegação ---------- */
+
+  nav.jump {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: color-mix(in srgb, var(--ground) 92%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--hairline);
+    margin-bottom: 3.5rem;
+  }
+
+  nav.jump ol {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 1.5rem;
+    list-style: none;
+    margin: 0 auto;
+    padding: 0.85rem 1.5rem;
+    max-width: var(--wide);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+  }
+
+  nav.jump a { color: var(--muted); text-decoration: none; }
+  nav.jump a:hover, nav.jump a:focus-visible { color: var(--accent); }
+
+  /* ---------- seções ---------- */
+
+  section { margin: 0 0 5rem; }
+
+  h2 {
+    font-size: 1.9rem;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+    text-wrap: balance;
+  }
+
+  .section-note {
+    color: var(--muted);
+    max-width: var(--measure);
+    margin: 0 0 2.5rem;
+  }
+
+  h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 2.5rem 0 0.75rem;
+  }
+
+  p, ul, ol { max-width: var(--measure); }
+  p { margin: 0 0 1.1rem; }
+  ul, ol { padding-left: 1.1rem; margin: 0 0 1.1rem; }
+  li { margin-bottom: 0.5rem; }
+
+  a { color: var(--accent); }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--sunken);
+    padding: 0.1em 0.35em;
+    border-radius: 2px;
+  }
+
+  /* ---------- chips de status ---------- */
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.2em 0.5em;
+    white-space: nowrap;
+    vertical-align: 0.15em;
+  }
+
+  .chip.lei { background: var(--accent); color: var(--on-accent); }
+  .chip.aberto { border: 1px dashed var(--hairline-strong); color: var(--muted); }
+  .chip.feito { background: var(--sunken); color: var(--muted); }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    padding: 1.25rem;
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+    margin: 0 0 3rem;
+    max-width: var(--wide);
+  }
+
+  .legend div { display: flex; gap: 0.6rem; align-items: baseline; font-size: 0.88rem; color: var(--muted); }
+
+  /* ---------- regras ---------- */
+
+  .rule {
+    border-top: 1px solid var(--hairline);
+    padding: 1.4rem 0;
+    display: grid;
+    grid-template-columns: 7rem 1fr;
+    gap: 0 2rem;
+    align-items: start;
+  }
+
+  .rule:last-of-type { border-bottom: 1px solid var(--hairline); }
+  .rule > .chip { justify-self: start; margin-top: 0.3rem; }
+  .rule h4 { margin: 0 0 0.4rem; font-size: 1rem; font-weight: 600; }
+  .rule p { margin: 0 0 0.6rem; max-width: 46rem; }
+  .rule p:last-child { margin-bottom: 0; }
+  .rule .why { color: var(--muted); font-size: 0.92rem; }
+
+  @media (max-width: 640px) {
+    .rule { grid-template-columns: 1fr; gap: 0.6rem; }
+  }
+
+  /* ---------- linha do tempo do turno ---------- */
+
+  .timeline {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    padding: 2rem 1.75rem 1.75rem;
+    margin: 0 0 2rem;
+    overflow-x: auto;
+  }
+
+  .track {
+    display: grid;
+    grid-template-columns: 0.59fr 0.8fr 0.41fr 3.2fr;
+    gap: 3px;
+    min-width: 560px;
+    margin-bottom: 0.75rem;
+  }
+
+  .track .seg {
+    padding: 0.7rem 0.7rem 0.8rem;
+    font-size: 0.82rem;
+    line-height: 1.3;
+  }
+
+  .seg-stt { background: var(--sunken); }
+  .seg-llm { background: var(--sunken); }
+  .seg-tts { background: var(--accent-soft); }
+  .seg-play { background: var(--accent); color: var(--on-accent); }
+
+  .seg .lbl {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 0.3rem;
+    opacity: 0.75;
+  }
+
+  .seg .dur {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+  }
+
+  .chunks {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 3px;
+    min-width: 560px;
+    margin-bottom: 0.5rem;
+  }
+
+  .chunks span {
+    background: var(--accent-soft);
+    border-left: 2px solid var(--accent);
+    padding: 0.5rem 0.6rem;
+    font-size: 0.76rem;
+    color: var(--muted);
+  }
+
+  .timeline figcaption {
+    font-size: 0.88rem;
+    color: var(--muted);
+    max-width: 46rem;
+    margin-top: 1.25rem;
+  }
+
+  /* ---------- tabelas ---------- */
+
+  .table-scroll { overflow-x: auto; margin: 0 0 1.5rem; max-width: var(--wide); }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 480px;
+    font-size: 0.92rem;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 0.7rem 1rem 0.7rem 0;
+    border-bottom: 1px solid var(--hairline);
+    vertical-align: top;
+  }
+
+  th {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 400;
+    border-bottom-color: var(--hairline-strong);
+  }
+
+  td code { background: none; padding: 0; color: var(--accent); }
+
+  /* ---------- destaque ---------- */
+
+  .callout {
+    background: var(--surface);
+    border-left: 3px solid var(--accent);
+    padding: 1.4rem 1.5rem;
+    margin: 2rem 0;
+    max-width: 46rem;
+  }
+
+  .callout p:last-child { margin-bottom: 0; }
+  .callout strong { color: var(--accent); }
+
+  /* ---------- anatomia da correção ---------- */
+
+  .anatomy {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    padding: 1.75rem;
+    max-width: 32rem;
+    margin: 1.5rem 0 2rem;
+  }
+
+  .anatomy .tipo {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.9rem;
+  }
+
+  .anatomy .errado {
+    text-decoration: line-through;
+    text-decoration-color: var(--accent);
+    color: var(--muted);
+    font-size: 1.05rem;
+    margin-bottom: 0.3rem;
+  }
+
+  .anatomy .certo {
+    font-size: 1.2rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-bottom: 0.7rem;
+  }
+
+  .anatomy .porque { font-size: 0.92rem; color: var(--muted); margin: 0; }
+
+  .anatomy .peso {
+    margin-top: 1rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--hairline);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+
+  footer {
+    border-top: 1px solid var(--hairline);
+    padding-top: 2rem;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="hero">
+    <p class="eyebrow">Briefing de produto · para design</p>
+    <h1>O aluno fala inglês em voz alta e alguém responde.</h1>
+    <p class="standfirst">
+      O Voicecoach é um professor de inglês por conversa de áudio. O aluno grava uma
+      fala, o professor responde <strong>em áudio</strong> e, quando há o que corrigir,
+      corrige. Este documento reúne as regras que o app já obedece — o que é lei,
+      o que está em aberto e o que ainda não existe.
+    </p>
+
+    <dl class="numbers">
+      <div>
+        <dt>2,3 s</dt>
+        <dd>até o aluno ouvir a primeira palavra do professor. Medido. O alvo é 1,8 s.</dd>
+      </div>
+      <div>
+        <dt>~17 s</dt>
+        <dd>de áudio numa resposta típica, entregue em 3 a 6 pedaços.</dd>
+      </div>
+      <div>
+        <dt>0 a 2</dt>
+        <dd>correções por fala. Zero é o resultado mais comum, e é de propósito.</dd>
+      </div>
+      <div>
+        <dt>10 min</dt>
+        <dd>de fala por dia, por aluno. Renova à meia-noite, horário de Brasília.</dd>
+      </div>
+    </dl>
+  </header>
+</div>
+
+<nav class="jump" aria-label="Seções">
+  <ol>
+    <li><a href="#turno">O turno</a></li>
+    <li><a href="#vocabulario">Vocabulário</a></li>
+    <li><a href="#correcoes">Correções</a></li>
+    <li><a href="#sessao">Sessão</a></li>
+    <li><a href="#limites">Limites</a></li>
+    <li><a href="#audio">Áudio e memória</a></li>
+    <li><a href="#erro">Quando dá errado</a></li>
+    <li><a href="#telas">As telas</a></li>
+    <li><a href="#lei">Restrições</a></li>
+    <li><a href="#fora">Fora de escopo</a></li>
+    <li><a href="#voce">Onde preciso de você</a></li>
+  </ol>
+</nav>
+
+<div class="wrap">
+
+  <div class="legend">
+    <div><span class="chip lei">Lei</span> Decidido e documentado. Mudar exige uma conversa técnica, não é preferência.</div>
+    <div><span class="chip feito">Feito</span> Já existe no app hoje.</div>
+    <div><span class="chip aberto">Aberto</span> Sem decisão. Sua opinião conta.</div>
+  </div>
+
+  <!-- ============ O TURNO ============ -->
+  <section id="turno">
+    <h2>Como funciona um turno</h2>
+    <p class="section-note">
+      Se você ler uma coisa só deste documento, que seja esta. É o mecanismo mais
+      importante do produto e o mais contra-intuitivo — e o design atual do app
+      foi feito antes dele existir, então descreve outra coisa.
+    </p>
+
+    <p>
+      O aluno segura o botão, fala, solta. A partir daí o servidor faz três coisas em
+      sequência: transcreve a fala, pensa a resposta, e transforma a resposta em voz.
+      A parte contra-intuitiva é que ele <strong>não espera terminar</strong> para
+      começar a entregar.
+    </p>
+
+    <figure class="timeline">
+      <div class="track">
+        <div class="seg seg-stt"><span class="lbl">Transcreve</span><span class="dur">0,6 s</span></div>
+        <div class="seg seg-llm"><span class="lbl">Pensa</span><span class="dur">0,8 s</span></div>
+        <div class="seg seg-tts"><span class="lbl">Vira voz</span><span class="dur">0,4 s</span></div>
+        <div class="seg seg-play"><span class="lbl">O aluno já está ouvindo</span><span class="dur">~17 s</span></div>
+      </div>
+      <div class="chunks">
+        <span>trecho 1</span>
+        <span>trecho 2</span>
+        <span>trecho 3</span>
+        <span>trecho 4</span>
+        <span>trecho 5</span>
+      </div>
+      <figcaption>
+        Enquanto o trecho 1 toca, o professor ainda está escrevendo o trecho 4. As
+        correções — o texto — só ficam prontas <strong>depois</strong> do último
+        trecho de áudio. O áudio vem primeiro; o texto fecha por último.
+      </figcaption>
+    </figure>
+
+    <div class="callout">
+      <p>
+        <strong>O design atual inverteu isso.</strong> Os artboards de estado (03 a 06)
+        foram desenhados em 17 de agosto; o mecanismo acima entrou em 19 de agosto.
+        A tela 05 promete <em>"você já pode ler; o áudio toca sozinho quando chegar"</em> —
+        exatamente ao contrário do que acontece.
+      </p>
+      <p>
+        Consequência: <strong>a tela mais importante do produto não existe desenhada.</strong>
+        Ela é a que mostra o professor falando enquanto o feedback ainda está a caminho.
+      </p>
+    </div>
+
+    <h3>O que isso proíbe na tela</h3>
+    <ul>
+      <li>
+        <strong>Nada de "aguarde".</strong> Com 2,3 segundos até a primeira palavra,
+        pedir para o aluno guardar o telefone (como diz a tela 03) é errado.
+      </li>
+      <li>
+        <strong>Nada de barra de progresso em 3 passos.</strong> A etapa "pensando"
+        dura menos de um segundo. Desenhar estado para ela é fazer a tela piscar.
+      </li>
+      <li>
+        <strong>Nada de duração total durante a reprodução.</strong> A tela 06 mostra
+        <code>0:05 / 0:12</code>. Durante a fala do professor esse total
+        <strong>não existe</strong> — só se sabe quanto dura a resposta quando o
+        último pedaço chega.
+      </li>
+    </ul>
+  </section>
+
+  <!-- ============ VOCABULÁRIO ============ -->
+  <section id="vocabulario">
+    <h2>Vocabulário</h2>
+    <p class="section-note">
+      Estas cinco palavras têm significado exato no código. Usá-las com o mesmo
+      sentido que o time evita metade dos mal-entendidos.
+    </p>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Palavra</th><th>O que é</th><th>O que não é</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Turno</strong></td>
+            <td>Uma fala do aluno e a resposta do professor. A unidade do produto.</td>
+            <td>Não é uma mensagem. Não existe turno só do aluno.</td>
+          </tr>
+          <tr>
+            <td><strong>Sessão</strong></td>
+            <td>Uma conversa, com início e fim. Agrupa turnos. É o que aparece no histórico.</td>
+            <td>Não é o dia. Não é uma thread infinita.</td>
+          </tr>
+          <tr>
+            <td><strong>Correção</strong></td>
+            <td>Um erro apontado, com trecho original, forma certa, explicação, tipo e peso.</td>
+            <td>Não é a resposta do professor. É um dado separado, guardado.</td>
+          </tr>
+          <tr>
+            <td><strong>Trecho</strong></td>
+            <td>Um pedaço do áudio da resposta. São 3 a 6 por turno, tocados em fila.</td>
+            <td>Não é um arquivo de áudio único. O aluno não percebe a emenda.</td>
+          </tr>
+          <tr>
+            <td><strong>Cota</strong></td>
+            <td>Quantos minutos o aluno pode falar por dia.</td>
+            <td>Não é o plano nem a assinatura — isso ainda não existe.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ CORREÇÕES ============ -->
+  <section id="correcoes">
+    <h2>As correções</h2>
+    <p class="section-note">
+      É a parte mais valiosa do produto e a que tem mais regra escrita. Quase todas
+      existem para o mesmo fim: não desencorajar quem está aprendendo.
+    </p>
+
+    <div class="anatomy">
+      <p class="tipo">Ordem das palavras</p>
+      <p class="errado">Always I go to the gym</p>
+      <p class="certo">I always go to the gym</p>
+      <p class="porque">In English, "always" goes after the subject, not before it.</p>
+      <p class="peso">peso: moderado · 1 de 2</p>
+    </div>
+
+    <div class="rule">
+      <span class="chip lei">Lei</span>
+      <div>
+        <h4>No máximo duas correções por fala, mesmo quando há cinco erros</h4>
+        <p>O professor escolhe as duas que valem a pena e ignora o resto.</p>
+        <p class="why">
+          Sobrecarregar o aluno é pior que deixar um erro pequeno passar. A instrução
+          está escrita no prompt do professor, não é filtro de tela.
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <span class="chip lei">Lei</span>
+      <div>
+        <h4>Nenhuma correção é o resultado esperado na maioria das vezes</h4>
+        <p>
+          Fala sem erro real não gera card nenhum. A tela fica só com a resposta em
+          áudio, e isso está certo.
+        </p>
+        <p class="why">
+          É a regra que o briefing original chamou de <em>"o silêncio é o elogio"</em>.
+          O professor é conservador de propósito: pontuação, informalidade, hesitação
+          e autocorreção não contam como erro.
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <span class="chip lei">Lei</span>
+      <div>
+        <h4>A ordem das correções é prioridade pedagógica, não ordem na frase</h4>
+        <p>
+          A primeira é a que o professor diria em voz alta. Tempo verbal, concordância
+          e ordem das palavras vêm antes de artigo e preposição.
+        </p>
+        <p class="why">
+          Quem diz <em>"Always I go"</em> precisa da ordem das palavras primeiro, e
+          talvez nunca precise do artigo que faltou. Se a tela reordenar por posição
+          na frase, ela desfaz a decisão do professor.
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <span class="chip lei">Lei</span>
+      <div>
+        <h4>Cinco tipos e três pesos, fechados</h4>
+        <p>
+          Tipo: <code>gramática</code>, <code>vocabulário</code>, <code>preposição</code>,
+          <code>ordem das palavras</code>, <code>outro</code>.
+          Peso: <code>pequeno</code>, <code>médio</code>, <code>grande</code>.
+        </p>
+        <p class="why">
+          Três pesos porque a tela apresenta em palavras ("pequeno ajuste", "vale
+          revisar"), e isso só funciona com uma escala curta. Você pode renomear os
+          rótulos em português à vontade — os nomes visíveis são apresentação. Os
+          valores por trás, não.
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <span class="chip lei">Lei</span>
+      <div>
+        <h4>O trecho original é o menor pedaço possível, palavra por palavra</h4>
+        <p>
+          Não é a frase inteira e não é paráfrase: é o recorte exato do que o aluno
+          disse, do tamanho mínimo que contém o erro.
+        </p>
+        <p class="why">
+          Isso significa que o card de correção mostra fragmentos curtos, não frases
+          completas. O layout precisa aguentar tanto <em>"in the"</em> quanto uma
+          oração de dez palavras.
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <span class="chip aberto">Aberto</span>
+      <div>
+        <h4>A explicação vem em inglês simples, numa interface em português</h4>
+        <p>
+          O campo de explicação é escrito pelo professor em inglês acessível
+          (<em>"In English, 'always' goes after the subject"</em>). O resto do app é
+          em português.
+        </p>
+        <p class="why">
+          É proposital — ler a explicação em inglês também é praticar. Mas ninguém
+          decidiu como a tela sinaliza essa troca de idioma, e hoje ela não sinaliza.
+          <strong>Boa pergunta para você resolver.</strong>
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SESSÃO ============ -->
+  <section id="sessao">
+    <h2>A sessão</h2>
+    <p class="section-note">
+      Uma conversa tem começo e fim. Isso parece burocrático até você ver o que
+      depende disso: o resumo pós-conversa, o histórico, e o que acontece com uma
+      fala que chega atrasada.
+    </p>
+
+    <div class="rule">
+      <span class="chip lei">Lei</span>
+      <div>
+        <h4>Encerrar é ação do aluno — e também acontece sozinho</h4>
+        <p>
+          Existe um botão "Encerrar". E existe um encerramento automático depois de um
+          tempo sem falar nada, porque a maioria das pessoas fecha o app e some.
+        </p>
+        <p class="why">
+          Sem o automático, o histórico viraria uma pilha de conversas "em andamento"
+          que acabaram há semanas, e o resumo pós-conversa — que é o momento
+          pedagógico do produto — nunca aconteceria para quem não tocou no botão.
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <span class="chip lei">Lei</span>
+      <div>
+        <h4>Sessão encerrada não aceita fala nova</h4>
+        <p>
+          Se o aluno gravou sem internet e o áudio só sobe duas horas depois, quando a
+          conversa já fechou, a fala é <strong>recusada</strong> — e o app precisa
+          dizer isso com clareza.
+        </p>
+        <p class="why">
+          A alternativa seria deixar a fala entrar numa conversa morta e sumir da
+          interface, ou fazer o resumo mudar depois de já ter sido mostrado ao aluno.
+          As duas são piores.
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <span class="chip lei">Lei</span>
+      <div>
+        <h4>Encerrar não espera a resposta que está vindo</h4>
+        <p>
+          Se o aluno encerra enquanto o professor ainda fala, a conversa fecha na hora
+          e aquela última resposta termina normalmente.
+        </p>
+        <p class="why">
+          A consequência é visível: o resumo mostrado no instante do encerramento pode
+          ficar alguns segundos desatualizado. É aceito.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ LIMITES ============ -->
+  <section id="limites">
+    <h2>Limites, e as duas paredes diferentes</h2>
+    <p class="section-note">
+      O aluno pode bater em duas paredes que se parecem e não são a mesma coisa. Se a
+      tela tratar as duas igual, ele culpa a si mesmo por algo que não foi ele.
+    </p>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th></th><th>"Por hoje é isso"</th><th>"As aulas estão pausadas"</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Causa</td>
+            <td>O aluno usou os minutos do dia dele</td>
+            <td>O produto atingiu o teto de custo e se desligou</td>
+          </tr>
+          <tr>
+            <td>Culpa</td>
+            <td>Dele, e é normal</td>
+            <td>Nossa, e a mensagem precisa ser honesta</td>
+          </tr>
+          <tr>
+            <td>Volta quando</td>
+            <td>Meia-noite, horário de Brasília</td>
+            <td>No dia seguinte</td>
+          </tr>
+          <tr>
+            <td>Vale para</td>
+            <td>Só esse aluno</td>
+            <td>Todo mundo ao mesmo tempo</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="rule">
+      <span class="chip lei">Lei</span>
+      <div>
+        <h4>Limite bloqueia falar, nunca ler</h4>
+        <p>
+          Com a cota estourada, o aluno continua abrindo o histórico, revendo as
+          correções do dia e ouvindo o que já foi gerado. Só não consegue gravar.
+        </p>
+        <p class="why">
+          Cota é sobre gastar, não sobre ver o que já foi pago. E a tela que
+          <em>explica</em> a parede não pode estar atrás da parede.
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <span class="chip lei">Lei</span>
+      <div>
+        <h4>A cota é comunicada em minutos, mas há um segundo teto invisível</h4>
+        <p>
+          O aluno vê "12 de 20 minutos". Por trás existe também um limite de número de
+          falas por dia, dimensionado para só incomodar uso muito fora da curva.
+        </p>
+        <p class="why">
+          Cem falas de seis segundos custam três vezes mais que vinte falas de trinta
+          segundos, com os mesmos dez minutos. Minutos é o que o aluno entende;
+          o número de falas é o que protege o produto.
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <span class="chip aberto">Aberto</span>
+      <div>
+        <h4>O que o aluno vê quando é o teto invisível que morde</h4>
+        <p>
+          Cenário real: sobram 8 minutos no medidor e mesmo assim ele é recusado.
+        </p>
+        <p class="why">
+          A tela não pode mostrar um saldo cheio ao lado de uma recusa — parece bug.
+          Também não deve virar uma segunda barra competindo com a primeira.
+          <strong>Não há solução decidida.</strong>
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <span class="chip lei">Lei</span>
+      <div>
+        <h4>Uma fala tem no máximo dois minutos</h4>
+        <p>Gravação acima disso é recusada.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ÁUDIO ============ -->
+  <section id="audio">
+    <h2>O áudio expira. O texto não.</h2>
+    <p class="section-note">
+      Guardar áudio custa caro e é dado pessoal. Guardar texto é barato. O produto
+      tratou os dois de forma diferente, e isso aparece na tela.
+    </p>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>O quê</th><th>Vive por</th><th>Depois disso</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Trechos da resposta do professor</td><td>1 dia</td><td>Somem</td></tr>
+          <tr><td>Resposta completa</td><td>90 dias</td><td>Some</td></tr>
+          <tr><td>A fala do aluno</td><td>7 dias</td><td>Some</td></tr>
+          <tr><td>Transcrição e correções</td><td>Sempre</td><td>Permanecem</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="rule">
+      <span class="chip lei">Lei</span>
+      <div>
+        <h4>Áudio expirado não invalida a conversa</h4>
+        <p>
+          No histórico, uma conversa antiga aparece completa — com transcrição,
+          correções e contagens — só que sem o áudio. A tela diz isso em vez de
+          quebrar ou de esconder a conversa.
+        </p>
+        <p class="why">
+          Como os trechos vivem só um dia, na prática <strong>quase toda conversa do
+          histórico já está sem áudio</strong>. O design atual mostra esse aviso como
+          exceção rara, na terceira linha da lista. Vai ser a regra.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ERRO ============ -->
+  <section id="erro">
+    <h2>Quando dá errado</h2>
+    <p class="section-note">
+      Todo caminho triste do produto termina numa tela que hoje não existe direito.
+      São quatro situações, e elas precisam soar diferentes umas das outras.
+    </p>
+
+    <div class="rule">
+      <span class="chip feito">Feito</span>
+      <div>
+        <h4>Sem microfone</h4>
+        <p>
+          O aluno negou a permissão. Existe tela, funciona, e ela oferece abrir os
+          Ajustes do sistema.
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <span class="chip aberto">Aberto</span>
+      <div>
+        <h4>Sem internet</h4>
+        <p>
+          A fala fica guardada no aparelho, sobrevive a fechar o app, e sobe sozinha
+          quando a conexão volta — <strong>sem</strong> duplicar quando o envio é
+          repetido.
+        </p>
+        <p class="why">
+          Isso ainda não foi construído. E lembre da regra da sessão: se a conversa
+          fechou nesse meio-tempo, a fala guardada é recusada na subida. Esse encontro
+          entre duas regras é a parte mais delicada de comunicar.
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <span class="chip aberto">Aberto</span>
+      <div>
+        <h4>A resposta não chegou</h4>
+        <p>
+          Passaram 30 segundos e nada. O aluno vê o que aconteceu, e sua gravação
+          não se perdeu.
+        </p>
+        <p class="why">
+          O design tem dois botões aqui, "Tentar de novo" e "Descartar", e os dois
+          foram redefinidos: <em>tentar de novo</em> significa <strong>gravar de
+          novo</strong> — a resposta não é reprocessada, porque o aluno ouviria do
+          zero uma fala que já começou. E <em>descartar</em> só esconde da tela: nada
+          é apagado.
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <span class="chip aberto">Aberto</span>
+      <div>
+        <h4>O professor está fora do ar</h4>
+        <p>
+          Diferente das outras três: não é rede do aluno, não é limite, não é lentidão.
+          É a inteligência que responde estando indisponível.
+        </p>
+        <p class="why">
+          Precisa soar diferente de "as aulas estão pausadas" (que é decisão nossa de
+          custo) e de "algo deu errado" (que não explica nada).
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TELAS ============ -->
+  <section id="telas">
+    <h2>O que existe hoje</h2>
+    <p class="section-note">
+      Há um design anterior, feito em agosto, com 17 telas. Parte foi construída,
+      parte envelheceu, e cinco telas nunca tiveram dono. Este é o estado real.
+    </p>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Tela</th><th>Estado</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Conversa</strong> (clara e escura)</td>
+            <td><span class="chip feito">Feito</span> Construída e funcionando no app.</td>
+          </tr>
+          <tr>
+            <td><strong>Permissão de microfone</strong></td>
+            <td><span class="chip feito">Feito</span> Construída, com o ciclo completo.</td>
+          </tr>
+          <tr>
+            <td><strong>Guia de estilo</strong></td>
+            <td><span class="chip feito">Feito</span> Cores e tipografia já vivem no código do app.</td>
+          </tr>
+          <tr>
+            <td><strong>Estados do turno</strong> (4 telas)</td>
+            <td><span class="chip aberto">Aberto</span> Descrevem o produto antigo. Precisam ser refeitas — e falta a principal.</td>
+          </tr>
+          <tr>
+            <td><strong>Card de correção</strong> (2 telas)</td>
+            <td><span class="chip aberto">Aberto</span> Desenhadas, ainda não construídas. A direção visual serve.</td>
+          </tr>
+          <tr>
+            <td><strong>Resumo pós-conversa</strong></td>
+            <td><span class="chip aberto">Aberto</span> Desenhada, não construída.</td>
+          </tr>
+          <tr>
+            <td><strong>Histórico</strong></td>
+            <td><span class="chip aberto">Aberto</span> Desenhada. Precisa de barra de abas, que o app ainda não tem.</td>
+          </tr>
+          <tr>
+            <td><strong>Offline · Cota · Pausado · Timeout</strong></td>
+            <td><span class="chip aberto">Aberto</span> Desenhadas e nunca construídas — as tais cinco sem dono.</td>
+          </tr>
+          <tr>
+            <td><strong>Login com convite</strong></td>
+            <td><span class="chip aberto">Aberto</span> Depende de contas de verdade, que ainda não existem.</td>
+          </tr>
+          <tr>
+            <td><strong>Perfil, nível e cota</strong></td>
+            <td><span class="chip aberto">Aberto</span> Mesma coisa. O nível de inglês é sempre uma <em>faixa</em> (A2–B1), nunca um valor único, e a tela diz que é estimativa, não certificação.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <p>
+        <strong>Não existe desenho do estado "gravando".</strong> Ele foi pedido no
+        briefing original e não veio — e é o coração do app. O que existe para derivar:
+        botão de 84 pixels, pulso enquanto grava, quadrado para parar.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ LEI ============ -->
+  <section id="lei">
+    <h2>Restrições que não são preferência</h2>
+    <p class="section-note">
+      Estas vêm do aparelho, da física do áudio ou de decisões já custeadas. Vale
+      conhecê-las antes de desenhar, não depois.
+    </p>
+
+    <div class="rule">
+      <span class="chip lei">Lei</span>
+      <div>
+        <h4>Latência ganha de escopo, sempre</h4>
+        <p>
+          Se algo precisar ser cortado para o app continuar rápido, corta-se
+          funcionalidade — nunca velocidade. Uma tela mais completa a 3,7 segundos
+          perde para uma tela mais simples a 1,8.
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <span class="chip lei">Lei</span>
+      <div>
+        <h4>Alvo de toque mínimo de 48 px; botão de gravar com 84 px</h4>
+        <p>O botão principal está dimensionado para o alcance do polegar.</p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <span class="chip lei">Lei</span>
+      <div>
+        <h4>O app funciona em claro e escuro, e o aluno escolhe</h4>
+        <p>
+          As duas paletas já existem e estão no código. O acento muda entre elas
+          (mais queimado no claro, mais aceso no escuro).
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <span class="chip lei">Lei</span>
+      <div>
+        <h4>O professor não pode ser interrompido</h4>
+        <p>
+          Falar por cima dele para cortar a resposta não existe e não está previsto.
+          Enquanto ele fala, o aluno ouve.
+        </p>
+        <p class="why">
+          Exige detecção de voz durante a reprodução e cancelamento de geração em
+          andamento. É uma versão futura inteira, não um ajuste.
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <span class="chip lei">Lei</span>
+      <div>
+        <h4>Quatro controles sobre a resposta em áudio</h4>
+        <p>
+          Tocar e pausar, velocidade <code>0,75×</code>, repetir do começo, e arrastar
+          a barra. Todos ficam.
+        </p>
+        <p class="why">
+          Arrastar é o único que não sai de graça: a resposta são vários áudios em
+          fila, então "a posição na barra" é uma coisa que precisa ser construída, e
+          a duração total só existe quando o último pedaço chega.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FORA ============ -->
+  <section id="fora">
+    <h2>Fora de escopo, e por quê</h2>
+    <p class="section-note">
+      Cortado de propósito, com motivo escrito. Não é esquecimento — mas se você tiver
+      um argumento forte, ele é bem-vindo.
+    </p>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>O quê</th><th>Por que ficou fora</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Notificações push</td>
+            <td>Inclusive o "avisar quando voltar" que está desenhado na tela de pausa. Volta se houver revisão espaçada.</td>
+          </tr>
+          <tr>
+            <td>Interromper o professor</td>
+            <td>Versão futura. Muda a arquitetura toda, não a tela.</td>
+          </tr>
+          <tr>
+            <td>Tradução automática</td>
+            <td>Traduzir só quando o aluno pede. Automático seria pagar tradução que ninguém leu.</td>
+          </tr>
+          <tr>
+            <td>Nível de inglês (CEFR)</td>
+            <td>Fase posterior. Quando vier, é sempre uma faixa e sempre declarada como estimativa.</td>
+          </tr>
+          <tr>
+            <td>Ofensivas, pontos, gamificação</td>
+            <td>Nunca entrou. O produto ainda precisa provar que a conversa funciona.</td>
+          </tr>
+          <tr>
+            <td>Histórico completo no celular</td>
+            <td>O app mostra os últimos 30 dias; a análise completa é assunto da web.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ VOCÊ ============ -->
+  <section id="voce">
+    <h2>Onde eu preciso de você</h2>
+    <p class="section-note">
+      Seis perguntas em aberto, da mais cara para a mais barata. Nenhuma tem resposta
+      decidida, e todas travam alguma tela.
+    </p>
+
+    <ol>
+      <li>
+        <strong>A tela que falta.</strong> O professor está falando e o feedback ainda
+        vem. É o estado mais comum do app e não tem desenho.
+      </li>
+      <li>
+        <strong>A barra de áudio sem duração total.</strong> Como mostrar progresso de
+        algo cujo fim ainda não é conhecido, sem mentir e sem parecer quebrado.
+      </li>
+      <li>
+        <strong>Cheio e recusado ao mesmo tempo.</strong> Sobram 8 minutos e o aluno
+        não pode falar, porque bateu no teto invisível de número de falas.
+      </li>
+      <li>
+        <strong>Explicação em inglês, interface em português.</strong> Sinalizar a
+        troca de idioma sem poluir o card de correção.
+      </li>
+      <li>
+        <strong>Áudio expirado como regra, não como exceção.</strong> Quase toda
+        conversa no histórico vai estar sem áudio. Hoje isso é desenhado como aviso
+        raro.
+      </li>
+      <li>
+        <strong>O estado "gravando".</strong> Nunca foi desenhado, e é o que o aluno
+        mais vê.
+      </li>
+    </ol>
+
+    <div class="callout">
+      <p>
+        <strong>Sobre o design existente:</strong> a direção visual — paleta,
+        tipografia, tom das mensagens, anatomia do card de correção — é para seguir e
+        já está no código. O que envelheceu foi a <em>sequência de estados</em>, e por
+        um motivo específico: o produto ficou rápido depois que as telas foram feitas.
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    <p>
+      Briefing de produto do Voicecoach · escrito a partir do código e das decisões
+      registradas do projeto, não de memória. Os números de tempo são medidos, com
+      método documentado no repositório.
+    </p>
+  </footer>
+</div>
