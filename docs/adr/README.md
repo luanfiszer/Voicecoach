@@ -97,5 +97,5 @@ dependem de escolha do desenvolvedor, não de análise:
 | Tema | Critério | O que trava |
 |---|---|---|
 | **Canal de cobrança e provedor de pagamento** (loja vs. web) | 1 e 3 | CARD-021; vale 11–26 pontos de margem |
-| **Unidade da cota** (minutos falados vs. turns) | 2 (afeta o domínio) | CARD-015; divergência medida de 3× |
+| ~~**Unidade da cota** (minutos falados vs. turns)~~ | 2 (afeta o domínio) | **DECIDIDO em 2026-08-27: cobrar e comunicar em minutos, limitar em ambos** — um teto de turns/dia dimensionado para só morder no comportamento patológico. O ADR é escrito na execução do CARD-015; até lá esta linha registra a decisão, não a substitui |
 | **Sucessor do ADR-0010** (política de custo sob receita) | 3 | depende dos dois acima |

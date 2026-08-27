@@ -56,11 +56,24 @@ a unidade que o **aluno** entende; turns é a que o **caixa** entende.
 > token que o system prompt ganhar no futuro **aumenta** este número. O argumento
 > a favor de um teto em turns fica mais forte com o tempo, não mais fraco.
 
-> ⚠️ **Decisão pendente do desenvolvedor, e ela vira ADR** (critério 2 — afeta o
-> domínio). A recomendação desta reconstrução: **cobrar em minutos, limitar em
-> ambos** — a cota comunicada é em minutos (o aluno entende), com um teto de
-> turns/dia dimensionado para só morder no comportamento patológico. Assim a
-> comunicação não piora e o caixa fica protegido. **Não implementar antes do ok.**
+> ✅ **DECIDIDO em 2026-08-27: cobrar e comunicar em minutos, limitar em ambos.**
+> A cota comunicada é em **minutos** (o aluno entende), com um **teto de
+> turns/dia** dimensionado para só morder no comportamento patológico. A
+> comunicação não piora e o caixa fica protegido.
+>
+> **O ADR continua obrigatório** (critério 2 — afeta o domínio) e é escrito na
+> execução deste card: o que foi decidido é a unidade, não o desenho. Duas
+> consequências que o card tem de tratar e que a decisão não resolve sozinha:
+>
+> - **as duas cotas mordem em momentos diferentes do request.** Um teto em
+>   **turns** é verificável **antes** de ler o corpo do upload; um teto em
+>   **minutos** exige decodificar o áudio para conhecer a duração. Com as duas,
+>   a ordem natural é: turns primeiro (barato, protege do loop), minutos depois
+>   (caro, é o que o aluno vê);
+> - **qual das duas o aluno vê quando o teto técnico morde?** A tela promete
+>   minutos. Se o limite de turns recusar com 8 minutos ainda no saldo, a
+>   mensagem tem de ser honesta sem expor mecânica — é requisito do
+>   [CARD-033](CARD-033-saldo-de-cota-e-estado-do-servico.md), RF5.
 
 ## Proposta técnica
 
