@@ -19,6 +19,7 @@ O que cada bloco prova:
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -33,6 +34,7 @@ from fakes_pipeline import (
     FakeTurnEvents,
     FakeTurnRepository,
     FakeUnitOfWork,
+    FakeUsageEventRepository,
     RelogioFalso,
 )
 from voicecoach.application.ports.audio_encoder import AudioEncoder
@@ -69,6 +71,11 @@ from voicecoach.application.use_cases.process_turn import (
     TurnNotFoundError,
     _primeira_falha,
 )
+
+# A tabela de preços REAL, não um dublê: o critério de aceite é "o custo bate
+# com a tabela de preços", e um preço inventado no teste provaria só que a
+# multiplicação funciona.
+from voicecoach.config import preco_do_modelo
 from voicecoach.domain.correction import Correction, CorrectionType, Severity
 from voicecoach.domain.session import Session
 from voicecoach.domain.turn import Turn, TurnStatus
@@ -90,7 +97,14 @@ FEEDBACK = TeacherFeedback(
     translation_pt="Isso parece estressante.",
     corrections=(CORRECAO,),
 )
+# Os tokens do fake, e eles são o insumo do teste de custo exato: 1084 de
+# entrada a US$ 1/MTok e 180 de saída a US$ 5/MTok dão US$ 0,001984 — uma conta
+# que se confere à mão contra a tabela de preços, sem tolerância nenhuma.
+#
+# O `model` é o id DATADO, como a API o devolve. A tabela guarda a família
+# (`claude-haiku-4-5`), e é por isso que `preco_do_modelo` casa por prefixo.
 USAGE = TokenUsage(
+    model="claude-haiku-4-5-20251001",
     input_tokens=1084,
     cache_creation_input_tokens=0,
     cache_read_input_tokens=0,
@@ -133,6 +147,7 @@ class Montagem:
     ) -> None:
         self.turn = turn
         self.turns = FakeTurnRepository(turn)
+        self.usage_events = FakeUsageEventRepository()
         self.sessions = FakeSessionRepository(
             Session(
                 id=SESSION_ID,
@@ -153,6 +168,7 @@ class Montagem:
         self.handler = ProcessTurnHandler(
             turns=self.turns,
             sessions=self.sessions,
+            usage_events=self.usage_events,
             unit_of_work=self.uow,
             storage=self.storage,
             speech_to_text=self.stt,
@@ -162,6 +178,9 @@ class Montagem:
             events=self.events,
             clock=self.clock,
             history_turns=6,
+            llm_price=preco_do_modelo,
+            stt_provider="faster_whisper",
+            tts_provider="piper",
         )
 
     async def processar(self, *, final: bool = True) -> None:
@@ -549,3 +568,190 @@ def test_a_primeira_falha_e_extraida_de_grupos_aninhados() -> None:
     aninhado = BaseExceptionGroup("fora", [BaseExceptionGroup("dentro", [dentro])])
 
     assert _primeira_falha(aninhado) is dentro
+
+
+# --- CARD-014: o custo deixa de ser jogado no chão -------------------------
+
+
+async def test_o_custo_do_turn_e_gravado_e_bate_exato_com_a_tabela_de_precos() -> None:
+    """O `usage` atravessava a porta desde o CARD-007 e caía no chão. Não cai mais.
+
+    O custo é conferível à mão contra `LLM_PRICES`: 1084 tokens de entrada a
+    US$ 1/MTok e 180 de saída a US$ 5/MTok. Igualdade exata, sem `approx` — um
+    número de dinheiro que só bate por aproximação está no tipo errado.
+    """
+    montagem = Montagem(novo_turn())
+
+    await montagem.processar()
+
+    evento = await montagem.usage_events.get(montagem.turn.id)
+    assert evento is not None
+    assert evento.estimated_cost_usd == Decimal("0.00198400")
+
+
+async def test_as_tres_contagens_de_entrada_sao_gravadas_e_o_zero_e_um_valor() -> None:
+    """`cache_read = 0` gravado é o instrumento do ADR-0021, não um campo vazio.
+
+    O dia em que uma destas duas deixar de ser zero é o gatilho de reabrir o
+    prompt caching — e sem a linha gravada não há como saber que esse dia
+    chegou. Por isso o teste afirma o **valor** 0, e não a ausência.
+    """
+    montagem = Montagem(novo_turn())
+
+    await montagem.processar()
+
+    evento = await montagem.usage_events.get(montagem.turn.id)
+    assert evento is not None
+    assert evento.llm_input_tokens == 1084
+    assert evento.llm_cache_creation_tokens == 0
+    assert evento.llm_cache_read_tokens == 0
+    assert evento.llm_output_tokens == 180
+
+
+async def test_stt_e_tts_tem_volume_gravado_e_custo_zero() -> None:
+    """Os dois rodam local (ADR-0032): custam US$ 0 e ainda assim são medidos.
+
+    `stt_audio_duration` vem de `turn.audio_duration`, que já é insumo declarado
+    da quota — não é medido de novo, e não vira um `stt_seconds: float` ao lado
+    de um `timedelta`. `tts_chars` é a soma das sentenças que o professor falou,
+    contada onde elas passam, porque não existe contador de caracteres em lugar
+    nenhum do pipeline.
+    """
+    montagem = Montagem(novo_turn())
+
+    await montagem.processar()
+
+    evento = await montagem.usage_events.get(montagem.turn.id)
+    assert evento is not None
+    assert evento.stt_audio_duration == montagem.turn.audio_duration
+    assert evento.stt_provider == "faster_whisper"
+    assert evento.tts_provider == "piper"
+    # As três sentenças de `tres_sentencas()`, somadas. O número é o volume
+    # falado; o custo dele é zero e não aparece em `estimated_cost_usd`, que é
+    # só do LLM.
+    esperado = sum(
+        len(evento_llm.text)
+        for evento_llm in tres_sentencas()
+        if isinstance(evento_llm, SpokenSentence)
+    )
+    assert evento.tts_chars == esperado
+
+
+async def test_o_custo_e_gravado_no_mesmo_commit_das_correcoes() -> None:
+    """ADR-0051, decisão 1: o custo entra com o feedback, não no fechamento.
+
+    A pergunta que essa escolha responde não é a do CARD-013 ("não apagar o que é
+    do aluno") — é **"não perder o que já foi pago"**. O teste prova a cadência:
+    quando o `UsageEvent` existe, o turn já tem correções e ainda **não** está
+    completo.
+    """
+    montagem = Montagem(novo_turn())
+    estado_no_add: list[tuple[int, int, bool]] = []
+    add_original = montagem.usage_events.add
+
+    async def espiar(event: object) -> None:
+        estado_no_add.append(
+            (
+                montagem.uow.commits,
+                len(montagem.turn.corrections),
+                montagem.turn.reply_audio_ref is not None,
+            )
+        )
+        await add_original(event)  # type: ignore[arg-type]  # o dublê recebe o mesmo UsageEvent
+
+    montagem.usage_events.add = espiar  # type: ignore[method-assign]  # espião de teste
+
+    await montagem.processar()
+
+    assert len(estado_no_add) == 1, "um turn, uma linha de custo"
+    commits_no_add, correcoes_no_add, ja_fechou = estado_no_add[0]
+
+    # As correções já estão na entidade: o custo entra no MESMO marco delas.
+    assert correcoes_no_add == len(FEEDBACK.corrections)
+    # E o `_fechar` ainda não rodou — se rodasse antes, um turn que falhasse no
+    # `reply/full` perderia o custo dos tokens já pagos.
+    assert not ja_fechou
+    # Exatamente um commit acontece depois deste marco: o do fechamento. Prova
+    # que o `add` não foi parar no commit final por acidente.
+    assert montagem.uow.commits == commits_no_add + 2
+    assert montagem.turn.status is TurnStatus.COMPLETED
+
+
+async def test_turn_que_falha_depois_do_llm_mantem_o_custo_registrado() -> None:
+    """O custo dos tokens já pagos não some porque o `reply/full` falhou.
+
+    É a consequência que a decisão 1 do ADR-0051 comprou de propósito, e a
+    alternativa (gravar no `_fechar`) perderia exatamente este caso — o custo mais
+    fácil de perder de vista e o mais caro de não enxergar.
+    """
+    storage = FakeMediaStorage()
+    montagem = Montagem(novo_turn(), storage=storage)
+    # A última escrita do turn é o `reply/full`; falhar só nela deixa os trechos
+    # entregues e o feedback gravado.
+    chamadas = {"n": 0}
+    put_original = storage.put
+
+    async def put_que_falha_no_full(key: str, data: bytes, content_type: str) -> None:
+        chamadas["n"] += 1
+        if key.endswith("full.aac"):
+            raise MediaStorageError(key)
+        await put_original(key, data, content_type)
+
+    storage.put = put_que_falha_no_full  # type: ignore[method-assign]  # injeção de falha de teste
+
+    await montagem.processar()
+
+    assert montagem.turn.status is TurnStatus.FAILED
+    evento = await montagem.usage_events.get(montagem.turn.id)
+    assert evento is not None
+    assert evento.estimated_cost_usd == Decimal("0.00198400")
+
+
+async def test_modelo_fora_da_tabela_grava_custo_desconhecido_sem_derrubar_o_turn() -> (
+    None
+):
+    """Preço ausente vira `None`, nunca `0`, e nunca uma exceção.
+
+    Levantar aqui derrubaria um turn cujo áudio o aluno **já ouviu**, por um
+    problema que não é dele. Gravar `0` faria a cota do CARD-015 ler como grátis
+    um turn que ninguém sabe quanto custou. Nulo é a única leitura honesta — e as
+    contagens de token continuam gravadas, que é o que permite reprecificar a
+    linha depois.
+    """
+    desconhecido = TokenUsage(
+        model="modelo-que-nao-existe",
+        input_tokens=1084,
+        cache_creation_input_tokens=0,
+        cache_read_input_tokens=0,
+        output_tokens=180,
+    )
+    teacher = FakeTeacher(
+        [
+            SpokenSentence("That sounds stressful."),
+            FeedbackReady(feedback=FEEDBACK, usage=desconhecido),
+        ]
+    )
+    montagem = Montagem(novo_turn(), teacher=teacher)
+
+    await montagem.processar()
+
+    assert montagem.turn.status is TurnStatus.COMPLETED
+    evento = await montagem.usage_events.get(montagem.turn.id)
+    assert evento is not None
+    assert evento.estimated_cost_usd is None
+    assert evento.llm_input_tokens == 1084
+
+
+async def test_turn_que_falha_antes_do_llm_nao_gera_linha_de_custo() -> None:
+    """Nada foi pago, então não há o que registrar — nem uma linha com zeros.
+
+    Uma linha de custo zero para um turn que nunca chamou o professor poluiria a
+    contagem de turns da agregação, que é uma das duas unidades candidatas da
+    cota (análise de custo §8).
+    """
+    montagem = Montagem(novo_turn(), stt=FakeStt(erro=SttError("motor caiu")))
+
+    await montagem.processar()
+
+    assert montagem.turn.status is TurnStatus.FAILED
+    assert await montagem.usage_events.get(montagem.turn.id) is None

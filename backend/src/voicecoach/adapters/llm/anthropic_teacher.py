@@ -109,6 +109,11 @@ class _FinalMessage(Protocol):
     def usage(self) -> _Usage: ...
     @property
     def content(self) -> Sequence[object]: ...
+    # O modelo que de fato respondeu (CARD-014). A API resolve o alias pedido
+    # (`claude-haiku-4-5`) para um id datado e o devolve aqui — é ele que tem
+    # preço, e é ele que vai para a linha de custo.
+    @property
+    def model(self) -> str: ...
 
 
 class _Stream(Protocol):
@@ -257,9 +262,14 @@ def _uso(mensagem: _FinalMessage) -> TokenUsage:
     O caching está adiado, não esquecido: hoje `cache_creation` e `cache_read`
     são 0 em toda chamada, e é justamente por isso que precisam ser registrados
     — são o instrumento que detecta a mudança de regime.
+
+    O `model` vem da **mensagem**, não da `Settings` (CARD-014): a API resolve o
+    alias configurado para um id datado, e é o datado que tem preço na tabela.
+    Este adapter, aliás, sequer conhece a `Settings` — quem a lê é a factory.
     """
     u = mensagem.usage
     return TokenUsage(
+        model=mensagem.model,
         input_tokens=u.input_tokens,
         cache_creation_input_tokens=getattr(u, "cache_creation_input_tokens", None)
         or 0,

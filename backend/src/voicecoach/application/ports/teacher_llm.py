@@ -73,8 +73,18 @@ class TokenUsage:
     Haiku 4.5 é 4.096 tokens e uma conversa deste produto não chega lá. Estes
     campos são o instrumento que detecta a mudança de regime — sem eles, não há
     como saber que o caching passou a valer a pena. O CARD-014 os persiste.
+
+    **``model`` entrou no CARD-014**, e a razão é de precificação, não de
+    telemetria: contagem de tokens sem o modelo que as consumiu **não tem
+    preço**. O valor é o que a resposta declara (`message.model`), não o que a
+    configuração pediu — `TEACHER_MODEL` costuma ser um alias
+    (`claude-haiku-4-5`) que resolve para um id datado, e um dia o alias aponta
+    para outro lugar. Perguntar à config qual modelo *deveria* ter respondido
+    tornaria a linha de custo impossível de auditar no dia em que os dois
+    divergissem — que é justamente o dia em que alguém iria querer auditá-la.
     """
 
+    model: str
     input_tokens: int
     cache_creation_input_tokens: int
     cache_read_input_tokens: int

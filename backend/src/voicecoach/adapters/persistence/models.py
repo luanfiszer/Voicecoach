@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy import (
     DateTime,
@@ -23,6 +24,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Interval,
+    Numeric,
     String,
     Text,
     Uuid,
@@ -260,3 +262,87 @@ class CorrectionRow(Base):
     corrected_form: Mapped[str] = mapped_column(Text)
     explanation: Mapped[str] = mapped_column(Text)
     severity: Mapped[Severity] = mapped_column(_SeverityType)
+
+
+class UsageEventRow(Base):
+    """O custo real de um turn (CARD-014, ADR-0051).
+
+    **Não é filha do agregado ``Turn``**, e é a diferença deliberada em relação a
+    ``CorrectionRow``, entregue ontem com o desenho oposto. Repare no que **não**
+    existe: nenhum ``relationship`` em ``TurnRow`` apontando para cá. Ela é lida
+    em agregação (``GROUP BY student_id``), nunca junto de um turn — e um
+    relacionamento novo lá em cima entraria no caminho crítico de 1,8 s de toda
+    leitura de turn, ou estouraria com ``lazy="raise_on_sql"`` no dia em que
+    alguém esquecesse o ``selectinload``.
+
+    **``turn_id`` é a chave primária**, sem id surrogate: um turn tem um custo, e
+    a PK é quem impõe isso. Uma segunda escrita não passa em silêncio — vira
+    ``IntegrityError``, que o ``SqlAlchemyUnitOfWork`` traduz em
+    ``ConflictingWriteError``. Um id próprio permitiria duas linhas para o mesmo
+    turn e faria toda soma de custo dobrar sem que nada reclamasse.
+
+    **``student_id`` é desnormalização deliberada**, e contraria o instinto: ele
+    já é derivável por ``turns → sessions → student_id``. Está aqui porque a
+    consulta que o CARD-015 vai rodar **dentro do POST** é
+    ``GROUP BY student_id``, e dois joins no caminho crítico de um request para
+    recuperar uma coluna que cabe na linha é o tipo de economia de espaço que se
+    paga em latência.
+    """
+
+    __tablename__ = "usage_events"
+    __table_args__ = (
+        # O índice da agregação, e o único deste card no caminho crítico de um
+        # request. A ordem das colunas é a decisão: `student_id` primeiro porque
+        # é igualdade, `occurred_at` depois porque é intervalo — um índice
+        # composto só serve à faixa depois de ter fixado a igualdade. Invertido,
+        # ele viraria uma varredura de todo o período, de todos os alunos.
+        Index("ix_usage_events_student_occurred", "student_id", "occurred_at"),
+    )
+
+    turn_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("turns.id", ondelete="CASCADE"), primary_key=True
+    )
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE")
+    )
+    occurred_at: Mapped[datetime] = mapped_column(_Timestamp)
+
+    # `String` e não `Enum`: o conjunto de modelos NÃO é fechado (ADR-0009 — o
+    # modelo é configuração), e um tipo enum do Postgres exigiria migration a
+    # cada modelo novo do provedor. É o contraste exato com `CorrectionType`, que
+    # é enum justamente por ser fechado.
+    llm_model: Mapped[str] = mapped_column(String(120))
+    llm_input_tokens: Mapped[int] = mapped_column(Integer)
+    # As duas contagens de cache. Hoje 0 em toda linha, e é para isso que servem
+    # (ADR-0021, item 3): o dia em que uma delas deixar de ser zero é o gatilho
+    # de reabrir o prompt caching. `NOT NULL` de propósito — zero é dado, e nulo
+    # aqui seria "não medimos", que nunca é verdade.
+    llm_cache_creation_tokens: Mapped[int] = mapped_column(Integer)
+    llm_cache_read_tokens: Mapped[int] = mapped_column(Integer)
+    llm_output_tokens: Mapped[int] = mapped_column(Integer)
+
+    # INTERVAL ↔ `timedelta`, o mesmo tipo de `turns.audio_duration` de onde o
+    # valor vem. Copiado para cá pela mesma razão que `student_id`: é a outra
+    # metade da decisão de cota do CARD-015 (minutos falados), e ela roda no
+    # caminho de um request.
+    stt_audio_duration: Mapped[timedelta] = mapped_column(Interval)
+    stt_provider: Mapped[str] = mapped_column(String(40))
+    tts_chars: Mapped[int] = mapped_column(Integer)
+    tts_provider: Mapped[str] = mapped_column(String(40))
+
+    # `Numeric` (NUMERIC do Postgres) e nunca `Float`: é a proibição do ADR-0013,
+    # e o asyncpg devolve NUMERIC como `Decimal` sem passar por binário de ponto
+    # flutuante em nenhum momento — o que é justamente o motivo de a coluna ser
+    # NUMERIC e não DOUBLE PRECISION.
+    #
+    # Escala **8** porque um turn custa ~US$ 0,004: com escala 2 — o instinto de
+    # quem lida com dinheiro de varejo — toda linha deste produto gravaria zero.
+    # Precisão 12 deixa 4 dígitos à esquerda, folga de sobra para um turn (o
+    # limite não é a fatura: somas acontecem na query, em precisão maior).
+    #
+    # **Nulável, e o nulo tem significado:** "não sabemos precificar este
+    # modelo", diferente de `0`, que é o custo verdadeiro do STT e do TTS
+    # locais. É a mesma distinção que o card faz sobre `cache_read = 0`.
+    estimated_cost_usd: Mapped[Decimal | None] = mapped_column(
+        Numeric(precision=12, scale=8), default=None
+    )

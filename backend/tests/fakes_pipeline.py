@@ -32,6 +32,7 @@ from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from uuid import UUID
 
 from voicecoach.application.ports.audio_encoder import EncodedAudio
@@ -45,6 +46,7 @@ from voicecoach.application.ports.text_to_speech import (
 from voicecoach.application.ports.turn_events import TurnEvent
 from voicecoach.domain.session import Session
 from voicecoach.domain.turn import Turn
+from voicecoach.domain.usage import StudentUsageTotals, UsageEvent
 
 TAXA = 22_050
 CONTENT_TYPE = "audio/aac"
@@ -129,6 +131,50 @@ class FakeTurnRepository:
         ]
         concluidos.sort(key=lambda t: t.created_at)
         return concluidos[-limit:]
+
+
+class FakeUsageEventRepository:
+    """Guarda o custo em memória, indexado por turn.
+
+    **Sem ``update``**, como a porta: medição não se corrige. E a escrita
+    duplicada levanta em vez de sobrescrever — é a chave primária do Postgres
+    (``turn_id``) reproduzida em memória, para que o teste do caso de uso possa
+    afirmar "um turn, uma linha" sem precisar de banco.
+    """
+
+    def __init__(self) -> None:
+        self.eventos: dict[UUID, UsageEvent] = {}
+
+    async def add(self, event: UsageEvent) -> None:
+        if event.turn_id in self.eventos:
+            message = f"UsageEvent do turn {event.turn_id} já existe."
+            raise RuntimeError(message)
+        self.eventos[event.turn_id] = event
+
+    async def get(self, turn_id: UUID) -> UsageEvent | None:
+        return self.eventos.get(turn_id)
+
+    async def totals_for_student(
+        self, student_id: UUID, *, since: datetime, until: datetime
+    ) -> StudentUsageTotals:
+        na_janela = [
+            e
+            for e in self.eventos.values()
+            if e.student_id == student_id and since <= e.occurred_at < until
+        ]
+        return StudentUsageTotals(
+            turns=len(na_janela),
+            spoken=sum((e.stt_audio_duration for e in na_janela), timedelta(0)),
+            cost_usd=sum(
+                (
+                    e.estimated_cost_usd
+                    for e in na_janela
+                    if e.estimated_cost_usd is not None
+                ),
+                Decimal(0),
+            ),
+            unpriced_turns=sum(1 for e in na_janela if e.estimated_cost_usd is None),
+        )
 
 
 class FakeSessionRepository:

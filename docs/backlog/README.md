@@ -25,7 +25,7 @@ O diagnóstico card a card, a ordem e as decisões estão em
 | [010](CARD-010-endpoints-de-turn-idempotencia-polling.md) | **Endpoints de Turn: `/v1`, idempotência, Problem Details e SSE** | 1 | backend | M | 009, ADR-0026 | **concluído** |
 | [011](CARD-011-app-expo-tela-de-conversa-gravacao.md) | **App Expo: tela de conversa, gravação e os gates do cliente** | 1 | mobile | M | 001 | **concluído** (pendência: permissão negada permanentemente, em aparelho físico) |
 | [012](CARD-012-upload-polling-playback.md) | **Upload, consumo do stream e playback encadeado** (fecha a fatia) | 1 | mobile | M | 010, 011 | **concluído com dívida declarada** — p50 de 2,47 s no Simulador (alvo 2,4 s). O aparelho físico está **bloqueado pelo canal** (ADR-0048: Expo Go da loja no SDK 54), não por trabalho pendente |
-| [014](CARD-014-usage-event-custo-real.md) | UsageEvent: custo real por Turn *(antecipado)* | 2 | backend | P | 009 | backlog |
+| [014](CARD-014-usage-event-custo-real.md) | UsageEvent: custo real por Turn *(antecipado)* | 2 | backend | P | 009 | **concluído** — custo medido: US$ 0,002678/turn, ~49% abaixo da estimativa (ADR-0051) |
 | [015](CARD-015-quotas-e-kill-switch.md) | Quotas + kill switch *(bloqueante comercial)* | 2 | backend | M | 010, 014 | backlog |
 | [017](CARD-017-retencao-lifecycle-delete.md) | Retenção de áudio: lifecycle assimétrico e delete por prefixo | 2 | backend/infra | P | 008, 010 | backlog |
 | [019](CARD-019-spike-stt-e-tts-no-aparelho.md) | **Spike:** STT e TTS no aparelho (sem compromisso) | 2 | mobile/IA | P | 012 | backlog |

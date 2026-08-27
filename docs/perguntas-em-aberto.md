@@ -28,9 +28,28 @@ Regra em vigor:
 Uma só, pela regra nova: pergunta da sessão **imediatamente anterior** que ficou
 sem desfecho volta **uma** vez.
 
-| # | Pergunta | Card de origem | Desde | O que aconteceu |
-|---|---|---|---|---|
-| Q15 | Num `@dataclass(frozen=True, slots=True)`, o que acontece se um campo for `list[...]` em vez de `tuple[...]`? | CARD-013 | 2026-08-26 | Foi a **reformulação** da 1ª pergunta da sessão (a original, sobre campo novo com default, teve "não sei"). Resposta: *"mypy vermelho na hora"* — **errada**. Demonstrado na execução: `frozen=True` congela a ligação e não o objeto (`x.itens.append("b")` funcionou), `mypy --strict` deu `Success`, e o `hash(x)` estourou `TypeError: unhashable type: 'list'`. Reformulação já gasta, então não fechou |
+**Nenhuma.** O CARD-014 (2026-08-27) fez as suas três perguntas no ponto da
+decisão e as três foram respondidas — nada ficou sem desfecho para voltar na
+abertura do CARD-015.
+
+> **CARD-014 (2026-08-27): a regra nova funcionou nas duas metades.** A Q15 foi
+> reapresentada na abertura, antes do plano, com o motivo de tocar aquele card
+> (`UsageEvent` é a próxima entidade `frozen` comparada por valor num roundtrip).
+> Desfecho: **dispensada pelo desenvolvedor** ("não sei / dispensada") —
+> registrada como tal, nunca como cumprida, e **arquivada com a evidência**, que
+> é exatamente o que o LEARNING-0005 previu para a segunda apresentação.
+>
+> As **três decisões do ponto da decisão** (momento da escrita do `UsageEvent`,
+> filho do agregado ou não, custo congelado ou recalculado) foram feitas **antes
+> da primeira linha de código**, sobre consequência observável, e as três foram
+> **respondidas**. Item da DoD: **verde** — e verde pela primeira vez sem que uma
+> fila antiga o mantivesse vermelho, que era o defeito que o LEARNING-0005
+> corrigiu.
+>
+> A decisão que a Q15 tocava foi tomada assim mesmo e está escrita no docstring
+> de `UsageEvent`: **nenhum campo é coleção**. Num registro de medição, um `list`
+> seria a pior versão do problema — mutável por dentro, `mypy --strict` verde, e
+> o roundtrip comparando iguais dois eventos que divergiram.
 
 > **CARD-013 (2026-08-26): as duas perguntas foram feitas no ponto da decisão**,
 > antes do código, sobre consequência observável, e as duas foram conferidas
@@ -76,6 +95,7 @@ continua faltando, e é por isso que nenhuma está em "Fechadas".
 | Q12 | Contratos do import-linter, os dois lados: o `forbidden` segue **cadeias indiretas** (`use_case → encoding → av` reprova mesmo sem `import av` escrito) e o `layers` **só enxerga o grafo interno** (biblioteca externa é invisível para ele). Dado um import, quantos e quais contratos quebram? | CARD-009 | 2026-08-23 | feita no ponto da decisão e conferida rodando `lint-imports` na hora; **errada duas vezes** (1, era 2; depois 2, era 1). O par completo está no CARD-009 e no ADR-0036 — e a segunda metade revelou `starlette` faltando nas listas `forbidden` desde o CARD-001 |
 | Q13 | Um gerador assíncrono não executa nada até o primeiro `__anext__`, então `events.subscribe(turn_id)` devolve o objeto **sem** ter emitido `SUBSCRIBE`. Se o caso de uso lê o banco antes de começar a iterar, e o worker publica o `chunk:0` exatamente nessa janela — o que o aluno vê na tela, e o que acontece com esse trecho? | CARD-010 | 2026-08-23 | a resposta virou desenho: a porta é **context manager**, com a ordem obrigatória `assina → lê o banco → histórico → ao vivo` (ADR-0041 item 2), sustentada por dois testes — um com dublê e um contra Redis real |
 | Q14 | Lendo `response.body` do SSE com o **`fetch` global do React Native** (não o `expo/fetch`): o stream chega em pedaços, chega inteiro só no fim, ou dá erro porque `body` não é stream? | CARD-011 | 2026-08-24 | conferida na hora: **(a) chega em pedaços** — 5 leituras, timestamps crescentes, `chunk 0` em 1,65 s. Dispensou a dependência `react-native-sse` (ADR-0044) |
+| Q15 | Num `@dataclass(frozen=True, slots=True)`, o que acontece se um campo for `list[...]` em vez de `tuple[...]`? | CARD-013 | 2026-08-26 | **Arquivada em 2026-08-27** (CARD-014), na segunda apresentação: **dispensada pelo desenvolvedor**. A execução do CARD-013 já tinha demonstrado tudo — `frozen=True` congela a ligação e não o objeto (`x.itens.append("b")` funcionou), `mypy --strict` deu `Success`, e só `hash(x)` estourou `TypeError: unhashable type: 'list'`. A decisão que ela tocava está no docstring de `UsageEvent`: nenhum campo é coleção |
 
 > **Q7** foi reapresentada na abertura do CARD-006 e **dispensada pelo
 > desenvolvedor** ("vamos pular essas perguntas e finalizar a implementação").

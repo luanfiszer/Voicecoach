@@ -21,11 +21,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from uuid import UUID
 
     from voicecoach.domain.session import Session
     from voicecoach.domain.student import Student
     from voicecoach.domain.turn import Turn
+    from voicecoach.domain.usage import StudentUsageTotals, UsageEvent
 
 
 class ConflictingWriteError(RuntimeError):
@@ -142,5 +144,56 @@ class TurnRepository(Protocol):
         um default escondido aqui seria uma decisão de custo (ADR-0010) tomada
         na camada errada. A ordem é do mais antigo para o mais novo porque é
         assim que o histórico é montado; o ``limit`` corta os mais **velhos**.
+        """
+        ...
+
+
+class UsageEventRepository(Protocol):
+    """Acesso ao custo real de cada turn (CARD-014, ADR-0051).
+
+    **Porta própria, e não uma coleção do agregado ``Turn``** — a decisão está no
+    ADR-0051 e contraria o precedente fresco do CARD-013, então vale a razão por
+    escrito: ``Correction`` é lida *junto do turn* e ``UsageEvent`` é lido *em
+    agregação*. Carregá-lo em todo ``TurnRepository.get()`` seria peso no caminho
+    crítico de 1,8 s para um dado que aquela leitura não usa, e amarraria a
+    retenção do custo à do turn.
+
+    Note o que **não** está aqui: nenhum ``update``. Medição não se corrige — o
+    turn consumiu o que consumiu. A ausência do método é a invariante.
+    """
+
+    async def add(self, event: UsageEvent) -> None: ...
+
+    async def get(self, turn_id: UUID) -> UsageEvent | None:
+        """O evento daquele turn, se já houver. Existe para o teste de roundtrip.
+
+        Um evento por turn é regra do **banco** (a chave primária é o
+        ``turn_id``), não convenção: uma segunda escrita não passa em silêncio,
+        ela vira ``ConflictingWriteError`` no ``commit``.
+        """
+        ...
+
+    async def totals_for_student(
+        self, student_id: UUID, *, since: datetime, until: datetime
+    ) -> StudentUsageTotals:
+        """O consumo de um aluno numa janela — em minutos **e** em turns.
+
+        **Esta é a única query deste card que vai para o caminho crítico de um
+        request:** o CARD-015 vai chamá-la dentro do ``POST`` para decidir se o
+        aluno ainda tem cota. Daí duas exigências que estão no adapter e não
+        aqui: a soma acontece **no banco** (``SUM``/``COUNT``, sem carregar
+        linha) e existe um índice composto ``(student_id, occurred_at)`` para
+        sustentá-la. Sem o índice, é uma varredura que fica lenta em silêncio,
+        proporcional ao total de turns já processados no produto inteiro.
+
+        A janela é meio-aberta — ``since`` inclusivo, ``until`` exclusivo — para
+        que dois dias consecutivos não contem o mesmo turn duas vezes. Ambos
+        obrigatórios e nomeados: uma agregação sem janela é a fatura da vida
+        inteira do aluno, que nunca é a pergunta.
+
+        Aluno sem nenhum turn na janela devolve os zeros, **não** ``None``:
+        "não gastou nada" é uma resposta, e obrigar o chamador a tratar ausência
+        para dizer zero moveria a decisão de cota para dentro de um ``if`` de
+        borda.
         """
         ...

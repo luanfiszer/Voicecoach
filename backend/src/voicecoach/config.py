@@ -12,14 +12,92 @@ não quando o módulo é importado — ver `get_settings()`.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from collections.abc import Mapping
+from datetime import date, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
+from types import MappingProxyType
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from voicecoach.domain.usage import LlmPrice
+
+# --- Tabela de preços do LLM (ADR-0009, ADR-0051) --------------------------
+#
+# **Por que aqui e não em `Settings`.** Um dicionário de `Decimal` por modelo não
+# vem de variável de ambiente de forma honesta: seria um JSON dentro de uma
+# string, validado tarde e editado por quem não olharia a data. Isto é
+# configuração *do repositório*, versionada com o diff que a mudou — que é
+# exatamente o que se quer de uma tabela de preços.
+#
+# **Por que `config.py` pode importar `domain`.** A seta proibida é a inversa: o
+# contrato do import-linter impede `domain`/`application` de lerem `config`
+# (ADR-0013). Nada impede a composição de conhecer o vocabulário do núcleo — e a
+# alternativa seria declarar aqui um segundo tipo de preço, paralelo ao do
+# domínio, que sairia de sincronia no primeiro campo novo.
+#
+# **A tabela é descartável, e isso é consequência do ADR-0051:** o custo é
+# congelado no `UsageEvent` na hora da escrita. Ela responde "quanto custa hoje",
+# nunca "quanto custava em julho" — quem responde a segunda é a linha gravada.
+# Atualizar um preço aqui **não** reescreve história nenhuma.
+#
+# As chaves são os ids **servidos** pela API, não o alias pedido em
+# `TEACHER_MODEL`: `claude-haiku-4-5` resolve para um id datado, e é o datado que
+# aparece em `message.model`. A busca cai para o prefixo mais longo (ver
+# `preco_do_modelo`), então o alias também acha.
+_PRECO_HAIKU_4_5 = LlmPrice(
+    input_usd_per_mtok=Decimal("1.00"),
+    # 1,25x a entrada e 0,1x a leitura — a razão do ADR-0021. Hoje nenhuma das
+    # duas é acionada (limiar medido: 4.096 tokens), e elas estão aqui para que o
+    # dia em que forem tenha preço, em vez de ter um `KeyError`.
+    cache_creation_usd_per_mtok=Decimal("1.25"),
+    cache_read_usd_per_mtok=Decimal("0.10"),
+    output_usd_per_mtok=Decimal("5.00"),
+    effective_from=date(2026, 8, 27),
+)
+
+# `MappingProxyType` é a view somente-leitura de um dict — o
+# `ReadOnlyDictionary` do .NET. Uma constante de módulo que é um `dict` comum é
+# global mutável: qualquer import poderia acrescentar um preço em runtime, e o
+# `frozen=True` do `LlmPrice` não protegeria disso.
+LLM_PRICES: Mapping[str, LlmPrice] = MappingProxyType(
+    {
+        "claude-haiku-4-5": _PRECO_HAIKU_4_5,
+        # Sonnet fica na tabela mesmo sem estar em uso: o ADR-0010 o reservou
+        # para o "modo qualidade", e uma troca de `TEACHER_MODEL` não pode
+        # produzir linhas de custo sem preço.
+        "claude-sonnet-4-5": LlmPrice(
+            input_usd_per_mtok=Decimal("3.00"),
+            cache_creation_usd_per_mtok=Decimal("3.75"),
+            cache_read_usd_per_mtok=Decimal("0.30"),
+            output_usd_per_mtok=Decimal("15.00"),
+            effective_from=date(2026, 8, 27),
+        ),
+    }
+)
+
+
+def preco_do_modelo(model: str) -> LlmPrice | None:
+    """O preço do modelo que **respondeu**, ou ``None`` se ele não estiver na tabela.
+
+    A busca é por **prefixo mais longo** porque a API devolve o id resolvido
+    (`claude-haiku-4-5-20251001`) e a tabela guarda a família
+    (`claude-haiku-4-5`). Casar por igualdade exigiria uma linha nova a cada
+    snapshot datado que o provedor publicasse — e o dia em que alguém esquecesse
+    essa linha, o custo do produto pararia de ser medido em silêncio.
+
+    ``None`` e não exceção, e essa é a metade cara da decisão: levantar aqui
+    derrubaria um turn cujo áudio o aluno **já ouviu**, por um dado que não é do
+    aluno. Quem chama grava a linha com `estimated_cost_usd` nulo e loga — ver o
+    `UsageEvent`, onde nulo significa "não sabemos precificar", nunca "grátis".
+    """
+    candidatos = [chave for chave in LLM_PRICES if model.startswith(chave)]
+    if not candidatos:
+        return None
+    return LLM_PRICES[max(candidatos, key=len)]
 
 
 class SttProvider(StrEnum):

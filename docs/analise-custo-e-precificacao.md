@@ -44,19 +44,65 @@ Otimizar servidor é ruído; o custo é governado por tokens e por comissão.
 
 ## 2. De onde vem o custo de um turn
 
+> **Corrigido em 2026-08-27 (CARD-014).** A tabela original desta seção era
+> **estimativa**, e errava nas duas direções. O número abaixo é medido, das 6
+> execuções reais de `benchmarks/results/llm_prompt_v1_vs_v2.json`. O que
+> tornou a correção possível foi o `UsageEvent` ([ADR-0051](adr/0051-usage-event-fora-do-agregado-com-custo-congelado-na-escrita.md)),
+> que passou a gravar o `usage` que o pipeline vinha descartando desde o
+> CARD-007.
+
 Modo dev do ADR-0010 (STT e TTS locais, `claude-haiku-4-5` a US$ 1/MTok de
-entrada e US$ 5/MTok de saída):
+entrada e US$ 5/MTok de saída), **turn sem histórico de conversa**, prompt v2:
 
-| Componente | Tokens | Custo | Fatia |
+| Componente | Tokens (medido) | Custo | Fatia |
 |---|---|---|---|
-| Entrada — system prompt (~700) + histórico (~1.300) | ~2.000 | US$ 0,002 | **50%** |
-| Saída — JSON de correções + `spoken_reply` + `translation_pt` | ~400 | US$ 0,002 | **50%** |
+| Entrada — system prompt + schema da tool + a fala do aluno | **1.488** | US$ 0,001488 | **56%** |
+| Saída — `spoken_reply` + `translation_pt` + `corrections[]` | **238** | US$ 0,001190 | **44%** |
 | STT local (`faster-whisper` / `mlx-whisper`) | — | US$ 0 | 0% |
-| TTS local (Kokoro/Piper) | — | US$ 0 | 0% |
-| **Total** | | **~US$ 0,004** | |
+| TTS local (Piper) | — | US$ 0 | 0% |
+| **Total** | | **US$ 0,002678** | |
 
-**100% do custo variável é o LLM**, dividido meio a meio entre entrada e saída.
-Toda alavanca séria ataca uma dessas duas metades.
+**100% do custo variável continua sendo o LLM.** O que mudou foi tudo o resto:
+
+| A estimativa dizia | O medido diz | Erro |
+|---|---|---|
+| system prompt ~700 tokens | o prefixo sem histórico é **1.488** | **2,1x para baixo** |
+| total ~US$ 0,004/turn | **US$ 0,002678** | **~49% para cima** |
+| "meio a meio" entrada/saída | **56% / 44%** | a composição inverteu |
+| saída ~400 tokens | **238** | 1,7x para cima |
+
+Duas leituras que a correção obriga:
+
+- **a projeção de custo era pessimista, não otimista.** Corrigir a base
+  (§3) já dividia o custo por três; corrigir o custo unitário o reduz mais 33%.
+  Nada aqui piora a margem;
+- **a alavanca mudou de lado.** Com o v2, a **entrada** passou a ser a metade
+  maior — e entrada é a metade que o prompt caching atacaria. Ver §9.
+
+O v1, medido no mesmo benchmark, era **US$ 0,002542** (48,9% entrada / 51,1%
+saída): o v2 ficou ~5% mais caro por turn e trocou saída por entrada.
+
+### A distância até o limiar de caching (ADR-0021)
+
+O [ADR-0021](adr/0021-prompt-caching-adiado-o-limiar-medido-nao-e-alcancado.md)
+adiou o prompt caching porque o limiar medido do Haiku 4.5 é **4.096 tokens** e a
+conversa não chegava lá. O número atualizado:
+
+| Cenário | Entrada | % do limiar |
+|---|---|---|
+| v1, sem histórico (base do ADR-0021) | 1.242 | 30% |
+| **v2, sem histórico (medido)** | **1.488** | **36%** |
+| v2 + os 6 turns de histórico do worker (`HISTORY_TURNS`) — derivado, não medido | ~2.400 | ~58% |
+
+**O gatilho continua não atingido, e agora isso é dado gravado em vez de
+memória:** cada `usage_events` traz `llm_cache_creation_tokens` e
+`llm_cache_read_tokens` com **zero como valor**. O dia em que um deles deixar de
+ser zero — ou em que a entrada cruzar 4.096 por motivo pedagógico — é o dia de
+reabrir o ADR-0021, e a consulta que responde isso agora existe.
+
+> A linha com histórico é **derivada** do "~150 tokens por troca" do próprio
+> ADR-0021, não medida. Medi-la custa ~3 execuções reais (~US$ 0,01) e ficou de
+> fora do CARD-014 por não ser critério de aceite dele.
 
 ---
 
