@@ -2,6 +2,9 @@
 
 - **Tipo:** prompt de sessão, complemento de `/executa-card 026`
 - **Escrito em:** 2026-08-27, na sessão que cruzou o guia arquitetural externo com o backlog
+- **Atualizado em:** 2026-08-27, no fim da mesma sessão — o backlog cresceu de
+  25 para 36 cards e **três deles passaram a depender da política deste card**
+  (§1.1)
 - **Status:** não executado
 
 > **Este prompt não substitui o `/executa-card`.** Aquele comando carrega o
@@ -53,6 +56,30 @@ resiliência é decidida **no refinamento**, não no fim. Ela já entrou no
 `docs/backlog/CARD-000-template.md` (seção "Refinamento obrigatório") na mesma
 sessão que escreveu este card — a partir de agora todo card com dependência
 externa responde as mesmas quatro perguntas.
+
+### 1.1 O que mudou depois que este prompt foi escrito — e por que aumenta o peso do card
+
+A mesma sessão varreu o `Design.pdf` e criou dez cards a mais. **Três deles
+consomem o que você decidir aqui**, e isso desloca duas decisões da §6 de
+"escolha local" para "contrato que outros cards herdam":
+
+| Card novo | O que ele espera deste |
+|---|---|
+| **CARD-027** (telas de exceção) | é a **tela** do desfecho "provedor indisponível". O que você decidir na **D4** é literalmente o que o aluno vai ler |
+| **CARD-033** (saldo de cota e serviço pausado) | precisa distinguir *"o produto pausou por orçamento"* de *"a dependência caiu"*. São duas indisponibilidades diferentes e a tela é outra |
+| **CARD-036** (tradução sob demanda) | é a **segunda** chamada externa do produto, e o card dele já diz que nasce com a política deste — não com requisição crua |
+
+Consequência prática para o plano: **a D2 (biblioteca ou código próprio) deixa
+de ser sobre este card.** Se for código próprio, ele será reusado pelo adapter
+de tradução — o que é argumento a favor de escrevê-lo bem e contra escrevê-lo
+"só o suficiente para o S3". E a **D4 vira decisão de produto**, não de
+infraestrutura: quem a responde é o desenvolvedor, e ela tem tela.
+
+**O que NÃO mudou:** a §3.3 continua sendo o primeiro passo, e ela ganhou um
+vizinho — o CARD-025 (varredura de travados) continua no backlog, então a
+conclusão *"o turn morre calado"* segue verdadeira enquanto ele não rodar. Se a
+§3.3 se confirmar, vale dizer isso ao desenvolvedor: não é só um `MAX_TRIES`
+inútil, é um caminho de falha sem rede de segurança nenhuma hoje.
 
 ## 2. O que já está decidido e não se rediscute
 
@@ -256,6 +283,10 @@ O terceiro é o que separa um breaker útil de um que abre sozinho em produção
   que com `MAX_JOBS = 1` o ganho é teórico — mas então **escreva o gatilho**, do
   jeito que o `MAX_JOBS` fez; o breaker, se a §3.3 revelar que o problema real é
   outro.
+- **Escreva pensando no segundo consumidor.** O CARD-036 vai pendurar um adapter
+  de tradução na mesma política. Não generalize por antecipação — mas se a
+  escolha for código próprio, ele mora onde um segundo adapter consiga usá-lo,
+  e não dentro do `s3_media_storage.py`.
 - **Já está em "Out" e continua:** rate limit e cota (CARD-015); varredura de
   travados (CARD-025); observabilidade das aberturas de circuito.
 
@@ -273,7 +304,9 @@ O terceiro é o que separa um breaker útil de um que abre sozinho em produção
    - **D4 — o que o aluno vê** quando o provedor está fora. Motivo novo no
      `Turn.fail`? Desfecho novo no `Result` (e aí a rota e o `assert_never` vão
      junto — o mecanismo do ADR-0039 cobrando exaustividade)? Ou nada visível e
-     só log?
+     só log? **Esta virou decisão de produto** (§1.1): o CARD-027 desenha a tela
+     em cima dela, e o CARD-033 precisa que ela seja distinguível de "o produto
+     pausou por orçamento".
 
 2. **Regra do explicador: no máximo 2, no ponto da decisão, sobre consequência
    observável.** Candidatas boas, porque a resposta se confere rodando:
