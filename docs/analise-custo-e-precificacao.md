@@ -141,22 +141,30 @@ canal de cobrança pesa mais na margem do que qualquer otimização de token.
 
 ## 5. Margem por cenário de uso
 
+> **Recalculado em 2026-08-27 (CARD-014)** com o custo **medido** de
+> US$ 0,002678/turn, no lugar da estimativa otimizada de US$ 0,0031.
+
 Premissas: preço de **R$ 29,90/mês**, câmbio **R$ 5,50/US$**, 100 assinantes,
-custo de IA otimizado **com o pacote que sobrou** (~US$ 0,0031/turn — ver §9),
-venda **dentro do app** (comissão de 15%).
+custo de IA **medido** (US$ 0,002678/turn — §2), venda **dentro do app**
+(comissão de 15%).
 
 | | Casual (120 turns) | Engajado (300 turns) | Pesado (900 turns) |
 |---|---|---|---|
 | Receita bruta | R$ 29,90 | R$ 29,90 | R$ 29,90 |
 | − Comissão de loja (15%) | −R$ 4,49 | −R$ 4,49 | −R$ 4,49 |
-| − IA | −R$ 2,05 | −R$ 5,12 | −R$ 15,35 |
+| − IA | −R$ 1,77 | −R$ 4,42 | −R$ 13,26 |
 | − Infra rateada | −R$ 0,28 | −R$ 0,28 | −R$ 0,28 |
-| **Margem** | **R$ 23,08 (77%)** | **R$ 20,01 (67%)** | **R$ 9,78 (33%)** |
-| **Múltiplo sobre custo** | **4,4×** | **3,0×** | **1,49×** |
+| **Margem** | **R$ 23,37 (78%)** | **R$ 20,72 (69%)** | **R$ 11,88 (40%)** |
+| **Múltiplo sobre custo** | **4,58×** | **3,26×** | **1,66×** |
 
-**Leitura:** a meta de 3× é batida no casual (4,4×) e fica **no fio da navalha no
-engajado (3,0×)**; no perfil pesado despenca para **1,49×**. Um usuário fazendo ~3.000 turns/mês dá prejuízo
-líquido.
+**Leitura, revista:** o engajado **saiu do fio da navalha** (era 3,0×, virou
+3,26×) e o pesado melhorou de 1,49× para 1,66×. Mas o desfecho que torna o
+CARD-015 bloqueante **não mudou de sinal**: um aluno com ~3.000 turns/mês continua
+dando **prejuízo líquido** (múltiplo 0,61×, margem −R$ 19,05).
+
+O custo medido melhora a conta; ele não conserta a cauda. **Sem cota, a margem
+continua sendo definida pelo usuário mais entusiasmado da base** — o que muda é
+só a que distância o prejuízo começa.
 
 Isto não é argumento contra cobrar — é a demonstração de que o
 **[CARD-015](backlog/CARD-015-quotas-e-kill-switch.md) (quotas + kill switch) é
@@ -201,24 +209,31 @@ O problema: **com STT e TTS locais, o custo é dominado pelo número de chamadas
 LLM, não pelos minutos falados.** O system prompt e o histórico dominam a entrada
 e são reenviados por chamada, independentemente do tamanho da fala.
 
-A [medição §5.1](medicao-latencia.md) quantificou o resíduo: uma fala longa
-produz resposta maior (145 → 388 tokens de saída), então um turn longo custa
-~1,7× um turn curto — mas **não 5×, que seria o necessário para a cota em minutos
-ser justa**:
+> **Recalculado em 2026-08-27 (CARD-014)** com o prefixo medido do prompt v2
+> (1.488 tokens de entrada por chamada). **A divergência cresceu**, e o motivo é
+> estrutural: o v2 aumentou justamente a parcela que é paga **por chamada**,
+> independentemente do tamanho da fala.
+
+Uma fala longa produz resposta maior (125 → 368 tokens de saída, medidos), então
+um turn longo custa **1,58×** um turn curto — mas **não 5×, que seria o
+necessário para a cota em minutos ser justa**:
 
 | Aluno | Minutos falados | Turns | Custo/turn | **Custo total** |
 |---|---|---|---|---|
-| A — 100 turns de 6 s | 10 min | 100 | US$ 0,00183 | **US$ 0,183** |
-| B — 20 turns de 30 s | 10 min | 20 | US$ 0,00304 | US$ 0,061 |
+| A — 100 turns de 6 s | 10 min | 100 | US$ 0,002113 | **US$ 0,2113** |
+| B — 20 turns de 30 s | 10 min | 20 | US$ 0,003328 | US$ 0,0666 |
 
-Uma cota em minutos trata A e B como iguais, e **A custa 3× mais**.
+Uma cota em minutos trata A e B como iguais, e **A custa 3,17× mais** (era 3,0×
+antes do prompt v2).
 
 - **Minutos falados** é a unidade que o **aluno** entende ("você tem 60 minutos
   de conversa este mês").
 - **Turns** é a unidade que o **caixa** entende.
 
 Hoje só a primeira está modelada. Decidir isto é escopo do **CARD-015** — este
-documento apenas registra que as duas divergem e que a divergência medida é de 3×.
+documento apenas registra que as duas divergem e que a divergência medida é de
+**3,17×** — e que ela **aumenta** a cada token que o prompt ganhar, porque o
+prefixo é cobrado por chamada.
 
 ---
 
