@@ -2,7 +2,9 @@
 
 - **Tipo:** prompt de sessão, complemento de `/executa-card 014`
 - **Escrito em:** 2026-08-26, no fechamento do CARD-013 (PR #18)
-- **Status:** não executado
+- **Status:** ✅ executado em 2026-08-27 (PR #20) — ver a seção *Execução* do
+  [CARD-014](../backlog/CARD-014-usage-event-custo-real.md) e o
+  [ADR-0051](../adr/0051-usage-event-fora-do-agregado-com-custo-congelado-na-escrita.md)
 
 > **Este prompt não substitui o `/executa-card`.** Aquele comando carrega o
 > protocolo (branch, ordem de leitura, premissas antes do plano, DoD item a

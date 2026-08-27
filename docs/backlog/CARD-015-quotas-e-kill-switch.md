@@ -7,16 +7,26 @@
 ## Contexto
 
 ADR-0010 (teto duplo: console do provedor + aplicação) e a análise de custo §5,
-que mudou o status deste card:
+que mudou o status deste card.
 
-| Perfil | Turns/mês | Múltiplo sobre custo |
-|---|---|---|
-| Casual | 120 | 4,4× |
-| Engajado | 300 | **3,0×** — no fio |
-| Pesado | 900 | **1,49×** |
+> **Números atualizados em 2026-08-27 pelo CARD-014**, que trocou a estimativa
+> pelo custo **medido** (US$ 0,002678/turn) — ver
+> [ADR-0051](../adr/0051-usage-event-fora-do-agregado-com-custo-congelado-na-escrita.md).
 
-**Sem cota, a margem é definida pelo usuário mais entusiasmado da base.** Um
-aluno com ~3.000 turns/mês dá prejuízo líquido.
+| Perfil | Turns/mês | Múltiplo — antes | Múltiplo — **medido** |
+|---|---|---|---|
+| Casual | 120 | 4,4× | **4,58×** |
+| Engajado | 300 | 3,0× — no fio | **3,26×** — saiu do fio |
+| Pesado | 900 | 1,49× | **1,66×** |
+| Patológico | 3.000 | — | **0,61× — prejuízo líquido** |
+
+**O custo medido melhora a conta, e não conserta a cauda.** O engajado saiu do
+fio da navalha, mas o aluno de ~3.000 turns/mês continua dando **prejuízo
+líquido** (margem −R$ 19,05). O que mudou foi só a distância até o prejuízo
+começar — não o fato de ele existir.
+
+**Sem cota, a margem continua sendo definida pelo usuário mais entusiasmado da
+base.**
 
 ## Por que agora
 
@@ -32,13 +42,19 @@ E há uma divergência **medida** que este card tem de resolver (análise §8): 
 domínio modelou a cota em **minutos falados** (`Turn.audio_duration`), mas o
 custo é **por chamada ao LLM**:
 
-| Aluno | Minutos | Turns | Custo total |
+| Aluno | Minutos | Turns | Custo total (medido, v2) |
 |---|---|---|---|
-| A — 100 turns de 6 s | 10 | 100 | **US$ 0,183** |
-| B — 20 turns de 30 s | 10 | 20 | US$ 0,061 |
+| A — 100 turns de 6 s | 10 | 100 | **US$ 0,2113** |
+| B — 20 turns de 30 s | 10 | 20 | US$ 0,0666 |
 
-**Uma cota em minutos trata A e B como iguais, e A custa 3× mais.** Minutos é a
-unidade que o **aluno** entende; turns é a que o **caixa** entende.
+**Uma cota em minutos trata A e B como iguais, e A custa 3,17× mais.** Minutos é
+a unidade que o **aluno** entende; turns é a que o **caixa** entende.
+
+> **A divergência CRESCEU com o prompt v2** (era 3,0×, é 3,17× — análise §8
+> recalculada pelo CARD-014), e o motivo é estrutural: o v2 aumentou a parcela de
+> entrada, que é paga **por chamada**, independentemente do tamanho da fala. Cada
+> token que o system prompt ganhar no futuro **aumenta** este número. O argumento
+> a favor de um teto em turns fica mais forte com o tempo, não mais fraco.
 
 > ⚠️ **Decisão pendente do desenvolvedor, e ela vira ADR** (critério 2 — afeta o
 > domínio). A recomendação desta reconstrução: **cobrar em minutos, limitar em
@@ -59,6 +75,17 @@ unidade que o **aluno** entende; turns é a que o **caixa** entende.
   (`INCR` do custo estimado ao completar o turn, alimentado pelo `UsageEvent` do
   CARD-014); excedido ⇒ POST de turn responde `503` Problem Details honesto até
   a janela virar.
+- **O insumo já existe** (CARD-014): `UsageEventRepository.totals_for_student`
+  devolve `StudentUsageTotals(turns, spoken, cost_usd, unpriced_turns)` para uma
+  janela meio-aberta, somando **no banco** (`func.sum`/`func.count`), com o
+  índice `(student_id, occurred_at)` já na ordem que esta consulta precisa. Ela
+  foi desenhada para rodar **dentro do POST** — é a única query daquele card no
+  caminho crítico de um request.
+- **`unpriced_turns` não pode ser ignorado.** Um turn cujo modelo ficou fora da
+  tabela de preços grava `estimated_cost_usd = NULL`, e a soma o **exclui**
+  (ADR-0051). Tratar isso como custo zero faria o kill switch ler como grátis
+  exatamente os turns que ninguém sabe precificar. Este card tem de decidir o que
+  fazer quando `unpriced_turns > 0` — e a decisão vira ADR.
 - **Quota bloqueia escrita, não leitura**: com a cota estourada, revisar as
   correções do dia continua liberado.
 - Rate limit por conta e por IP no POST.
