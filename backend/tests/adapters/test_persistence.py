@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -34,6 +35,7 @@ from voicecoach.adapters.persistence.repositories import (
     SqlAlchemySessionRepository,
     SqlAlchemyStudentRepository,
     SqlAlchemyTurnRepository,
+    SqlAlchemyUsageEventRepository,
 )
 from voicecoach.adapters.persistence.seed import (
     DEV_STUDENT_DISPLAY_NAME,
@@ -46,11 +48,13 @@ from voicecoach.application.ports.repositories import (
     StudentRepository,
     TurnRepository,
     UnitOfWork,
+    UsageEventRepository,
 )
 from voicecoach.domain.correction import Correction, CorrectionType, Severity
 from voicecoach.domain.session import Session
 from voicecoach.domain.student import Student
 from voicecoach.domain.turn import Turn, TurnStatus
+from voicecoach.domain.usage import UsageEvent
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 # A mesma imagem do docker-compose.yml, com a tag fixada (ADR-0010/0018).
@@ -685,3 +689,305 @@ async def test_o_delete_do_turn_leva_as_correcoes_junto(
         {"id": turn.id},
     )
     assert restantes.scalar_one() == 0
+
+
+# --- CARD-014: o custo real, contra Postgres de verdade --------------------
+
+
+def _evento_de(
+    turn_id: UUID,
+    student_id: UUID,
+    *,
+    quando: datetime,
+    falado: timedelta = timedelta(seconds=4),
+    custo: Decimal | None = Decimal("0.00198400"),
+) -> UsageEvent:
+    return UsageEvent(
+        turn_id=turn_id,
+        student_id=student_id,
+        occurred_at=quando,
+        llm_model="claude-haiku-4-5-20251001",
+        llm_input_tokens=1084,
+        llm_cache_creation_tokens=0,
+        llm_cache_read_tokens=0,
+        llm_output_tokens=180,
+        stt_audio_duration=falado,
+        stt_provider="faster_whisper",
+        tts_chars=91,
+        tts_provider="piper",
+        estimated_cost_usd=custo,
+    )
+
+
+async def _turn_gravado(
+    db_session: AsyncSession, sessao: Session, *, quando: datetime = NOW
+) -> Turn:
+    turns: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    turn = sessao.start_turn(
+        turn_id=uuid4(),
+        input_audio_ref="dev/entrada.m4a",
+        audio_duration=timedelta(seconds=4),
+        now=quando,
+    )
+    await turns.add(turn)
+    await db_session.commit()
+    return turn
+
+
+@pytest.fixture
+async def aluno_isolado(db_session: AsyncSession) -> tuple[Student, Session]:
+    """Um Student e uma Session **novos**, só para os testes de agregação.
+
+    Os demais testes deste arquivo reusam o Student de desenvolvimento, e podem:
+    eles leem por `turn_id`. Agregação não pode — o container é de escopo de
+    sessão e as linhas de um teste ficam visíveis para o seguinte, o que fez as
+    três somas darem 7 onde o teste esperava 1. Isolar por aluno é mais barato
+    que limpar tabela entre casos, e reproduz melhor a realidade: a query é por
+    `student_id` justamente porque há outros alunos no banco.
+    """
+    student = Student(id=uuid4(), display_name="Aluno de agregação", created_at=NOW)
+    students: StudentRepository = SqlAlchemyStudentRepository(db_session)
+    await students.add(student)
+    # Commit ANTES da sessão, e não os dois no mesmo flush: não há
+    # `relationship` entre `StudentRow` e `SessionRow` (a FK existe, o
+    # relacionamento não), então o SQLAlchemy não conhece a dependência e pode
+    # ordenar o INSERT de `sessions` primeiro — `ForeignKeyViolationError`
+    # medido nesta sessão. É o contraste com o EF Core, onde o grafo de
+    # navegação daria a ordem de graça.
+    await db_session.commit()
+    sessao = Session(id=uuid4(), student_id=student.id, started_at=NOW)
+    sessions: SessionRepository = SqlAlchemySessionRepository(db_session)
+    await sessions.add(sessao)
+    await db_session.commit()
+    return student, sessao
+
+
+async def test_roundtrip_do_usage_event_preserva_decimal_e_intervalo(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """O que só o Postgres pode quebrar: NUMERIC virando float e INTERVAL virando int.
+
+    A comparação é a entidade inteira com um `==` só — possível porque
+    `frozen=True` dá `__eq__` por valor. Um laço campo a campo passaria a
+    esquecer o campo novo no dia em que alguém acrescentasse um.
+    """
+    repository: UsageEventRepository = SqlAlchemyUsageEventRepository(db_session)
+    turn = await _turn_gravado(db_session, sessao_persistida)
+    evento = _evento_de(turn.id, sessao_persistida.student_id, quando=NOW)
+
+    await repository.add(evento)
+    await db_session.commit()
+    db_session.expunge_all()  # força ler do banco, não do cache de identidade
+
+    recarregado = await repository.get(turn.id)
+
+    assert recarregado == evento
+    assert recarregado is not None
+    # As asserções que o `==` não deixa ver, e que são o motivo de o teste rodar
+    # contra Postgres em vez de contra um dublê:
+    assert isinstance(recarregado.estimated_cost_usd, Decimal)
+    assert recarregado.estimated_cost_usd == Decimal("0.00198400")
+    assert recarregado.stt_audio_duration == timedelta(seconds=4)
+    assert recarregado.occurred_at.tzinfo is not None  # TIMESTAMPTZ, não ingênuo
+
+
+async def test_as_tres_contagens_de_entrada_voltam_do_banco_como_zero(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """Zero é dado, não ausência (ADR-0021): as colunas são `NOT NULL`."""
+    repository: UsageEventRepository = SqlAlchemyUsageEventRepository(db_session)
+    turn = await _turn_gravado(db_session, sessao_persistida)
+
+    await repository.add(_evento_de(turn.id, sessao_persistida.student_id, quando=NOW))
+    await db_session.commit()
+    db_session.expunge_all()
+
+    recarregado = await repository.get(turn.id)
+
+    assert recarregado is not None
+    assert recarregado.llm_cache_creation_tokens == 0
+    assert recarregado.llm_cache_read_tokens == 0
+
+
+async def test_custo_desconhecido_volta_nulo_e_nao_zero(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """A coluna é nulável de propósito, e o nulo tem significado próprio.
+
+    `NULL` = "não sabemos precificar este modelo"; `0` = o custo verdadeiro do
+    STT e do TTS locais. Se o banco convertesse um no outro, o kill switch do
+    CARD-015 leria como grátis um turn cujo custo ninguém conhece.
+    """
+    repository: UsageEventRepository = SqlAlchemyUsageEventRepository(db_session)
+    turn = await _turn_gravado(db_session, sessao_persistida)
+
+    await repository.add(
+        _evento_de(turn.id, sessao_persistida.student_id, quando=NOW, custo=None)
+    )
+    await db_session.commit()
+    db_session.expunge_all()
+
+    recarregado = await repository.get(turn.id)
+
+    assert recarregado is not None
+    assert recarregado.estimated_cost_usd is None
+
+
+async def test_um_turn_so_pode_ter_um_evento_de_custo(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """A chave primária é `turn_id`, e é ela que impede a soma de dobrar.
+
+    Sem a PK, uma segunda escrita passaria em silêncio e todo total daquele aluno
+    contaria o mesmo turn duas vezes — um erro que nenhum teste de resultado
+    final pegaria.
+    """
+    repository: UsageEventRepository = SqlAlchemyUsageEventRepository(db_session)
+    uow: UnitOfWork = SqlAlchemyUnitOfWork(db_session)
+    turn = await _turn_gravado(db_session, sessao_persistida)
+
+    await repository.add(_evento_de(turn.id, sessao_persistida.student_id, quando=NOW))
+    await uow.commit()
+    await repository.add(_evento_de(turn.id, sessao_persistida.student_id, quando=NOW))
+
+    with pytest.raises(ConflictingWriteError):
+        await uow.commit()
+
+
+async def test_agregacao_por_student_soma_em_minutos_e_em_turns(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """Critério de aceite: 3 turns de 2 students, somados no banco.
+
+    As duas unidades juntas porque a unidade da cota ainda não foi decidida — a
+    análise de custo §8 mediu 3x de divergência entre elas, e uma agregação que
+    devolvesse só uma responderia a pergunta antes de ela ser feita.
+    """
+    _, sessao_persistida = aluno_isolado
+    repository: UsageEventRepository = SqlAlchemyUsageEventRepository(db_session)
+    sessions: SessionRepository = SqlAlchemySessionRepository(db_session)
+    students: StudentRepository = SqlAlchemyStudentRepository(db_session)
+
+    # O segundo aluno, com sessão própria: a agregação tem de ignorá-lo por
+    # completo, e sem ele o teste passaria mesmo com o `WHERE` errado.
+    outro = Student(id=uuid4(), display_name="Outro", created_at=NOW)
+    await students.add(outro)
+    await db_session.commit()  # antes da sessão: ver a nota em `aluno_isolado`
+    sessao_do_outro = Session(id=uuid4(), student_id=outro.id, started_at=NOW)
+    await sessions.add(sessao_do_outro)
+    await db_session.commit()
+
+    dois = [
+        await _turn_gravado(db_session, sessao_persistida),
+        await _turn_gravado(db_session, sessao_persistida),
+    ]
+    do_outro = await _turn_gravado(db_session, sessao_do_outro)
+
+    for i, turn in enumerate(dois):
+        await repository.add(
+            _evento_de(
+                turn.id,
+                sessao_persistida.student_id,
+                quando=NOW + timedelta(minutes=i),
+                falado=timedelta(seconds=4),
+            )
+        )
+    await repository.add(
+        _evento_de(
+            do_outro.id,
+            outro.id,
+            quando=NOW,
+            falado=timedelta(seconds=30),
+            custo=Decimal("0.01000000"),
+        )
+    )
+    await db_session.commit()
+
+    totais = await repository.totals_for_student(
+        sessao_persistida.student_id, since=NOW, until=NOW + timedelta(days=1)
+    )
+
+    assert totais.turns == 2
+    assert totais.spoken == timedelta(seconds=8)
+    assert totais.cost_usd == Decimal("0.00396800")
+    assert totais.unpriced_turns == 0
+    # O outro aluno permanece intacto — a prova de que o `WHERE student_id` está
+    # de fato filtrando, e não somando o produto inteiro.
+    do_outro_totais = await repository.totals_for_student(
+        outro.id, since=NOW, until=NOW + timedelta(days=1)
+    )
+    assert do_outro_totais.turns == 1
+    assert do_outro_totais.spoken == timedelta(seconds=30)
+
+
+async def test_turno_sem_preco_conta_como_turn_mas_nao_soma_custo(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """Custo subestimado não pode ser indistinguível de custo baixo.
+
+    A linha entra em `turns` e em `spoken` (o aluno falou de verdade) e fica de
+    fora de `cost_usd` — somá-la como zero mentiria dizendo que aquele turn foi
+    grátis. `unpriced_turns` é quem torna a lacuna visível.
+    """
+    _, sessao_persistida = aluno_isolado
+    repository: UsageEventRepository = SqlAlchemyUsageEventRepository(db_session)
+    com_preco = await _turn_gravado(db_session, sessao_persistida)
+    sem_preco = await _turn_gravado(db_session, sessao_persistida)
+
+    await repository.add(
+        _evento_de(com_preco.id, sessao_persistida.student_id, quando=NOW)
+    )
+    await repository.add(
+        _evento_de(sem_preco.id, sessao_persistida.student_id, quando=NOW, custo=None)
+    )
+    await db_session.commit()
+
+    totais = await repository.totals_for_student(
+        sessao_persistida.student_id, since=NOW, until=NOW + timedelta(days=1)
+    )
+
+    assert totais.turns == 2
+    assert totais.cost_usd == Decimal("0.00198400")
+    assert totais.unpriced_turns == 1
+
+
+async def test_aluno_sem_consumo_na_janela_recebe_zeros_e_nao_nulo(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """`SUM` de conjunto vazio devolve `NULL` — é o que os `coalesce` cobrem.
+
+    Sem eles, o primeiro turn do dia (o caso mais comum de todos) quebraria a
+    decisão de cota do CARD-015 justamente no caminho feliz.
+    """
+    repository: UsageEventRepository = SqlAlchemyUsageEventRepository(db_session)
+
+    totais = await repository.totals_for_student(
+        uuid4(), since=NOW, until=NOW + timedelta(days=1)
+    )
+
+    assert totais.turns == 0
+    assert totais.spoken == timedelta(0)
+    assert totais.cost_usd == Decimal(0)
+
+
+async def test_a_janela_e_meio_aberta_e_nao_conta_o_mesmo_turn_duas_vezes(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """`>= since` e `< until`: o turn da virada pertence a um dia só."""
+    _, sessao_persistida = aluno_isolado
+    repository: UsageEventRepository = SqlAlchemyUsageEventRepository(db_session)
+    turn = await _turn_gravado(db_session, sessao_persistida)
+    await repository.add(_evento_de(turn.id, sessao_persistida.student_id, quando=NOW))
+    await db_session.commit()
+
+    dentro = await repository.totals_for_student(
+        sessao_persistida.student_id, since=NOW, until=NOW + timedelta(seconds=1)
+    )
+    fora = await repository.totals_for_student(
+        sessao_persistida.student_id,
+        since=NOW + timedelta(seconds=1),
+        until=NOW + timedelta(days=1),
+    )
+
+    assert dentro.turns == 1
+    assert fora.turns == 0

@@ -40,17 +40,18 @@ from voicecoach.adapters.persistence.engine import (
 from voicecoach.adapters.persistence.repositories import (
     SqlAlchemySessionRepository,
     SqlAlchemyTurnRepository,
+    SqlAlchemyUsageEventRepository,
 )
 from voicecoach.adapters.queue.arq_turn_queue import PROCESS_TURN_TASK
 from voicecoach.adapters.storage.s3_media_storage import create_media_storage
-from voicecoach.adapters.stt.factory import create_speech_to_text
+from voicecoach.adapters.stt.factory import create_speech_to_text, resolve_stt_provider
 from voicecoach.adapters.tts.encoding import AacAudioEncoder
 from voicecoach.adapters.tts.factory import create_text_to_speech
 from voicecoach.application.use_cases.process_turn import (
     ProcessTurn,
     ProcessTurnHandler,
 )
-from voicecoach.config import get_settings
+from voicecoach.config import get_settings, preco_do_modelo
 from voicecoach.worker.readiness import WorkerReadiness
 
 if TYPE_CHECKING:
@@ -101,6 +102,11 @@ async def startup(ctx: dict[str, Any]) -> None:
 
     inicio = time.perf_counter()
     ctx["stt"] = create_speech_to_text(settings)
+    # O nome do motor que de fato foi carregado, não o que a config pediu:
+    # `STT_PROVIDER=auto` resolve para `mlx` ou `faster_whisper` aqui no boot
+    # (ADR-0027), e é este nome que vai para a linha de custo do CARD-014.
+    # Gravar "auto" seria gravar o nome de motor nenhum.
+    ctx["stt_provider"] = resolve_stt_provider(settings.stt_provider).value
     stt_s = time.perf_counter() - inicio
     # A carga do adapter ATIVO, cronometrada em separado — é a dívida do
     # ADR-0025, item 7, e agora que o Piper baixou o TTS para 0,43 s ela é a
@@ -167,6 +173,7 @@ async def process_turn(ctx: dict[str, Any], turn_id: str) -> None:
         handler = ProcessTurnHandler(
             turns=SqlAlchemyTurnRepository(session),
             sessions=SqlAlchemySessionRepository(session),
+            usage_events=SqlAlchemyUsageEventRepository(session),
             unit_of_work=session,
             storage=ctx["storage"],
             speech_to_text=ctx["stt"],
@@ -176,6 +183,12 @@ async def process_turn(ctx: dict[str, Any], turn_id: str) -> None:
             events=ctx["events"],
             clock=_agora,
             history_turns=HISTORY_TURNS,
+            # A função, não a tabela: `application` não pode importar `config`
+            # (ADR-0013), então quem conhece a forma da tabela de preços é esta
+            # composition root. O caso de uso só conhece a pergunta.
+            llm_price=preco_do_modelo,
+            stt_provider=ctx["stt_provider"],
+            tts_provider=ctx["settings"].tts_provider.value,
         )
         await handler.handle(
             ProcessTurn(

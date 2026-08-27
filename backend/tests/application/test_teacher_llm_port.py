@@ -46,6 +46,7 @@ FEEDBACK = TeacherFeedback(
     corrections=(),
 )
 USO = TokenUsage(
+    model="claude-haiku-4-5-20251001",
     input_tokens=1084,
     cache_creation_input_tokens=0,
     cache_read_input_tokens=0,

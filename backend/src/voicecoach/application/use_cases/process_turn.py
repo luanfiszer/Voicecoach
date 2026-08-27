@@ -58,6 +58,7 @@ from voicecoach.application.ports.teacher_llm import (
     LlmError,
     Speaker,
     SpokenSentence,
+    TokenUsage,
     Utterance,
 )
 from voicecoach.application.ports.text_to_speech import TtsError, concat
@@ -71,6 +72,7 @@ from voicecoach.application.ports.turn_events import (
 )
 from voicecoach.domain.media_keys import reply_chunk_key, reply_full_key
 from voicecoach.domain.turn import TurnStatus
+from voicecoach.domain.usage import UsageEvent, estimate_llm_cost
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -83,6 +85,7 @@ if TYPE_CHECKING:
         SessionRepository,
         TurnRepository,
         UnitOfWork,
+        UsageEventRepository,
     )
     from voicecoach.application.ports.speech_to_text import SpeechToText
     from voicecoach.application.ports.teacher_llm import TeacherLlm
@@ -92,6 +95,7 @@ if TYPE_CHECKING:
     )
     from voicecoach.application.ports.turn_events import TurnEvent, TurnEvents
     from voicecoach.domain.turn import Turn
+    from voicecoach.domain.usage import LlmPrice
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +166,22 @@ class _Sintetizado:
     audio: SynthesizedAudio
 
 
+@dataclass(frozen=True, slots=True)
+class _Cascata:
+    """O que a cascata acumulou: áudio, feedback e o volume que o TTS falou.
+
+    Um objeto em vez de uma tupla de três porque o terceiro campo é a armadilha
+    do CARD-014: ``tts_chars`` só está **completo** quando as duas corrotinas do
+    ``TaskGroup`` terminaram. Numa tupla, um dia alguém lê o terceiro elemento no
+    meio do laço e subconta em silêncio; num objeto construído depois do ``async
+    with``, o valor incompleto nem existe.
+    """
+
+    audios: list[SynthesizedAudio]
+    feedback: FeedbackReady | None
+    tts_chars: int
+
+
 class ProcessTurnHandler:
     """Compõe as portas num turn inteiro.
 
@@ -176,6 +196,7 @@ class ProcessTurnHandler:
         *,
         turns: TurnRepository,
         sessions: SessionRepository,
+        usage_events: UsageEventRepository,
         unit_of_work: UnitOfWork,
         storage: MediaStorage,
         speech_to_text: SpeechToText,
@@ -185,9 +206,13 @@ class ProcessTurnHandler:
         events: TurnEvents,
         clock: Callable[[], datetime],
         history_turns: int,
+        llm_price: Callable[[str], LlmPrice | None],
+        stt_provider: str,
+        tts_provider: str,
     ) -> None:
         self._turns = turns
         self._sessions = sessions
+        self._usage = usage_events
         self._uow = unit_of_work
         self._storage = storage
         self._stt = speech_to_text
@@ -197,6 +222,22 @@ class ProcessTurnHandler:
         self._events = events
         self._clock = clock
         self._history_turns = history_turns
+        # Uma função, e não a tabela de preços inteira: a tabela mora em
+        # `config.py`, que `application` NÃO pode importar (ADR-0013). O que
+        # atravessa é a capacidade "diga o preço deste modelo", e quem a resolve
+        # é a composition root. Passar o dicionário obrigaria o caso de uso a
+        # conhecer a forma da configuração; passar a função obriga-o a conhecer
+        # só a pergunta.
+        self._llm_price = llm_price
+        # Rótulos, não capacidades — por isso são `str` e não algo lido da porta.
+        # O que a linha de custo precisa registrar é **qual motor rodou**, e no
+        # STT isso não é o que a config diz: `STT_PROVIDER=auto` resolve para
+        # `mlx` ou `faster_whisper` no boot (ADR-0027). Quem sabe o resultado
+        # dessa resolução é a composition root, e é ela que passa o nome já
+        # resolvido. Ler `settings.stt_provider` daqui gravaria "auto", que não
+        # é o nome de motor nenhum.
+        self._stt_provider = stt_provider
+        self._tts_provider = tts_provider
 
     async def handle(self, command: ProcessTurn) -> None:
         turn = await self._turns.get(command.turn_id)
@@ -241,7 +282,8 @@ class ProcessTurnHandler:
         transcript = await self._transcrever(turn)
         history = await self._montar_historico(turn, transcript)
 
-        sintetizados, feedback = await self._cascata(turn, student_id, history)
+        cascata = await self._cascata(turn, student_id, history)
+        feedback = cascata.feedback
         if feedback is None:
             message = "o professor fechou o fluxo sem entregar o feedback"
             raise LlmError(message)
@@ -261,13 +303,22 @@ class ProcessTurnHandler:
         #    — e as correções continuam lá, para o histórico do CARD-016.
         turn.attach_reply(feedback.feedback.spoken_reply, self._clock())
         turn.attach_corrections(feedback.feedback.corrections)
+        # O custo entra no MESMO commit (ADR-0051, decisão 1), e a pergunta que
+        # essa escolha responde não é a do CARD-013 ("não apagar o que é do
+        # aluno") — é **"não perder o que já foi pago"**. Um turn que falhe
+        # depois disto, no `_fechar`, deixa registrado o custo de uma resposta
+        # que o aluno viu falhar: está correto, os tokens saíram da conta. A
+        # alternativa (gravar no fechamento) perderia exatamente o custo dos
+        # turns que falham depois do LLM — que é o custo mais fácil de perder de
+        # vista e o mais caro de não enxergar.
+        await self._registrar_uso(turn, student_id, feedback.usage, cascata.tts_chars)
         await self._gravar(turn)
         await self._publicar(
             turn.id,
             FeedbackAvailable(corrections=feedback.feedback.corrections),
         )
 
-        await self._fechar(turn, student_id, sintetizados)
+        await self._fechar(turn, student_id, cascata.audios)
 
     async def _transcrever(self, turn: Turn) -> str:
         bytes_do_aluno = await self._storage.get(turn.input_audio_ref)
@@ -298,7 +349,7 @@ class ProcessTurnHandler:
 
     async def _cascata(
         self, turn: Turn, student_id: UUID, history: list[Utterance]
-    ) -> tuple[list[SynthesizedAudio], FeedbackReady | None]:
+    ) -> _Cascata:
         """As duas corrotinas, e o desempacotamento do ``ExceptionGroup``.
 
         Tudo que a cascata acumula é **local a esta chamada** — nada em ``self``.
@@ -309,16 +360,23 @@ class ProcessTurnHandler:
         fila: asyncio.Queue[_Sintetizado | None] = asyncio.Queue()
         sintetizados: list[SynthesizedAudio] = []
         feedback: FeedbackReady | None = None
+        # O volume que o TTS falou, somado onde as sentenças passam — não existe
+        # contador de caracteres em lugar nenhum do pipeline, e a porta de TTS
+        # recebe texto por sentença (ADR-0033). Hoje isto custa US$ 0: o Piper é
+        # local (ADR-0032). Existe para que a série histórica já exista no dia em
+        # que o TTS virar API paga.
+        tts_chars = 0
 
         async def sintetizar() -> None:
             # `nonlocal` diz que a atribuição abaixo mexe na variável da função
             # de fora, e não cria uma nova local. É o idioma Python para o que em
             # C# uma lambda faz de graça ao capturar a variável do escopo.
-            nonlocal feedback
+            nonlocal feedback, tts_chars
             try:
                 async for evento in self._teacher.respond_streaming(history):
                     match evento:
                         case SpokenSentence(text=texto):
+                            tts_chars += len(texto)
                             audio = await self._tts.synthesize(texto)
                             await fila.put(_Sintetizado(text=texto, audio=audio))
                         case FeedbackReady():
@@ -344,7 +402,7 @@ class ProcessTurnHandler:
         except BaseExceptionGroup as grupo_de_erros:
             raise _primeira_falha(grupo_de_erros) from None
 
-        return sintetizados, feedback
+        return _Cascata(audios=sintetizados, feedback=feedback, tts_chars=tts_chars)
 
     async def _gravar_trecho(
         self, turn: Turn, student_id: UUID, item: _Sintetizado
@@ -383,6 +441,71 @@ class ProcessTurnHandler:
                 duration_seconds=chunk.duration_seconds,
                 text=chunk.text,
             ),
+        )
+
+    async def _registrar_uso(
+        self,
+        turn: Turn,
+        student_id: UUID,
+        usage: TokenUsage,
+        tts_chars: int,
+    ) -> None:
+        """Monta a linha de custo e a registra na unidade de trabalho.
+
+        **Não comita**: quem comita é o `_gravar` logo em seguida, e é isso que
+        põe o `UsageEvent` no mesmo commit do `attach_reply`/`attach_corrections`
+        (ADR-0051, decisão 1).
+
+        O custo é **congelado aqui** (decisão 3): a tabela de preços responde
+        "quanto custa hoje", e a linha gravada responde "quanto custou naquele
+        dia". Recalcular na leitura faria "quanto gastei em julho" mudar de
+        resposta a cada reajuste do provedor.
+
+        **Modelo sem preço não vira zero.** Zero é o custo verdadeiro do STT e do
+        TTS locais; `None` é "não sabemos precificar". Gravar zero faria a cota
+        do CARD-015 ler como grátis um turn que ninguém sabe quanto custou — e
+        levantar aqui derrubaria um turn cujo áudio o aluno **já ouviu**, por um
+        problema que não é dele. O ERROR no log é o que torna a lacuna visível.
+        """
+        preco = self._llm_price(usage.model)
+        if preco is None:
+            logger.error(
+                "turn %s: modelo %r fora da tabela de preços; "
+                "custo gravado como desconhecido",
+                turn.id,
+                usage.model,
+            )
+        custo = (
+            None
+            if preco is None
+            else estimate_llm_cost(
+                input_tokens=usage.input_tokens,
+                cache_creation_tokens=usage.cache_creation_input_tokens,
+                cache_read_tokens=usage.cache_read_input_tokens,
+                output_tokens=usage.output_tokens,
+                price=preco,
+            )
+        )
+        await self._usage.add(
+            UsageEvent(
+                turn_id=turn.id,
+                student_id=student_id,
+                occurred_at=self._clock(),
+                llm_model=usage.model,
+                llm_input_tokens=usage.input_tokens,
+                llm_cache_creation_tokens=usage.cache_creation_input_tokens,
+                llm_cache_read_tokens=usage.cache_read_input_tokens,
+                llm_output_tokens=usage.output_tokens,
+                # A duração do áudio do ALUNO, que já é insumo declarado da quota
+                # e já está no `Turn`. Não é medida de novo aqui, e não vira um
+                # `stt_seconds: float` ao lado de um `timedelta`: seria criar a
+                # divergência de unidade que o CARD-015 teria de resolver.
+                stt_audio_duration=turn.audio_duration,
+                stt_provider=self._stt_provider,
+                tts_chars=tts_chars,
+                tts_provider=self._tts_provider,
+                estimated_cost_usd=custo,
+            )
         )
 
     async def _fechar(

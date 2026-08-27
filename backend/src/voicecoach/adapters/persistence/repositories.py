@@ -12,16 +12,25 @@ Correction atomicamente no mesmo turno (CARD-013).
 
 from __future__ import annotations
 
+from datetime import timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from voicecoach.adapters.persistence import mappers
-from voicecoach.adapters.persistence.models import SessionRow, StudentRow, TurnRow
+from voicecoach.adapters.persistence.models import (
+    SessionRow,
+    StudentRow,
+    TurnRow,
+    UsageEventRow,
+)
 from voicecoach.domain.turn import TurnStatus
+from voicecoach.domain.usage import StudentUsageTotals
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +38,7 @@ if TYPE_CHECKING:
     from voicecoach.domain.session import Session
     from voicecoach.domain.student import Student
     from voicecoach.domain.turn import Turn
+    from voicecoach.domain.usage import UsageEvent
 
 
 class RowNotFoundError(LookupError):
@@ -176,3 +186,75 @@ class SqlAlchemyTurnRepository:
         )
         linhas = (await self._session.scalars(stmt)).all()
         return [mappers.turn_from_row(linha) for linha in reversed(linhas)]
+
+
+class SqlAlchemyUsageEventRepository:
+    """Implementa ``application.ports.repositories.UsageEventRepository``.
+
+    **Nenhum ``selectinload`` aqui, e a ausência é o desenho** (ADR-0051): esta
+    tabela não tem relacionamento carregável nenhum. É o contraste deliberado com
+    o ``SqlAlchemyTurnRepository``, cuja lista ``_COM_FILHAS`` é o contrato de
+    carregamento do agregado.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, event: UsageEvent) -> None:
+        self._session.add(mappers.usage_event_to_row(event))
+
+    async def get(self, turn_id: UUID) -> UsageEvent | None:
+        row = await self._session.get(UsageEventRow, turn_id)
+        return None if row is None else mappers.usage_event_from_row(row)
+
+    async def totals_for_student(
+        self, student_id: UUID, *, since: datetime, until: datetime
+    ) -> StudentUsageTotals:
+        """Soma **no banco**, sem carregar entidade nenhuma.
+
+        `func.sum` e `func.count` do SQLAlchemy montam a agregação em SQL: o que
+        volta são quatro escalares, não N linhas mapeadas para N objetos. Numa
+        tabela que cresce um registro por turn do produto inteiro, a diferença
+        entre as duas leituras é a diferença entre uma query constante e uma que
+        piora todo mês — e esta aqui é a única deste card que o CARD-015 vai
+        chamar **dentro do POST**.
+
+        Equivalente mental: é um `SELECT COUNT/SUM` escrito à mão, não um
+        `.ToList().Sum()` do LINQ to Objects — que é exatamente o erro que a
+        forma preguiçosa do EF Core torna fácil de cometer sem perceber.
+
+        **Os `coalesce` não são zelo.** `SUM` de conjunto vazio devolve `NULL`,
+        não zero: sem eles, perguntar o consumo de um aluno que ainda não falou
+        hoje — o caso mais comum de todos, no primeiro turn do dia — devolveria
+        `None` onde o chamador espera número, e o kill switch quebraria
+        justamente no caso feliz.
+
+        `estimated_cost_usd` nulo (modelo fora da tabela de preços) é **ignorado
+        pela soma** — é assim que `SUM` trata `NULL`, e é o que se quer: somar
+        como zero mentiria dizendo que aquele turn foi grátis. Quem conta esses
+        turns é `unpriced_turns`, para que custo subestimado não seja
+        indistinguível de custo baixo.
+
+        A janela é meio-aberta (`>= since`, `< until`) para que dois dias
+        consecutivos não contem o mesmo turn duas vezes.
+        """
+        stmt = select(
+            func.count(),
+            func.coalesce(func.sum(UsageEventRow.stt_audio_duration), timedelta(0)),
+            func.coalesce(func.sum(UsageEventRow.estimated_cost_usd), 0),
+            func.count().filter(UsageEventRow.estimated_cost_usd.is_(None)),
+        ).where(
+            UsageEventRow.student_id == student_id,
+            UsageEventRow.occurred_at >= since,
+            UsageEventRow.occurred_at < until,
+        )
+        turns, falados, custo, sem_preco = (await self._session.execute(stmt)).one()
+        return StudentUsageTotals(
+            turns=turns,
+            spoken=falados,
+            # `Decimal(custo)` e não `float(custo)`: o asyncpg já devolve NUMERIC
+            # como `Decimal`, e a conversão existe só para o caso do `coalesce`
+            # ter entregado o literal inteiro `0`.
+            cost_usd=Decimal(custo),
+            unpriced_turns=sem_preco,
+        )

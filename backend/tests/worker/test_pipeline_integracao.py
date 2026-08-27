@@ -38,7 +38,7 @@ from voicecoach.application.use_cases.process_turn import (
     ProcessTurn,
     ProcessTurnHandler,
 )
-from voicecoach.config import Settings, SttProvider
+from voicecoach.config import Settings, SttProvider, preco_do_modelo
 from voicecoach.domain.session import Session
 from voicecoach.domain.turn import Turn, TurnStatus
 
@@ -51,6 +51,7 @@ from fakes_pipeline import (
     FakeTurnEvents,
     FakeTurnRepository,
     FakeUnitOfWork,
+    FakeUsageEventRepository,
 )
 
 pytestmark = pytest.mark.slow
@@ -132,6 +133,7 @@ async def test_pipeline_real_entrega_o_primeiro_trecho_antes_de_replied_at() -> 
         sessions=FakeSessionRepository(
             Session(id=session_id, student_id=student_id, started_at=datetime.now(UTC))
         ),
+        usage_events=FakeUsageEventRepository(),
         unit_of_work=FakeUnitOfWork(),
         storage=storage,
         speech_to_text=stt,
@@ -141,6 +143,9 @@ async def test_pipeline_real_entrega_o_primeiro_trecho_antes_de_replied_at() -> 
         events=eventos,
         clock=lambda: datetime.now(UTC),
         history_turns=6,
+        llm_price=preco_do_modelo,
+        stt_provider="faster_whisper",
+        tts_provider="piper",
     )
 
     inicio = time.perf_counter()

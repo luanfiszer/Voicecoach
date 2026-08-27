@@ -63,10 +63,18 @@ class FakeUsage:
 
 class FakeMessage:
     def __init__(
-        self, content: Sequence[object], usage: FakeUsage | None = None
+        self,
+        content: Sequence[object],
+        usage: FakeUsage | None = None,
+        model: str = "claude-haiku-4-5-20251001",
     ) -> None:
         self.content = content
         self.usage = usage or FakeUsage()
+        # O id DATADO, como a API o devolve — não o alias `claude-haiku-4-5` que
+        # a config pede. É a diferença que faz a busca de preço do CARD-014 ser
+        # por prefixo em vez de por igualdade, e um fake que devolvesse o alias
+        # esconderia exatamente esse detalhe.
+        self.model = model
 
 
 class FakeStream:

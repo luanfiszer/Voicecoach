@@ -18,11 +18,13 @@ from voicecoach.adapters.persistence.models import (
     StudentRow,
     TurnAudioChunkRow,
     TurnRow,
+    UsageEventRow,
 )
 from voicecoach.domain.correction import Correction
 from voicecoach.domain.session import Session
 from voicecoach.domain.student import Student
 from voicecoach.domain.turn import Turn, TurnAudioChunk
+from voicecoach.domain.usage import UsageEvent
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -242,4 +244,46 @@ def chunk_from_row(row: TurnAudioChunkRow) -> TurnAudioChunk:
         duration_seconds=row.duration_seconds,
         text=row.text,
         created_at=row.created_at,
+    )
+
+
+def usage_event_to_row(event: UsageEvent) -> UsageEventRow:
+    """Uma linha de custo. **Não há ``apply_usage_event``**, e a falta é a regra.
+
+    Medição não se corrige: o turn consumiu o que consumiu. Um ``apply_*`` aqui
+    seria a porta pela qual um número que alguém já somou muda de valor sem
+    deixar rastro — e o repositório, coerentemente, não tem ``update``.
+    """
+    return UsageEventRow(
+        turn_id=event.turn_id,
+        student_id=event.student_id,
+        occurred_at=event.occurred_at,
+        llm_model=event.llm_model,
+        llm_input_tokens=event.llm_input_tokens,
+        llm_cache_creation_tokens=event.llm_cache_creation_tokens,
+        llm_cache_read_tokens=event.llm_cache_read_tokens,
+        llm_output_tokens=event.llm_output_tokens,
+        stt_audio_duration=event.stt_audio_duration,
+        stt_provider=event.stt_provider,
+        tts_chars=event.tts_chars,
+        tts_provider=event.tts_provider,
+        estimated_cost_usd=event.estimated_cost_usd,
+    )
+
+
+def usage_event_from_row(row: UsageEventRow) -> UsageEvent:
+    return UsageEvent(
+        turn_id=row.turn_id,
+        student_id=row.student_id,
+        occurred_at=row.occurred_at,
+        llm_model=row.llm_model,
+        llm_input_tokens=row.llm_input_tokens,
+        llm_cache_creation_tokens=row.llm_cache_creation_tokens,
+        llm_cache_read_tokens=row.llm_cache_read_tokens,
+        llm_output_tokens=row.llm_output_tokens,
+        stt_audio_duration=row.stt_audio_duration,
+        stt_provider=row.stt_provider,
+        tts_chars=row.tts_chars,
+        tts_provider=row.tts_provider,
+        estimated_cost_usd=row.estimated_cost_usd,
     )
