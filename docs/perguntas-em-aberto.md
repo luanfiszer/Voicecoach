@@ -28,9 +28,36 @@ Regra em vigor:
 Uma só, pela regra nova: pergunta da sessão **imediatamente anterior** que ficou
 sem desfecho volta **uma** vez.
 
-**Nenhuma.** O CARD-014 (2026-08-27) fez as suas três perguntas no ponto da
-decisão e as três foram respondidas — nada ficou sem desfecho para voltar na
-abertura do CARD-015.
+**Nenhuma.** O CARD-025 (2026-08-29) fez a sua pergunta no ponto da decisão e ela
+foi **dispensada pelo desenvolvedor** — dispensa não volta na abertura seguinte
+(ela não é "sem desfecho"; o desfecho é a dispensa).
+
+> **CARD-025 (2026-08-29): a pergunta foi feita no ponto certo e dispensada.**
+> Antes de qualquer código, sobre consequência observável, num ponto em que errar
+> custaria o card inteiro: *"um job cuja função levanta `RuntimeError`: quantas
+> vezes o `arq` chama a função — uma ou duas? E o que isso significa para o
+> `raise exc` do `_tratar_falha`?"*. Resposta do desenvolvedor: **"esquece
+> explicador"** — registrada como **dispensa**, nunca como cumprida
+> (LEARNING-0004).
+>
+> **O experimento rodou assim mesmo, porque bloqueava o plano**, e o que ele
+> demonstrou é o achado central do card: `RuntimeError` ⇒ **1 chamada**,
+> `jobs_retried=0`, e o job não sobrevive a uma segunda passada em burst;
+> `Retry(defer=0)` ⇒ **2 chamadas** (`job_try` 1 e 2) e `max retries 2 exceeded`.
+> O par completo está preso em `tests/worker/test_varredura_e_retry.py`, contra
+> um `arq` real — se a biblioteca mudar, o teste aponta.
+>
+> Uma segunda demonstração não prevista saiu de graça: `cron(..., unique=False)`
+> ⇒ `assert 2 == 1`, provando que o default **coordena** as réplicas pelo
+> `job_id` — o oposto do que o card afirmava.
+>
+> As outras três decisões (prazo, onde mora a marcação, o que fazer com a
+> corrida) foram assumidas pelo agente com recomendação declarada antes da
+> implementação, a pedido do desenvolvedor, e estão registradas no card e no
+> ADR-0052.
+
+> **CARD-014 (2026-08-27):** as suas três perguntas foram feitas no ponto da
+> decisão e as três foram respondidas — nada ficou sem desfecho.
 
 > **CARD-014 (2026-08-27): a regra nova funcionou nas duas metades.** A Q15 foi
 > reapresentada na abertura, antes do plano, com o motivo de tocar aquele card

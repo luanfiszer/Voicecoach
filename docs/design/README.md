@@ -81,6 +81,38 @@ apresentação**, não UI do produto — é a premissa P2 de
 > **sequência de estados** é para reconciliar contra os ADRs — o design não
 > perdeu validade, ele foi desenhado sob outro orçamento de latência.
 
+## Varredura de 2026-08-27 — quem é dono de cada artboard
+
+Cruzamento dos 17 artboards com o backlog. **Cinco não tinham dono nenhum**, e o
+padrão é que cada card de cliente empurrou a metade de exceção para "Out" sem
+que ninguém a recolhesse.
+
+| # | Dono |
+|---|---|
+| 01, 02 | CARD-011 — **implementado**. O chip *"12 min hoje"* do cabeçalho é backend do **CARD-033** |
+| 03, 04, 05 | **CARD-028** — decide o que sobrevive à cascata (ver aviso acima) |
+| 06 | **CARD-028** (o que a tela mostra) + **CARD-035** (`0.75×`, `repetir`, scrub sobre a fila) + **CARD-036** (o endpoint do `traduzir`) |
+| 07, 08 | CARD-016 |
+| 09 | CARD-016 (tela) + **CARD-031** (o "Encerrar" e o resumo, no servidor) + Fase 6 (completo) |
+| 10 | **CARD-029** (tela) + **CARD-030** (`GET /v1/sessions` agregado e a mídia expirada) |
+| 11 | Fase 3 (auth) — sem card ainda, e é o correto |
+| 12 | Fase 3 (auth) — sem card de tela ainda. O saldo de cota é o **CARD-033** |
+| 13 | CARD-011 — **implementado** |
+| 14, 15, 16 | **CARD-027** (telas). Backend: **CARD-031** (fala atrasada em sessão encerrada), **CARD-032** ("Descartar"), **CARD-033** (quota e serviço pausado) |
+| 17 | `apps/mobile/src/theme/tokens.ts` — **implementado** |
+
+**O que o design NÃO cobre e o produto precisa** (entra pelo CARD-028): a tela de
+*"áudio tocando, feedback a caminho"* — o estado central da cascata, e o único
+sem desenho. O artboard 05 descreve o inverso dele.
+
+**Toda tela tem os dois lados.** A varredura criou três cards de tela (027, 028,
+029), quatro de backend (030–033) e mais três depois que as decisões de produto
+foram fechadas em 2026-08-27 (034, 035, 036). A regra que os separa: o card de tela decide
+o que o aluno **vê**; o card de backend decide a **regra de negócio, o contrato
+e a consulta** que sustentam aquilo — e nasce antes.
+
+**O que está desenhado e foi recusado:** *"Avisar quando voltar"* (artboard 16) é
+push, cortado pela visão §F com gatilho escrito. Está em "Out" do CARD-027.
 
 ## O briefing para a designer (2026-08-27)
 

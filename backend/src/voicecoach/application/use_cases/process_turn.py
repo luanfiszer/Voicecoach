@@ -65,11 +65,10 @@ from voicecoach.application.ports.text_to_speech import TtsError, concat
 from voicecoach.application.ports.turn_events import (
     ChunkReady,
     Completed,
-    Failed,
     FeedbackAvailable,
     Transcribed,
-    TurnEventsError,
 )
+from voicecoach.application.use_cases.fail_turn import FailTurn, publicar_tolerante
 from voicecoach.domain.media_keys import reply_chunk_key, reply_full_key
 from voicecoach.domain.turn import TurnStatus
 from voicecoach.domain.usage import UsageEvent, estimate_llm_cost
@@ -116,6 +115,24 @@ FALHAS_DE_INFRAESTRUTURA = (
 REPROCESSAMENTO_APOS_ENTREGA = (
     "reprocessamento recusado: o aluno já ouviu parte desta resposta"
 )
+
+
+class RetryableTurnFailureError(RuntimeError):
+    """O turn falhou **antes** do primeiro trecho: vale tentar de novo.
+
+    Existe porque "levantar" e "pedir retentativa" deixaram de ser a mesma coisa
+    quando o CARD-025 mediu o `arq`: exceção comum **não** volta para a fila, e o
+    comentário que dizia o contrário manteve o produto com um caminho de falha
+    sem dono. Um tipo próprio deixa a intenção legível para quem traduz.
+
+    **Quem traduz é o worker**, não este módulo: `application` não pode importar
+    `arq` (ADR-0012), então o `arq.Retry` é montado na composition root. Herda de
+    `RuntimeError` e não de `DomainError` porque nenhuma invariante foi violada
+    (ADR-0017) — é infraestrutura que não colaborou.
+
+    A causa original viaja em `__cause__` (o `raise ... from exc`): quem loga vê
+    o `SttError` ou o `LlmError` de verdade, não só "deu retry".
+    """
 
 
 class TurnNotFoundError(LookupError):
@@ -221,6 +238,13 @@ class ProcessTurnHandler:
         self._encoder = encoder
         self._events = events
         self._clock = clock
+        # Construído aqui e não recebido por parâmetro: é um colaborador feito
+        # das MESMAS portas que este handler já tem, não uma capacidade nova.
+        # Pedi-lo à composition root obrigaria o worker a montar duas vezes o
+        # mesmo grafo, e a segunda montagem é a que um dia diverge.
+        self._falhar = FailTurn(
+            turns=turns, unit_of_work=unit_of_work, events=events, clock=clock
+        )
         self._history_turns = history_turns
         # Uma função, e não a tabela de preços inteira: a tabela mora em
         # `config.py`, que `application` NÃO pode importar (ADR-0013). O que
@@ -535,30 +559,42 @@ class ProcessTurnHandler:
     # -- caminho triste -----------------------------------------------------
 
     async def _tratar_falha(self, turn: Turn, exc: Exception, *, final: bool) -> None:
-        """Decide entre marcar o turn como falho e deixar o ``arq`` tentar de novo.
+        """Decide entre marcar o turn como falho e pedir outra tentativa.
 
         A pergunta que separa os dois casos não é "que erro foi?", é **"o aluno
         já ouviu alguma coisa?"**. Ela é respondida pela coleção de trechos, que
         `fail()` não apaga (ADR-0023, item 6) — e é a mesma pergunta que
         `delivered_partially` faz.
+
+        **O pedido de nova tentativa é um TIPO, não a exceção original** — e essa
+        distinção custou o CARD-025 a descobrir. Até aqui este método levantava
+        `exc` cru, com um comentário dizendo "devolvendo à fila". Não devolvia:
+        medido contra um `arq` 0.28 real, uma exceção comum **não** é retentada
+        (só `Retry`, `CancelledError` e `RetryJob` caem no ramo de retry do
+        `arq.worker.run_job`), e o turn ficava `processing` para sempre. Um tipo
+        próprio torna a intenção explícita para quem traduz — e quem traduz é a
+        composition root do worker, porque `application` não pode importar `arq`
+        (ADR-0012).
         """
         if turn.audio_chunks or final:
             await self._marcar_falha(turn, str(exc))
             return
         logger.warning(
-            "turn %s falhou antes do primeiro trecho (%s); devolvendo à fila",
+            "turn %s falhou antes do primeiro trecho (%s); pedindo nova tentativa",
             turn.id,
             exc,
         )
-        raise exc
+        message = f"turn {turn.id} falhou antes do primeiro trecho: {exc}"
+        raise RetryableTurnFailureError(message) from exc
 
     async def _marcar_falha(self, turn: Turn, motivo: str) -> None:
-        turn.fail(motivo, self._clock())
-        await self._gravar(turn)
-        await self._publicar(
-            turn.id,
-            Failed(reason=motivo, delivered_partially=turn.delivered_partially),
-        )
+        """A receita mora em ``fail_turn.py``, compartilhada com a varredura.
+
+        Ela era quatro linhas aqui dentro até o CARD-025. O `SweepStaleTurns`
+        precisa exatamente delas sobre N turns, e duas cópias da marcação sairiam
+        de sincronia na primeira mudança do evento.
+        """
+        await self._falhar(turn, motivo)
 
     # -- persistência e publicação ------------------------------------------
 
@@ -568,18 +604,14 @@ class ProcessTurnHandler:
         await self._uow.commit()
 
     async def _publicar(self, turn_id: UUID, event: TurnEvent) -> None:
-        """Publica, e **engole a falha de propósito**.
+        """Publica, e **engole a falha de propósito** (ADR-0035).
 
-        É a única exceção capturada e descartada em todo o pipeline, e ela tem
-        justificativa: o canal é o caminho rápido, não a verdade (o banco é). Um
-        Redis fora do ar atrasa o aluno em alguns segundos, até o cliente cair
-        no polling do ADR-0026 item 4; abortar o turn por isso jogaria fora
-        áudio já sintetizado e tokens já pagos.
+        A política mora em ``fail_turn.publicar_tolerante`` desde o CARD-025, e
+        não aqui: ela vale igualmente para a varredura de turns travados, e dois
+        lugares engolindo por conta própria seriam dois lugares onde alguém pode
+        decidir o contrário sem perceber.
         """
-        try:
-            await self._events.publish(turn_id, event)
-        except TurnEventsError as exc:
-            logger.warning("turn %s: evento não publicado (%s)", turn_id, exc)
+        await publicar_tolerante(self._events, turn_id, event)
 
 
 def _primeira_falha(grupo: BaseExceptionGroup[BaseException]) -> BaseException:

@@ -68,6 +68,7 @@ from voicecoach.application.use_cases.process_turn import (
     REPROCESSAMENTO_APOS_ENTREGA,
     ProcessTurn,
     ProcessTurnHandler,
+    RetryableTurnFailureError,
     TurnNotFoundError,
     _primeira_falha,
 )
@@ -401,13 +402,26 @@ async def test_abandonar_a_cascata_fecha_o_gerador_do_professor() -> None:
 # -- 4. retry só antes do primeiro trecho -----------------------------------
 
 
-async def test_stt_falhando_devolve_o_job_a_fila_enquanto_houver_tentativa() -> None:
-    """Nenhum trecho entregue ⇒ pode tentar de novo. O caso de uso **levanta**."""
+async def test_stt_falhando_pede_nova_tentativa_enquanto_houver_uma() -> None:
+    """Nenhum trecho entregue ⇒ pode tentar de novo. O caso de uso **levanta**.
+
+    **O tipo levantado mudou no CARD-025, e o nome deste teste também** — ele
+    dizia "devolve o job à fila", que era exatamente a crença falsa que o card
+    desfez: uma exceção comum não volta para fila nenhuma (ADR-0052). O caso de
+    uso agora levanta um `RetryableTurnFailureError`, e quem o traduz em
+    `arq.Retry` é a composition root do worker.
+
+    A causa original continua acessível em `__cause__` — o `raise ... from exc`
+    preserva o `SttError`, e é isso que faz o log do worker dizer o que de fato
+    quebrou em vez de só "pediu retry".
+    """
     m = Montagem(novo_turn(), stt=FakeStt(erro=SttError("whisper caiu")))
 
-    with pytest.raises(SttError, match="whisper caiu"):
+    with pytest.raises(RetryableTurnFailureError) as capturado:
         await m.processar(final=False)
 
+    assert isinstance(capturado.value.__cause__, SttError)
+    assert "whisper caiu" in str(capturado.value.__cause__)
     assert m.turn.status is TurnStatus.PROCESSING  # segue vivo para a próxima
 
 

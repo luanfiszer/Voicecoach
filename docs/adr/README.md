@@ -88,6 +88,7 @@ Escreva um ADR sempre que a decisão:
 | [0049](0049-correction-e-entidade-persistida-e-os-campos-texto-viram-derivacao.md) | `Correction` é entidade persistida, e os quatro campos texto do `/v1` viram derivação | aceito (complementa 0008/0022/0028/0031) |
 | [0050](0050-o-feedback-volta-na-retomada-e-o-buraco-do-adr-0041-fecha.md) | O `feedback` volta na retomada, e o buraco do ADR-0041 fecha | aceito (completa 0041; depende do 0049) |
 | [0051](0051-usage-event-fora-do-agregado-com-custo-congelado-na-escrita.md) | `UsageEvent` fora do agregado, com o custo congelado na escrita | aceito (executa o item 3 do 0021; instrumenta o 0010) |
+| [0052](0052-o-retry-do-arq-e-explicito-e-a-marcacao-de-falha-mora-num-lugar-so.md) | O retry do `arq` é explícito, e a marcação de falha mora num lugar só | aceito (corrige uma premissa do 0005/0025; complementa 0023/0035/0037) |
 
 ## ADRs pendentes de decisão de produto
 
@@ -97,5 +98,5 @@ dependem de escolha do desenvolvedor, não de análise:
 | Tema | Critério | O que trava |
 |---|---|---|
 | **Canal de cobrança e provedor de pagamento** (loja vs. web) | 1 e 3 | CARD-021; vale 11–26 pontos de margem |
-| **Unidade da cota** (minutos falados vs. turns) | 2 (afeta o domínio) | CARD-015; divergência medida de 3× |
+| ~~**Unidade da cota** (minutos falados vs. turns)~~ | 2 (afeta o domínio) | **DECIDIDO em 2026-08-27: cobrar e comunicar em minutos, limitar em ambos** — um teto de turns/dia dimensionado para só morder no comportamento patológico. O ADR é escrito na execução do CARD-015; até lá esta linha registra a decisão, não a substitui |
 | **Sucessor do ADR-0010** (política de custo sob receita) | 3 | depende dos dois acima |

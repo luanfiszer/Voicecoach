@@ -31,8 +31,11 @@ invisível.
 
 ## Escopo
 
-- **In:** o acima. **Out:** histórico entre sessões (web, Fase 5); CEFR
-  (Fase 6); polimento visual além do legível.
+- **In:** o acima. **Out:** histórico entre sessões — **revisto em 2026-08-27**:
+  a consulta rápida de 30 dias volta para o app no [CARD-029](CARD-029-historico-de-sessoes-no-app.md)
+  (o artboard 10 sempre a desenhou no mobile, com a análise completa na web); o
+  que continua em Out aqui é a análise completa; CEFR (Fase 6); polimento visual
+  além do legível.
 
 ## Critérios de aceite
 
@@ -59,3 +62,14 @@ o contrato do backend dirigindo a UI.
 começa **antes** do feedback estar pronto (ADR-0022 pôs `spoken_reply` primeiro).
 A tela não pode assumir que texto e áudio chegam juntos — o card de correção
 entra na tela enquanto o professor ainda fala.
+
+
+## Ajuste da varredura do design (2026-08-27)
+
+Dois recortes, nenhum aumento de escopo:
+
+- **Os estados que esta tela usa são decididos no [CARD-028](CARD-028-estados-do-turno-redesenhados-contra-a-cascata.md)**,
+  que roda antes. Este card renderiza pedagogia **sobre** uma máquina de estados
+  já reconciliada com a cascata — não a inventa de passagem.
+- **O botão `traduzir`** do artboard 06 continua aqui, mas a decisão sobre as
+  outras três affordances do player (scrub, `0.75×`, `repetir`) é do CARD-028.
