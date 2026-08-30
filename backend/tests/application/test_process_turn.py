@@ -52,6 +52,7 @@ from voicecoach.application.ports.teacher_llm import (
     SpokenSentence,
     TeacherFeedback,
     TeacherLlm,
+    TeacherUnavailableError,
     TokenUsage,
 )
 from voicecoach.application.ports.text_to_speech import TextToSpeech, TtsError
@@ -65,6 +66,7 @@ from voicecoach.application.ports.turn_events import (
     TurnEventsError,
 )
 from voicecoach.application.use_cases.process_turn import (
+    PROVEDOR_INDISPONIVEL,
     REPROCESSAMENTO_APOS_ENTREGA,
     ProcessTurn,
     ProcessTurnHandler,
@@ -769,3 +771,90 @@ async def test_turn_que_falha_antes_do_llm_nao_gera_linha_de_custo() -> None:
 
     assert montagem.turn.status is TurnStatus.FAILED
     assert await montagem.usage_events.get(montagem.turn.id) is None
+
+
+# --- CARD-026: "o provedor caiu" é um desfecho distinto de "deu erro" --------
+
+
+async def test_provedor_indisponivel_grava_motivo_ESTAVEL_e_nao_a_mensagem(  # noqa: N802 — o nome É a asserção
+) -> None:
+    """Critério de aceite: o motivo distingue indisponibilidade de falha de conteúdo.
+
+    O texto de uma exceção descreve a falha para quem lê log; ele carrega nome
+    de classe do SDK, código HTTP e o que mais o provedor tenha mandado. Como
+    **motivo** ele é péssimo: muda quando alguém renomeia uma classe, e a tela
+    do aluno deixaria de casar sem que teste nenhum reclamasse.
+
+    O CARD-027 desenha a tela em cima desta constante, e o CARD-033 precisa que
+    ela seja distinguível de "o produto pausou por orçamento".
+    """
+    teacher = FakeTeacher(
+        tres_sentencas(),
+        erro=TeacherUnavailableError("APITimeoutError: ..."),
+        erro_apos=0,
+    )
+    m = Montagem(novo_turn(), teacher=teacher)
+
+    await m.processar(final=True)
+
+    assert m.turn.status is TurnStatus.FAILED
+    assert m.turn.failure_reason == PROVEDOR_INDISPONIVEL
+    assert m.events.eventos[-1] == Failed(
+        reason=PROVEDOR_INDISPONIVEL, delivered_partially=False
+    )
+
+
+async def test_falha_de_CONTEUDO_do_professor_continua_com_a_mensagem_crua() -> None:  # noqa: N802 — o nome É a asserção
+    """O outro lado da mesma decisão: só a indisponibilidade ganha motivo fixo.
+
+    Um `LlmError` comum é o provedor respondendo mal — bug de prompt, schema
+    violado. A mensagem é o que ajuda a diagnosticar, e não há tela especial
+    para ela.
+    """
+    teacher = FakeTeacher(
+        tres_sentencas(), erro=LlmError("fora do schema"), erro_apos=0
+    )
+    m = Montagem(novo_turn(), teacher=teacher)
+
+    await m.processar(final=True)
+
+    assert m.turn.failure_reason == "fora do schema"
+
+
+async def test_provedor_indisponivel_ANTES_do_primeiro_trecho_pede_retry() -> None:  # noqa: N802 — o nome É a asserção
+    """A indisponibilidade não pula a guarda do ADR-0037: ela a respeita.
+
+    `TeacherUnavailableError` herda de `LlmError` de propósito — quem só quer
+    saber "o professor falhou?" continua funcionando sem mudar uma linha. Aqui
+    isso se paga: o retry do CARD-025 cobre o provedor fora do ar sem que nada
+    tenha sido acrescentado ao `FALHAS_DE_INFRAESTRUTURA`.
+    """
+    teacher = FakeTeacher(
+        tres_sentencas(), erro=TeacherUnavailableError("morto"), erro_apos=0
+    )
+    m = Montagem(novo_turn(), teacher=teacher)
+
+    with pytest.raises(RetryableTurnFailureError) as capturado:
+        await m.processar(final=False)
+
+    assert isinstance(capturado.value.__cause__, TeacherUnavailableError)
+    assert m.turn.status is TurnStatus.PROCESSING
+
+
+async def test_provedor_que_cai_DEPOIS_de_falar_nao_apaga_o_que_o_aluno_ouviu() -> None:  # noqa: N802 — o nome É a asserção
+    """Motivo estável **e** os trechos preservados (ADR-0023, item 6).
+
+    `delivered_partially=True` é o que muda a tela: o aluno ouviu parte da
+    resposta e o app precisa dizer isso, não fingir que nada aconteceu.
+    """
+    teacher = FakeTeacher(
+        tres_sentencas(), erro=TeacherUnavailableError("caiu no meio"), erro_apos=2
+    )
+    m = Montagem(novo_turn(), teacher=teacher)
+
+    await m.processar(final=False)
+
+    assert m.turn.status is TurnStatus.FAILED
+    assert m.turn.failure_reason == PROVEDOR_INDISPONIVEL
+    assert m.turn.delivered_partially is True
+    assert len(m.turn.audio_chunks) == 2

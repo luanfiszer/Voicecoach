@@ -21,8 +21,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol
 
 import jiter
+from anthropic import AnthropicError, APIConnectionError, APIStatusError
 
 from voicecoach.adapters.llm.sentences import SentenceCutter
+from voicecoach.adapters.resilience import CircuitBreaker, CircuitOpenError
 from voicecoach.application.ports.teacher_llm import (
     FeedbackReady,
     LlmError,
@@ -30,6 +32,7 @@ from voicecoach.application.ports.teacher_llm import (
     SpokenSentence,
     TeacherEvent,
     TeacherFeedback,
+    TeacherUnavailableError,
     TokenUsage,
     Utterance,
 )
@@ -37,6 +40,52 @@ from voicecoach.domain.correction import Correction, CorrectionType, Severity
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
+
+# Códigos HTTP em que o provedor está **indisponível**, não em que nós erramos.
+# 408/504 prazo, 409 conflito de concorrência do provedor, 429 excesso de
+# chamadas, 529 sobrecarga (código próprio da Anthropic), 5xx em geral.
+#
+# O complemento importa tanto quanto a lista: 400, 401, 403 e 404 ficam de fora
+# de propósito. Um 401 é chave errada e um 400 é requisição malformada — os dois
+# são bug NOSSO, e abrir o circuito por causa deles esconderia o defeito atrás
+# de uma tela de "serviço indisponível" que nunca se resolveria sozinha.
+_STATUS_DE_INDISPONIBILIDADE = frozenset({408, 409, 429, 529})
+
+
+def _e_indisponibilidade(exc: AnthropicError) -> bool:
+    """O provedor não atendeu, ou atendeu e recusou por nossa culpa?
+
+    É a pergunta que decide se o breaker conta a falha, e é a diferença entre um
+    breaker útil e um que abre sozinho em produção (§4.7 do prompt do CARD-026).
+    """
+    if isinstance(exc, APIConnectionError):
+        # Cobre `APITimeoutError`, que herda dela: prazo estourado é o provedor
+        # não tendo atendido a tempo.
+        return True
+    if isinstance(exc, APIStatusError):
+        status = exc.status_code
+        return status in _STATUS_DE_INDISPONIBILIDADE or status >= 500
+    return False
+
+
+def _traduzir(exc: AnthropicError) -> LlmError:
+    """Erro do SDK vira erro **da porta** — o ADL do guia, na fronteira.
+
+    Sem isto o `anthropic` vaza para `application` pelo caminho que o
+    `lint-imports` não vê: não por um `import`, mas por uma **exceção**
+    atravessando. E o efeito medido era pior que o acoplamento — a hierarquia do
+    SDK é `AnthropicError -> Exception`, e não `RuntimeError`, então nenhuma
+    delas casava com o `FALHAS_DE_INFRAESTRUTURA` do `ProcessTurn`. O provedor
+    fora do ar atravessava o caso de uso inteiro sem ser capturado: o turn não
+    era marcado `failed`, o retry do CARD-025 não era pedido, e o aluno ficava
+    na tela de espera até a varredura o encerrar 5 minutos depois.
+    """
+    if _e_indisponibilidade(exc):
+        message = f"o professor não atendeu: {type(exc).__name__}: {exc}"
+        return TeacherUnavailableError(message)
+    message = f"o professor recusou a requisição: {type(exc).__name__}: {exc}"
+    return LlmError(message)
+
 
 TOOL_NAME = "teacher_feedback"
 
@@ -302,12 +351,18 @@ class AnthropicTeacher:
         system_prompt: str,
         max_tokens: int,
         timeout_seconds: float,
+        breaker: CircuitBreaker,
     ) -> None:
         self._client = client
         self._model = model
         self._system_prompt = system_prompt
         self._max_tokens = max_tokens
         self._timeout = timeout_seconds
+        # Recebido pronto, como o cliente: quem decide a política é a
+        # composition root. Obrigatório e não `None` por default — um breaker
+        # opcional é um breaker que alguém esquece de ligar em produção, e a
+        # falha disso é silenciosa (tudo funciona, só fica caro).
+        self._breaker = breaker
 
     async def respond_streaming(
         self, history: Sequence[Utterance]
@@ -329,6 +384,15 @@ class AnthropicTeacher:
         if not history:
             message = "histórico vazio: não há fala do aluno para responder"
             raise LlmError(message)
+
+        # **Antes de montar qualquer coisa.** Com o circuito aberto a falha tem
+        # de ser barata: nenhuma conexão, nenhum token, nenhum objeto de stream.
+        # É o critério de aceite do card — "falha sem abrir conexão e em tempo
+        # desprezível".
+        try:
+            self._breaker.antes_de_chamar()
+        except CircuitOpenError as exc:
+            raise TeacherUnavailableError(str(exc)) from exc
 
         cortador = SentenceCutter()
         buffer = b""
@@ -359,17 +423,36 @@ class AnthropicTeacher:
         # `__aenter__`. Depois do primeiro `yield` não existe retry possível —
         # a resposta já começou a ser falada, e recomeçar faria o aluno ouvir
         # tudo de novo. As duas zonas do ADR-0030 caem de graça do desenho.
-        async with contexto as fluxo:
-            async for evento in fluxo:
-                pedaco = _delta_de_json(evento)
-                if not pedaco:
-                    continue
-                buffer += pedaco.encode("utf-8")
-                fala = _fala_parcial(buffer)
-                for trecho in cortador.feed(fala):
-                    yield SpokenSentence(text=trecho)
+        #
+        # **`conectado` é a janela do breaker, e é por isso que ele não é uma
+        # biblioteca.** O que conta como "provedor fora" é falhar ANTES de o
+        # `__aenter__` voltar; depois disso o provedor demonstrou estar vivo — ele
+        # abriu o stream — e um erro posterior é outra coisa, que derruba o turn
+        # sem derrubar o produto.
+        conectado = False
+        try:
+            async with contexto as fluxo:
+                conectado = True
+                self._breaker.sucesso()
 
-            mensagem = await fluxo.get_final_message()
+                async for evento in fluxo:
+                    pedaco = _delta_de_json(evento)
+                    if not pedaco:
+                        continue
+                    buffer += pedaco.encode("utf-8")
+                    fala = _fala_parcial(buffer)
+                    for trecho in cortador.feed(fala):
+                        yield SpokenSentence(text=trecho)
+
+                mensagem = await fluxo.get_final_message()
+        except AnthropicError as exc:
+            # `AnthropicError` e não `Exception`: o `GeneratorExit` do consumidor
+            # que abandona o laço herda de `BaseException` e **não** é capturado
+            # aqui — se fosse, o cancelamento do ADR-0031 item 6 viraria "falha
+            # do provedor" e o breaker abriria por um aluno ter desistido.
+            if not conectado:
+                self._breaker.falha()
+            raise _traduzir(exc) from exc
 
         feedback = _para_feedback(_entrada_da_tool(mensagem))
 

@@ -28,9 +28,40 @@ Regra em vigor:
 Uma só, pela regra nova: pergunta da sessão **imediatamente anterior** que ficou
 sem desfecho volta **uma** vez.
 
-**Nenhuma.** O CARD-025 (2026-08-29) fez a sua pergunta no ponto da decisão e ela
-foi **dispensada pelo desenvolvedor** — dispensa não volta na abertura seguinte
-(ela não é "sem desfecho"; o desfecho é a dispensa).
+**Nenhuma.** O CARD-026 (2026-08-30) fez as suas duas perguntas no ponto da
+decisão e as duas foram **dispensadas pelo desenvolvedor** — dispensa não volta
+na abertura seguinte (ela não é "sem desfecho"; o desfecho é a dispensa).
+
+> **CARD-026 (2026-08-30): duas perguntas no ponto certo, as duas dispensadas.**
+> Feitas antes de qualquer código, sobre consequência observável, nas duas
+> decisões mais caras de errar da sessão:
+>
+> - **Q1** *"com `read_timeout=2` e `retries` não configurado, quanto tempo de
+>   parede leva um `put_object` contra uma porta que engole pacotes — 2 s ou
+>   mais? Por quê?"*
+> - **Q2** *"o `AsyncAnthropic` com `max_retries=2`: com o provedor morto,
+>   quantas requisições HTTP saem? E quantas vezes a task inteira roda,
+>   considerando o `arq.Retry`?"*
+>
+> Resposta do desenvolvedor: **"pula as perguntas"** — registradas como
+> **dispensa**, nunca como cumpridas (LEARNING-0004).
+>
+> **Os experimentos rodaram assim mesmo, porque bloqueavam os números do card**,
+> e os dois resultados contrariaram a intuição:
+>
+> - **Q1: 21 s**, não 2 s — dez vezes o que se pediu. E a configuração de então
+>   (60 s, `retries` no default) dava **315 s**, que é *mais* que o
+>   `stale_turn_after` de 5 min: a varredura do CARD-025 vinha matando turns
+>   antes de o `put_object` desistir. A lei medida é `conexões = max_attempts + 1`,
+>   e o botocore a confirma no próprio vocabulário (ele normaliza `max_attempts=1`
+>   em `total_max_attempts=2`);
+> - **Q2: 3 requisições por task, 6 no total.** `max_retries=2` são 2
+>   *retentativas*. O `config.py` afirmava 2 requisições e 60 s — a conta do
+>   ADR-0052 estava errada nesse termo desde que foi escrita.
+>
+> Os dois estão presos em teste (`test_o_numero_de_tentativas_e_max_attempts_MAIS_UM`,
+> `test_storage_que_nao_responde_aborta_no_teto_configurado`): se o botocore ou o
+> SDK mudarem de comportamento, eles apontam.
 
 > **CARD-025 (2026-08-29): a pergunta foi feita no ponto certo e dispensada.**
 > Antes de qualquer código, sobre consequência observável, num ponto em que errar

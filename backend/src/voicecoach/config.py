@@ -181,11 +181,126 @@ class Settings(BaseSettings):
     # Fase 4 pode querer respostas mais longas sem mexer em código.
     teacher_max_tokens: int = Field(default=700, gt=0)
 
-    # Timeout de UMA tentativa, não do turno inteiro: o SDK tenta 2 vezes por
-    # default, então o tempo de parede pode chegar a 3x este valor. O retry só
-    # acontece antes do primeiro trecho de fala — depois dele a conexão já está
-    # aberta e recomeçar faria o aluno ouvir a resposta do zero (ADR-0030).
+    # Timeout de UMA tentativa, não do turno inteiro. O tempo de parede é este
+    # valor x (`teacher_max_retries` + 1) — ver o campo abaixo, que existe para
+    # que esse multiplicador seja uma decisão escrita e não um default herdado.
+    # O retry só acontece antes do primeiro trecho de fala; depois dele a conexão
+    # já está aberta e recomeçar faria o aluno ouvir a resposta do zero
+    # (ADR-0030).
     teacher_timeout_seconds: float = Field(default=30.0, gt=0)
+
+    # --- Resiliência da fronteira externa (CARD-026, ADR-0053) ---------------
+    #
+    # **Quantas retentativas o SDK da Anthropic faz.** O default DELE é 2, que
+    # são 3 requisições HTTP — medido, não lido (`max_retries=2` ⇒ 3 conexões
+    # aceitas por um socket que derruba). Sobre isso ainda corre o retry do
+    # `arq` (`MAX_TRIES = 2`), então o default do SDK produzia **6 requisições
+    # e 90 s de professor** por turn contra um provedor morto.
+    #
+    # 1 e não 0: é a única das três camadas que lê o cabeçalho `retry-after` de
+    # um 429/529 e espera o que o provedor pediu (verificado em
+    # `_calculate_retry_timeout` do SDK). Uma retentativa que obedece ao
+    # provedor vale mais que duas que o ignoram.
+    #
+    # 1 e não 2: a segunda só repete o que o retry do `arq` já faz — e o `arq`
+    # faz melhor, porque a tentativa dele sobrevive ao processo morrer e cobre
+    # também STT e storage, que não têm retry nenhum. Camada duplicada custa
+    # 30 s de tela de espera e não compra cobertura nova (ADR-0053, decisão 1).
+    teacher_max_retries: int = Field(default=1, ge=0)
+
+    # **Quantas falhas seguidas de DISPONIBILIDADE abrem o circuito.** Só conta
+    # `TeacherUnavailableError` (conexão, prazo, 429, 5xx); resposta fora do
+    # schema é o provedor funcionando e respondendo mal, e não abre nada.
+    #
+    # 3 e não 1: com `MAX_JOBS = 1` as chamadas são em série, então três falhas
+    # seguidas são três turns de três alunos — evidência suficiente de que o
+    # problema não é a rede de um deles. 3 e não 10: cada falha custa 60 s de
+    # espera ao aluno que a paga, e dez alunos esperando um minuto para
+    # descobrir a mesma coisa é o custo que o breaker existe para não pagar.
+    teacher_breaker_failures: int = Field(default=3, gt=0)
+
+    # **Quanto tempo o circuito fica aberto antes de deixar UMA chamada passar.**
+    # 30 s = o `teacher_timeout_seconds`, de propósito: é o menor intervalo em
+    # que uma sonda custa, no pior caso, o mesmo que uma chamada normal já
+    # custaria. Mais curto sonda o provedor morto com mais frequência do que ele
+    # tem chance de voltar; mais longo mantém o produto fora do ar depois de o
+    # provedor ter voltado.
+    teacher_breaker_recovery: timedelta = timedelta(seconds=30)
+
+    # --- Timeouts do storage (CARD-026, ADR-0053) ----------------------------
+    #
+    # **Os três andam juntos ou não andam** (§4.1 do prompt do card): timeout
+    # sem `retries` configurado é multiplicado pelo modo de retry default.
+    #
+    # A LEI medida, contra um socket que aceita e nunca responde:
+    #
+    #   conexões que saem = `s3_max_attempts` + 1   (nos modos standard E legacy;
+    #     o urllib3 está fora do circuito — o botocore o chama com `Retry(False)`)
+    #
+    # **O "+1" não é bug nem arredondamento: é o nome do parâmetro mentindo.**
+    # O botocore aceita `max_attempts` e guarda `total_max_attempts = n + 1` —
+    # ou seja, o que se configura são RETENTATIVAS e o que acontece são
+    # tentativas. Dá para ler isso no cliente montado, e há teste afirmando.
+    #   tempo por tentativa ≈ read_timeout + ~1,2 s no `put_object`
+    #     (o `Expect: 100-continue` do upload; o `get_object` não paga isso)
+    #
+    # O que os defaults do botocore custavam, MEDIDO, não estimado:
+    #
+    #   hoje  (60 s read, retries no default legacy)   → 315 s por chamada
+    #   erro comum (read_timeout=2, retries intocado)  →  21 s (10x o que se pediu)
+    #   escolhido (abaixo)                             → ~9 s
+    #
+    # Os 315 s são MAIORES que o `stale_turn_after` de 5 min: hoje a varredura
+    # mata o turn antes de o `put_object` desistir. O teto não estava só alto —
+    # estava fora da escala do resto do sistema.
+    #
+    # **De onde saem os números.** Medido contra o MinIO do compose, 10 uploads
+    # por tamanho, descartando o aquecimento da conexão:
+    #
+    #   trecho típico ~10 KB   p50  3,6 ms | max  4,3 ms
+    #   trecho grande ~64 KB   p50  3,0 ms | max  3,6 ms
+    #   reply/full   ~256 KB   p50  5,1 ms | max  5,7 ms
+    #   patológico     ~2 MB   p50 19,4 ms | max 23,6 ms
+    #
+    # `read_timeout = 3 s` é ~127x o pior caso medido. A folga é deliberada e
+    # não é desperdício: o `read_timeout` do botocore é a espera pela RESPOSTA,
+    # não o tempo de transferência — um upload lento porém progredindo não o
+    # dispara. Errar para o lado curto aqui transforma turno saudável em falha,
+    # que é o risco central deste card e o mesmo do CARD-025.
+    s3_connect_timeout: float = Field(default=2.0, gt=0)
+    s3_read_timeout: float = Field(default=3.0, gt=0)
+
+    # 1 (⇒ 2 tentativas). Uma retentativa no adapter é MAIS BARATA que a do
+    # `arq`: repetir um `put_object` refaz um upload de 3,6 ms, enquanto
+    # reexecutar o turn refaz o STT e **paga os tokens do professor de novo**.
+    # A camada de dentro cobre o blip de rede; a de fora cobre o resto.
+    #
+    # `mode="standard"` e não `legacy` na composição: o legacy tem outra lista
+    # de erros retentáveis e um teto próprio de 5. É decisão, não default.
+    s3_max_attempts: int = Field(default=1, ge=1)
+
+    # **O pool de threads só do storage** (bulkhead, ADR-0053 decisão 4). Sem
+    # ele, `run_in_executor(None, ...)` põe I/O e CPU no MESMO pool default
+    # (`min(32, cpu+4)` = 14 nesta máquina): um upload pendurado segura uma
+    # thread de que o STT do próximo turn precisa. 4 é o teto de uploads que um
+    # turn faz em paralelo hoje (a cascata tem um consumidor só — ADR-0037 —
+    # então o número real é 1; 4 dá margem sem virar um segundo pool grande).
+    s3_executor_workers: int = Field(default=4, gt=0)
+
+    # **Teto para ESTABELECER a conexão com o Redis do pub/sub.** Só isso — o
+    # prazo de leitura não entra aqui, e o motivo está escrito no
+    # `api/lifespan.py`: o `listen()` do pub/sub fica legitimamente bloqueado à
+    # espera da próxima mensagem, e um prazo de leitura derrubaria todo stream
+    # de aluno que pensa antes de falar.
+    #
+    # 2 s pelo mesmo raciocínio do `s3_connect_timeout`: um TCP handshake local
+    # é sub-milissegundo e, num provedor remoto, fica abaixo de 300 ms.
+    #
+    # O Redis do **worker** já tinha teto e não é mexido aqui: o `RedisSettings`
+    # do arq traz `conn_timeout=1` e `conn_retries=5` por default (verificado),
+    # que é um teto explícito de ~10 s vindo da biblioteca. Este campo existe
+    # porque o cliente da API é construído à mão, e à mão não vinha nenhum.
+    redis_connect_timeout: float = Field(default=2.0, gt=0)
 
     # --- STT (ADR-0011, ADR-0027) --------------------------------------------
     # `auto` resolve pela plataforma no boot: mlx em Apple Silicon (0,59 s no
@@ -259,39 +374,59 @@ class Settings(BaseSettings):
     # não um número redondo** — é o pior caso LEGÍTIMO de um turn que ainda pode
     # dar certo, medido, não estimado:
     #
+    #   storage    6 s  = `get` do áudio do aluno, no TETO do CARD-026
+    #                     (2 tentativas x ~3 s; sem o `Expect:` do upload)
     #   STT        8 s  = `max_turn_audio_duration` (120 s) x RTF 0,067
     #                     (faster-whisper small.en float32, medicao-latencia §3.2)
-    #   professor 60 s  = `teacher_timeout_seconds` (30 s) x 2 tentativas do SDK
+    #   professor 60 s  = `teacher_timeout_seconds` (30 s)
+    #                     x (`teacher_max_retries` + 1) = x2   <- CARD-026
     #   TTS        4 s  = `teacher_max_tokens` (700) ~ 2.800 chars x RTF 0,024
     #                     (Piper, medicao-latencia §9.1)
-    #   IO         5 s  = encode AAC + ~8 puts no S3 + commits (ADR-0034: 122 ms
-    #                     por chamada medidos)
+    #   IO         9 s  = encode AAC + ~8 puts no S3 + commits, sendo o teto de
+    #                     UM put pendurado ~9 s (CARD-026, medido)
     #   ------------------
-    #   pipeline  77 s
+    #   pipeline  87 s
     #
     # **E o fator de retentativa do arq entra, mas só sobre PARTE do pipeline.**
-    # A conta acima era o número inteiro enquanto o retry não existia; o mesmo
-    # CARD-025 o fez existir (ADR-0052), e `MAX_TRIES = 2` voltou a multiplicar.
     # Não multiplica tudo: a guarda do `ProcessTurn` só retenta **antes do
     # primeiro trecho entregue** (ADR-0037), então o que dobra é o pedaço até a
     # primeira frase falada:
     #
-    #   até o 1º trecho   ~69 s  = STT 8 + professor 60 + TTS da 1ª frase ~1
-    #   x MAX_TRIES (2)  ~138 s
+    #   até o 1º trecho   ~84 s  = storage 6 + STT 8 + professor 60 + TTS ~1
+    #                              + um put no teto ~9
+    #   x MAX_TRIES (2)  ~168 s
     #   + o resto           8 s  = demais trechos, encode, puts, commits
     #   ------------------
-    #   pior caso       ~146 s
+    #   pior caso       ~176 s
     #
-    # Os 300 s são **~2,05x** os 146 s — não os ~3,9x que esta conta dizia antes
-    # de o retry passar a existir. A folga encolheu pela metade e continua
-    # suficiente: ela cobre a espera na fila, onde com `MAX_JOBS = 1` (ADR-0025)
-    # um turn espera os que estão à frente e o p50 de um turn saudável é 2,34 s
-    # (ADR-0047).
+    # Os 300 s são **~1,70x** os 176 s.
     #
-    # **Gatilho para revisitar:** o CARD-026 vai mexer em timeout e backoff. Se
-    # ele encurtar o pior caso legítimo, esta folga cresce e o prazo pode cair;
-    # se acrescentar backoff ao `defer` do `arq.Retry` (hoje 0), o pior caso
-    # cresce e **este número tem de subir junto**.
+    # **A correção que o CARD-026 trouxe, e ela tem duas metades opostas.**
+    #
+    # Metade que ENCURTOU: o professor era `30 s x 3 requisições` = 90 s, não os
+    # 60 s que esta conta afirmava. `max_retries=2` do SDK são 2 RETENTATIVAS,
+    # logo 3 requisições — medido contra um socket que derruba a conexão, não
+    # lido. A conta antiga descrevia 2. O `teacher_max_retries = 1` do CARD-026
+    # não "consertou a conta": ele tornou verdadeiro o número que ela já dizia.
+    #
+    # Metade que ALONGOU: o storage não aparecia aqui de forma nenhuma, porque
+    # não tinha teto — e o teto real dos defaults do botocore era **315 s por
+    # chamada**, medido. Ou seja: o pior caso legítimo era MAIOR que este prazo
+    # de 300 s, e a varredura vinha matando turns que ainda podiam dar certo. A
+    # conta não estava só otimista; estava descrevendo um sistema em que o
+    # número que ela justificava não podia funcionar.
+    #
+    # A folga caiu de "2,05x sobre um número falso" para **1,70x sobre um número
+    # verdadeiro**, e o pior caso passou a ser FINITO pela primeira vez. Os
+    # 300 s ficam: eles cobrem a espera na fila, onde com `MAX_JOBS = 1`
+    # (ADR-0025) um turn espera os que estão à frente, e o p50 de um turn
+    # saudável é 2,34 s (ADR-0047).
+    #
+    # **Gatilho para revisitar:** subir `teacher_timeout_seconds`,
+    # `teacher_max_retries`, `s3_read_timeout` ou `s3_max_attempts` mexe nas
+    # parcelas acima — refaça a conta. Pôr backoff no `defer` do `arq.Retry`
+    # (hoje 0, ADR-0053 decisão 5) faz o pior caso crescer e **este número tem
+    # de subir junto**.
     #
     # Errar para o lado CURTO custa a fala do aluno — mata um turn que estava só
     # demorando. Para o lado longo custa espera que o aluno já perdeu de qualquer

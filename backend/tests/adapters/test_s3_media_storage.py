@@ -17,6 +17,8 @@ implementações divergem mais.
 from __future__ import annotations
 
 import asyncio
+import socket
+import threading
 import time
 from collections.abc import Iterator
 from datetime import timedelta
@@ -31,7 +33,10 @@ from testcontainers.core.container import DockerContainer
 from testcontainers.core.wait_strategies import HttpWaitStrategy
 
 from voicecoach.adapters.storage.lifecycle import apply_lifecycle
-from voicecoach.adapters.storage.s3_media_storage import S3MediaStorage
+from voicecoach.adapters.storage.s3_media_storage import (
+    S3MediaStorage,
+    create_media_storage,
+)
 from voicecoach.application.ports.media_storage import (
     MediaStorage,
     MediaStorageError,
@@ -425,3 +430,183 @@ def test_sem_endpoint_publico_a_assinatura_usa_o_mesmo_host() -> None:
     )
     assert publico.s3_signing_endpoint_url == "http://192.168.15.98:9000"
     assert publico.s3_endpoint_url == "http://localhost:9000"
+
+
+# --- CARD-026: o teto de tempo de parede, medido ----------------------------
+#
+# Estes testes NÃO usam o MinIO: eles precisam de uma dependência que não
+# responde, e um container saudável é o oposto disso. Um socket que aceita a
+# conexão e nunca escreve nada é o cenário "morto/lento" da §4.7 — e o `accept`
+# bem-sucedido é o ponto: se a porta estivesse fechada, o que se mediria era
+# `connect_timeout`, que é outro parâmetro e outro caminho no botocore.
+
+
+@pytest.fixture
+def buraco_negro() -> Iterator[str]:
+    """Um endpoint que aceita a conexão e nunca responde.
+
+    As conexões aceitas ficam guardadas em `abertas` de propósito: soltá-las
+    faria o SO fechar o socket, o `boto3` receberia um EOF e levantaria na hora
+    — e o teste mediria "conexão recusada" achando que mede timeout.
+    """
+    servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    servidor.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    servidor.bind(("127.0.0.1", 0))
+    servidor.listen(64)
+    porta = servidor.getsockname()[1]
+    abertas: list[socket.socket] = []
+    parar = threading.Event()
+
+    def aceitar() -> None:
+        while not parar.is_set():
+            try:
+                conexao, _ = servidor.accept()
+                abertas.append(conexao)
+            except OSError:
+                return
+
+    thread = threading.Thread(target=aceitar, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{porta}"
+    finally:
+        parar.set()
+        servidor.close()
+        for conexao in abertas:
+            conexao.close()
+
+
+def _storage_contra(endpoint: str, *, read_timeout: float, max_attempts: int) -> Any:
+    """Um `S3MediaStorage` com a MESMA forma de `Config` da produção.
+
+    A forma é o que importa: os três parâmetros juntos. Os valores são menores
+    só para o teste caber em segundos — a lei que ele afirma é a mesma.
+    """
+    cliente = boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=ACCESS_KEY,
+        aws_secret_access_key=SECRET_KEY,
+        region_name="us-east-1",
+        config=BotoConfig(
+            signature_version="s3v4",
+            connect_timeout=1.0,
+            read_timeout=read_timeout,
+            retries={"max_attempts": max_attempts, "mode": "standard"},
+        ),
+    )
+    return S3MediaStorage(cliente, BUCKET)
+
+
+async def test_storage_que_nao_responde_aborta_no_teto_configurado(
+    buraco_negro: str,
+) -> None:
+    """**Tempo de parede MEDIDO, não estimado** (DoD do card).
+
+    O que este teste protege é a diferença entre o que se configura e o que se
+    paga. Medido nesta sessão, contra este mesmo cenário:
+
+        hoje, antes deste card (60 s read, retries no default)  → 315 s
+        read_timeout=2 com `retries` intocado                   →  21 s
+        read_timeout=2 com max_attempts=1 (a forma escolhida)   →   6,5 s
+
+    Os 315 s são MAIORES que o `stale_turn_after` de 5 min: a varredura do
+    CARD-025 vinha matando o turn antes de o `put_object` desistir.
+    """
+    storage = _storage_contra(buraco_negro, read_timeout=0.5, max_attempts=1)
+
+    inicio = time.perf_counter()
+    with pytest.raises(MediaStorageError):
+        await storage.put(
+            reply_chunk_key(STUDENT, SESSION, TURN, 0, "m4a"), b"x" * 1024, "audio/mp4"
+        )
+    decorrido = time.perf_counter() - inicio
+
+    # Piso: se voltasse antes do `read_timeout`, o timeout não teria mordido e o
+    # teste estaria medindo outra coisa (uma conexão recusada, por exemplo).
+    assert decorrido >= 0.5
+    # Teto: 2 tentativas x (0,5 s + ~1,2 s do `Expect: 100-continue`) + backoff.
+    # A folga cobre a variação de máquina; o que não pode é ser da ordem de
+    # `read_timeout` x 5, que é o que o modo legacy dá.
+    assert decorrido < 6.0, f"teto estourado: {decorrido:.2f} s"
+
+
+async def test_o_numero_de_tentativas_e_max_attempts_MAIS_UM(  # noqa: N802 — o nome É a asserção
+    buraco_negro: str,
+) -> None:
+    """A lei medida, e ela **não** é o que o nome do parâmetro sugere.
+
+    `max_attempts=1` não dá uma tentativa: dá duas. Medido contra este cenário
+    nos dois modos (`standard` e `legacy`), e o `urllib3` está fora do circuito
+    — o botocore o chama com `Retry(False)`, então quem retenta é só ele.
+
+    Este teste existe porque a conta do `config.py` depende desse "+1". Se o
+    botocore mudar de comportamento, é aqui que aparece — e não num turn de
+    aluno demorando o dobro do que a documentação interna promete.
+    """
+    uma = _storage_contra(buraco_negro, read_timeout=0.5, max_attempts=1)
+    duas = _storage_contra(buraco_negro, read_timeout=0.5, max_attempts=2)
+    chave = reply_chunk_key(STUDENT, SESSION, TURN, 0, "m4a")
+
+    async def cronometra(storage: Any) -> float:
+        inicio = time.perf_counter()
+        with pytest.raises(MediaStorageError):
+            await storage.put(chave, b"x" * 1024, "audio/mp4")
+        return time.perf_counter() - inicio
+
+    curto = await cronometra(uma)
+    longo = await cronometra(duas)
+
+    # 3 tentativas contra 2: o tempo cresce, e cresce por uma tentativa inteira.
+    assert longo > curto
+
+
+def test_a_composicao_liga_os_TRES_parametros_de_uma_vez() -> None:  # noqa: N802 — o nome É a asserção
+    """Timeout sem `retries` é a armadilha do card: 10x o que se pediu.
+
+    O teste olha o `Config` efetivo do cliente montado pela composition root,
+    porque o modo de falha é silencioso — tudo funciona, só demora 10x mais, e
+    só quando a dependência já está com problema.
+    """
+    settings = Settings(anthropic_api_key="k", _env_file=None)  # type: ignore[call-arg]
+
+    storage = create_media_storage(settings)
+    try:
+        config = storage._client.meta.config
+
+        assert config.connect_timeout == settings.s3_connect_timeout
+        assert config.read_timeout == settings.s3_read_timeout
+        # **O botocore renomeia o parâmetro, e o nome novo é a prova do "+1".**
+        # Passa-se `max_attempts=1` e ele guarda `total_max_attempts=2`: o que
+        # se configura são RETENTATIVAS, o que acontece são tentativas. A
+        # medição contra um socket mudo tinha mostrado o mesmo (2 conexões para
+        # `max_attempts=1`); aqui está no vocabulário da própria biblioteca.
+        assert config.retries["total_max_attempts"] == settings.s3_max_attempts + 1
+        # `standard` e não `legacy`: o legacy tem outra lista de erros
+        # retentáveis e um teto próprio de 5 tentativas.
+        assert config.retries["mode"] == "standard"
+        # E o de sempre, que não pode ter se perdido no caminho: o MinIO só
+        # aceita v4.
+        assert config.signature_version == "s3v4"
+    finally:
+        storage.close()
+
+
+def test_o_storage_de_producao_tem_pool_proprio_e_ele_fecha() -> None:
+    """O bulkhead, e a prova de que ele não vaza threads.
+
+    Um executor sem `shutdown()` não dá erro: ele mantém threads vivas e o
+    processo não termina. O sintoma é a suíte demorando para encerrar, que
+    ninguém lê como falha — daí a asserção explícita.
+    """
+    settings = Settings(anthropic_api_key="k", _env_file=None)  # type: ignore[call-arg]
+    storage = create_media_storage(settings)
+
+    executor = storage._executor
+    assert executor is not None
+    assert executor._max_workers == settings.s3_executor_workers
+
+    storage.close()
+
+    assert executor._shutdown
+    storage.close()  # idempotente: chamar de novo não levanta

@@ -89,6 +89,7 @@ Escreva um ADR sempre que a decisão:
 | [0050](0050-o-feedback-volta-na-retomada-e-o-buraco-do-adr-0041-fecha.md) | O `feedback` volta na retomada, e o buraco do ADR-0041 fecha | aceito (completa 0041; depende do 0049) |
 | [0051](0051-usage-event-fora-do-agregado-com-custo-congelado-na-escrita.md) | `UsageEvent` fora do agregado, com o custo congelado na escrita | aceito (executa o item 3 do 0021; instrumenta o 0010) |
 | [0052](0052-o-retry-do-arq-e-explicito-e-a-marcacao-de-falha-mora-num-lugar-so.md) | O retry do `arq` é explícito, e a marcação de falha mora num lugar só | aceito (corrige uma premissa do 0005/0025; complementa 0023/0035/0037) |
+| [0053](0053-a-fronteira-externa-tem-teto-e-o-professor-tem-disjuntor.md) | A fronteira externa tem teto, e o professor tem disjuntor | aceito (corrige a conta do 0052; estende 0030/0031/0034) |
 
 ## ADRs pendentes de decisão de produto
 
