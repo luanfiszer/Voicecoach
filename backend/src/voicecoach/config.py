@@ -269,11 +269,29 @@ class Settings(BaseSettings):
     #   ------------------
     #   pipeline  77 s
     #
-    # **Não há fator de retentativa do arq nesta conta**, e essa é a correção que
-    # o CARD-025 trouxe: exceção comum não é retentada (medido — ADR-0052), então
-    # o `MAX_TRIES` nunca multiplicou nada. Os 300 s são ~3,9x os 77 s, e a folga
-    # cobre a espera na fila: com `MAX_JOBS = 1` (ADR-0025) um turn espera os que
-    # estão à frente, e o p50 de um turn saudável é 2,34 s (ADR-0047).
+    # **E o fator de retentativa do arq entra, mas só sobre PARTE do pipeline.**
+    # A conta acima era o número inteiro enquanto o retry não existia; o mesmo
+    # CARD-025 o fez existir (ADR-0052), e `MAX_TRIES = 2` voltou a multiplicar.
+    # Não multiplica tudo: a guarda do `ProcessTurn` só retenta **antes do
+    # primeiro trecho entregue** (ADR-0037), então o que dobra é o pedaço até a
+    # primeira frase falada:
+    #
+    #   até o 1º trecho   ~69 s  = STT 8 + professor 60 + TTS da 1ª frase ~1
+    #   x MAX_TRIES (2)  ~138 s
+    #   + o resto           8 s  = demais trechos, encode, puts, commits
+    #   ------------------
+    #   pior caso       ~146 s
+    #
+    # Os 300 s são **~2,05x** os 146 s — não os ~3,9x que esta conta dizia antes
+    # de o retry passar a existir. A folga encolheu pela metade e continua
+    # suficiente: ela cobre a espera na fila, onde com `MAX_JOBS = 1` (ADR-0025)
+    # um turn espera os que estão à frente e o p50 de um turn saudável é 2,34 s
+    # (ADR-0047).
+    #
+    # **Gatilho para revisitar:** o CARD-026 vai mexer em timeout e backoff. Se
+    # ele encurtar o pior caso legítimo, esta folga cresce e o prazo pode cair;
+    # se acrescentar backoff ao `defer` do `arq.Retry` (hoje 0), o pior caso
+    # cresce e **este número tem de subir junto**.
     #
     # Errar para o lado CURTO custa a fala do aluno — mata um turn que estava só
     # demorando. Para o lado longo custa espera que o aluno já perdeu de qualquer
