@@ -21,7 +21,7 @@ O diagnóstico card a card, a ordem e as decisões estão em
 | [008](CARD-008-adapter-tts-local-e-storage.md) | TTS por sentença + MediaStorage por trecho (**Piper venceu**) | 1 | backend/IA | M | 002, 006, 018 | **concluído** |
 | [009](CARD-009-fila-arq-e-worker-pipeline.md) | **Worker em cascata, modelos residentes, entrega parcial** | 1 | backend | **G** | 018, 006, 007, 008 | **concluído** |
 | [024](CARD-024-dockerfile-do-worker.md) | Dockerfile do worker, com os modelos dentro da imagem | 1 | infra | M | 009 | backlog |
-| [025](CARD-025-varredura-de-turns-travados.md) | Varredura de turns travados (job periódico do arq) | 1 | backend | P | 009 | backlog |
+| [025](CARD-025-varredura-de-turns-travados.md) | Varredura de turns travados (job periódico do arq) | 1 | backend | P | 009 | **concluído** — e achou um segundo buraco: o `arq` não retentava exceção comum, então o turn ficava `processing` para sempre pelo caminho normal de falha (ADR-0052) |
 | [010](CARD-010-endpoints-de-turn-idempotencia-polling.md) | **Endpoints de Turn: `/v1`, idempotência, Problem Details e SSE** | 1 | backend | M | 009, ADR-0026 | **concluído** |
 | [011](CARD-011-app-expo-tela-de-conversa-gravacao.md) | **App Expo: tela de conversa, gravação e os gates do cliente** | 1 | mobile | M | 001 | **concluído** (pendência: permissão negada permanentemente, em aparelho físico) |
 | [012](CARD-012-upload-polling-playback.md) | **Upload, consumo do stream e playback encadeado** (fecha a fatia) | 1 | mobile | M | 010, 011 | **concluído com dívida declarada** — p50 de 2,47 s no Simulador (alvo 2,4 s). O aparelho físico está **bloqueado pelo canal** (ADR-0048: Expo Go da loja no SDK 54), não por trabalho pendente |

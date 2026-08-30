@@ -991,3 +991,96 @@ async def test_a_janela_e_meio_aberta_e_nao_conta_o_mesmo_turn_duas_vezes(
 
     assert dentro.turns == 1
     assert fora.turns == 0
+
+
+# -- varredura de turns travados (CARD-025) ----------------------------------
+
+
+async def test_list_stale_acha_o_queued_que_o_worker_nunca_pegou(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """O caso que uma query sem `coalesce` deixaria invisível para sempre.
+
+    Um turn `queued` tem `started_processing_at` NULO, e `NULL < :before` é
+    `NULL` em SQL — não `true`. Sem o `coalesce`, este turn nunca apareceria, e
+    o teste do caso `processing` passaria mesmo assim: metade do card verde,
+    metade do buraco aberto.
+    """
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    turn = sessao_persistida.start_turn(
+        turn_id=uuid4(),
+        input_audio_ref="dev/entrada.m4a",
+        audio_duration=timedelta(seconds=4),
+        now=NOW - timedelta(minutes=10),
+    )
+    await repository.add(turn)
+    await db_session.commit()
+
+    achados = await repository.list_stale(before=NOW - timedelta(minutes=5), limit=10)
+
+    assert turn.id in achados
+
+
+async def test_list_stale_ignora_o_que_esta_dentro_do_prazo_e_o_que_terminou(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """Três turns, um só travado. É a query inteira exercitada de uma vez."""
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+
+    travado = await _turn_parado(
+        repository, sessao_persistida, NOW - timedelta(minutes=9)
+    )
+    recente = await _turn_parado(
+        repository, sessao_persistida, NOW - timedelta(minutes=1)
+    )
+    terminado = await _turn_parado(
+        repository, sessao_persistida, NOW - timedelta(hours=2)
+    )
+    terminado.fail("já resolvido", NOW - timedelta(hours=2))
+    await repository.update(terminado)
+    await db_session.commit()
+
+    achados = await repository.list_stale(before=NOW - timedelta(minutes=5), limit=10)
+
+    assert travado.id in achados
+    assert recente.id not in achados
+    assert terminado.id not in achados
+
+
+async def test_list_stale_devolve_os_mais_antigos_primeiro_e_respeita_o_limite(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """Sem `order_by` o Postgres não promete ordem nenhuma.
+
+    Com lote limitado, isso não é detalhe: o turn travado há mais tempo poderia
+    ficar de fora de toda rodada, para sempre — e a varredura convergiria em
+    todos os turns menos justamente o mais antigo.
+    """
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    mais_velho = await _turn_parado(
+        repository, sessao_persistida, NOW - timedelta(hours=3)
+    )
+    do_meio = await _turn_parado(
+        repository, sessao_persistida, NOW - timedelta(hours=2)
+    )
+    await _turn_parado(repository, sessao_persistida, NOW - timedelta(hours=1))
+    await db_session.commit()
+
+    achados = await repository.list_stale(before=NOW - timedelta(minutes=5), limit=2)
+
+    assert achados == [mais_velho.id, do_meio.id]
+
+
+async def _turn_parado(
+    repository: TurnRepository, sessao: Session, quando: datetime
+) -> Turn:
+    """Um turn em `processing` desde `quando`, gravado mas não comitado."""
+    turn = sessao.start_turn(
+        turn_id=uuid4(),
+        input_audio_ref="dev/entrada.m4a",
+        audio_duration=timedelta(seconds=4),
+        now=quando,
+    )
+    turn.start_processing(quando)
+    await repository.add(turn)
+    return turn

@@ -28,7 +28,7 @@ import time
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from arq import func, run_worker
+from arq import Retry, cron, func, run_worker
 from arq.connections import RedisSettings
 
 from voicecoach.adapters.events.redis_turn_events import RedisTurnEvents
@@ -50,6 +50,11 @@ from voicecoach.adapters.tts.factory import create_text_to_speech
 from voicecoach.application.use_cases.process_turn import (
     ProcessTurn,
     ProcessTurnHandler,
+    RetryableTurnFailureError,
+)
+from voicecoach.application.use_cases.sweep_stale_turns import (
+    SweepStaleTurns,
+    SweepStaleTurnsHandler,
 )
 from voicecoach.config import get_settings, preco_do_modelo
 from voicecoach.worker.readiness import WorkerReadiness
@@ -62,6 +67,12 @@ logger = logging.getLogger(__name__)
 # Duas tentativas, não três: o retry aqui só cobre falha ANTES do primeiro
 # trecho (a guarda está no caso de uso), e o que se protege é a intermitência de
 # rede — provedor fora do ar por mais tempo que isso não melhora na terceira.
+#
+# **Este número só passou a significar alguma coisa no CARD-025** (ADR-0052).
+# Até lá o caso de uso levantava a exceção crua achando que o `arq` a devolveria
+# à fila; medido, ele NÃO devolve — só `Retry`, `CancelledError` e `RetryJob`
+# caem no ramo de retry. `max_tries` sempre foi um teto sobre um contador que
+# nunca passava de 1. Quem faz a tradução agora é `process_turn`, aqui embaixo.
 MAX_TRIES = 2
 
 # Quantos turnos anteriores da sessão alimentam o professor. Cada turno são duas
@@ -190,14 +201,77 @@ async def process_turn(ctx: dict[str, Any], turn_id: str) -> None:
             stt_provider=ctx["stt_provider"],
             tts_provider=ctx["settings"].tts_provider.value,
         )
-        await handler.handle(
-            ProcessTurn(
-                turn_id=UUID(turn_id),
-                # A tradução de "mecânica de fila" para "o handler tem mais uma
-                # chance?". O caso de uso não conhece `job_try` nem `max_tries`.
-                final_attempt=tentativa >= MAX_TRIES,
+        try:
+            await handler.handle(
+                ProcessTurn(
+                    turn_id=UUID(turn_id),
+                    # A tradução de "mecânica de fila" para "o handler tem mais
+                    # uma chance?". O caso de uso não conhece `job_try` nem
+                    # `max_tries`.
+                    final_attempt=tentativa >= MAX_TRIES,
+                )
             )
+        except RetryableTurnFailureError as exc:
+            # **A outra metade da tradução, e a que faltava** (ADR-0052).
+            #
+            # `arq.Retry` é a ÚNICA forma de pedir reexecução: uma exceção comum
+            # cai no ramo `else` do `run_job`, que loga `failed` e encerra o job
+            # — medido contra o `arq` 0.28, não lido. Enquanto isso não existia,
+            # o turn ficava `processing` para sempre e o aluno, na tela de
+            # espera. Não é uma otimização: era um caminho de falha sem dono.
+            #
+            # A tradução mora aqui e não no caso de uso porque `application` não
+            # pode importar `arq` (ADR-0012) — o mesmo motivo pelo qual
+            # `final_attempt` é um `bool` e não o `ctx` do arq.
+            #
+            # `defer=0`: reexecutar imediatamente. O backoff que interessa já
+            # aconteceu dentro do adapter do professor (o SDK tenta 2x com
+            # espera própria); somar outro aqui só aumentaria o tempo em que o
+            # aluno olha uma tela sem saber de nada.
+            logger.warning("turn %s: pedindo nova tentativa ao arq (%s)", turn_id, exc)
+            raise Retry(defer=0) from exc
+
+
+async def sweep_stale_turns(ctx: dict[str, Any]) -> None:
+    """A varredura de turns travados, disparada pelo `cron_jobs` (CARD-025).
+
+    **`cron_jobs` é um scheduler EMBUTIDO no worker, e a diferença para um
+    `IHostedService` com `PeriodicTimer` é onde o relógio mora.** No .NET o timer
+    é do processo: duas réplicas, dois timers, duas execuções — e resolver isso é
+    o que leva ao Quartz com cluster e uma tabela de locks. No `arq` o relógio
+    também é de cada processo, mas o que ele faz na hora marcada é **enfileirar**
+    um job, e o `job_id` desse job é determinístico:
+
+        job_id = f'{cron_job.name}:{to_unix_ms(cron_job.next_run)}'
+
+    (`arq/worker.py`, no `run_cron`, com `unique=True` — o default de
+    `arq.cron`). Como o `enqueue_job` recusa um id que já existe, a segunda
+    réplica que tenta enfileirar a MESMA marca de tempo é rejeitada em silêncio.
+    **O arq resolve com o Redis o que o Quartz resolve com uma tabela** — sem
+    lock explícito, porque a unicidade é a própria chave.
+
+    O que ele NÃO resolve, e vale saber: relógios muito fora de sincronia entre
+    réplicas produzem `next_run` diferentes, logo ids diferentes, logo duas
+    execuções. Aqui isso é inofensivo — a varredura é idempotente, e o turn que a
+    segunda rodada encontrar já estará `failed`, caindo no ramo que ignora.
+
+    Não recebe parâmetro: o `ctx` já traz tudo, e o prazo é configuração.
+    """
+    settings = ctx["settings"]
+    session_factory = ctx["session_factory"]
+
+    async with session_factory() as session:
+        handler = SweepStaleTurnsHandler(
+            turns=SqlAlchemyTurnRepository(session),
+            unit_of_work=session,
+            events=ctx["events"],
+            clock=_agora,
+            # A config atravessa aqui, não lá dentro: `application` não pode
+            # importar `voicecoach.config` (ADR-0013).
+            stale_after=settings.stale_turn_after,
+            batch_limit=settings.stale_sweep_batch_limit,
         )
+        await handler.handle(SweepStaleTurns())
 
 
 class WorkerSettings:
@@ -215,6 +289,18 @@ class WorkerSettings:
     # os jobs já enfileirados. A borda publica pela mesma constante.
     functions = [  # noqa: RUF012 — contrato do arq, não é anotável
         func(process_turn, name=PROCESS_TURN_TASK)
+    ]
+    # A varredura do CARD-025. `second=0` com os demais campos nulos significa
+    # "todo minuto, no segundo zero" — a granularidade de detecção é, portanto,
+    # `stale_turn_after` + até 60 s, e é de propósito: um turn parado há 5 min não
+    # fica melhor por ser encontrado 30 s antes, e um cron mais frequente
+    # disputaria o `MAX_JOBS = 1` com o aluno vivo sem nada em troca.
+    #
+    # `run_at_startup` fica FALSO (o default). Ligá-lo faria toda subida de
+    # worker varrer — inclusive a subida que acontece logo depois de um deploy,
+    # quando os turns em voo estão legitimamente parados havia segundos.
+    cron_jobs = [  # noqa: RUF012 — contrato do arq, não é anotável
+        cron(sweep_stale_turns, second=0)
     ]
     on_startup = startup
     on_shutdown = shutdown
