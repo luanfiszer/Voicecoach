@@ -132,6 +132,24 @@ class FakeTurnRepository:
         concluidos.sort(key=lambda t: t.created_at)
         return concluidos[-limit:]
 
+    async def list_stale(self, *, before: datetime, limit: int) -> list[UUID]:
+        """Reproduz o ``coalesce`` do adapter, incluindo o caso ``queued``.
+
+        Um fake que só olhasse ``started_processing_at`` passaria em todos os
+        testes de ``processing`` e esconderia o buraco do turn que o worker nunca
+        pegou — que é metade do card.
+        """
+        from voicecoach.domain.turn import TurnStatus
+
+        parados = [
+            t
+            for t in self.turns.values()
+            if t.status in (TurnStatus.QUEUED, TurnStatus.PROCESSING)
+            and (t.started_processing_at or t.created_at) < before
+        ]
+        parados.sort(key=lambda t: t.started_processing_at or t.created_at)
+        return [t.id for t in parados[:limit]]
+
 
 class FakeUsageEventRepository:
     """Guarda o custo em memória, indexado por turn.

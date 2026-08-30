@@ -187,6 +187,39 @@ class SqlAlchemyTurnRepository:
         linhas = (await self._session.scalars(stmt)).all()
         return [mappers.turn_from_row(linha) for linha in reversed(linhas)]
 
+    async def list_stale(self, *, before: datetime, limit: int) -> list[UUID]:
+        """Os ids dos turns travados. **A única leitura deste repositório sem
+        ``_COM_FILHAS``, e a ausência é o desenho.**
+
+        Ela não mapeia entidade nenhuma: o ``select(TurnRow.id)`` traz colunas,
+        não linhas mapeadas, então não há coleção para o ``lazy="raise_on_sql"``
+        recusar. Quem varre relê cada turn pelo ``get`` — que carrega os trechos
+        por obrigação — e é de lá que sai o ``delivered_partially`` do evento.
+
+        ``coalesce`` e não dois ramos: um turn ``queued`` tem
+        ``started_processing_at`` nulo, e ``NULL < :before`` é ``NULL`` em SQL,
+        não ``true``. Sem o ``coalesce``, todo turn que o worker nunca pegou
+        ficaria invisível para a varredura **exatamente no caso** que o CARD-025
+        existe para cobrir — e o teste de status passaria, porque o caso de
+        ``processing`` funcionaria.
+
+        ``order_by`` pelo mesmo marco: com o lote limitado, o mais antigo é quem
+        tem mais direito à vaga. Sem ordenação explícita o Postgres não promete
+        ordem nenhuma, e o turn travado há uma hora poderia ficar de fora de toda
+        rodada, para sempre.
+        """
+        parado_desde = func.coalesce(TurnRow.started_processing_at, TurnRow.created_at)
+        stmt = (
+            select(TurnRow.id)
+            .where(
+                TurnRow.status.in_((TurnStatus.QUEUED, TurnStatus.PROCESSING)),
+                parado_desde < before,
+            )
+            .order_by(parado_desde.asc())
+            .limit(limit)
+        )
+        return list((await self._session.scalars(stmt)).all())
+
 
 class SqlAlchemyUsageEventRepository:
     """Implementa ``application.ports.repositories.UsageEventRepository``.

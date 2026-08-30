@@ -147,6 +147,36 @@ class TurnRepository(Protocol):
         """
         ...
 
+    async def list_stale(self, *, before: datetime, limit: int) -> list[UUID]:
+        """Os ids dos turns parados em ``queued``/``processing`` desde antes de
+        ``before`` — os candidatos da varredura do CARD-025.
+
+        **Devolve ids, não entidades, e a diferença é correção e não gosto.**
+        Uma lista de ``Turn`` seria uma foto: entre o SELECT e o ``update``, o
+        worker pode ter concluído o turn, e gravar a foto por cima escreveria
+        ``failed`` sobre um ``completed`` — a proteção de ``Turn.fail()`` não
+        dispararia, porque a entidade em memória ainda diria ``processing``. Com
+        o id, quem varre relê cada turn fresco pelo ``get`` e deixa o domínio
+        decidir. O custo é 1 + N queries num caminho raro; o benefício é que a
+        corrida com o worker vivo passa a ser impossível de ignorar.
+
+        Consequência de ordem prática: **esta query não carrega os trechos**, e
+        não precisa. Quem publica ``Failed`` lê ``delivered_partially`` do objeto
+        que veio do ``get``, e ali o eager load é obrigação do repositório
+        (``_COM_FILHAS``), não escolha de quem chama.
+
+        ``before`` é o instante-limite já calculado por quem conhece o prazo — o
+        repositório não sabe o que é "travado", só o que é "antes de". O marco
+        comparado é ``started_processing_at`` quando existe e ``created_at``
+        quando não (um turn ``queued`` nunca começou), para que a ausência do
+        primeiro não deixe um turn invisível para sempre.
+
+        ``limit`` é obrigatório e nomeado pelo mesmo motivo do ``list_by_session``,
+        com uma razão a mais: o worker roda com ``MAX_JOBS = 1`` (ADR-0025), e um
+        lote sem teto faria o aluno vivo esperar a varredura terminar.
+        """
+        ...
+
 
 class UsageEventRepository(Protocol):
     """Acesso ao custo real de cada turn (CARD-014, ADR-0051).

@@ -24,6 +24,16 @@ O projeto já tem **timeout no professor** (`config.py:188`), **retry no job**
 concorrência** (`max_jobs` no `WorkerSettings`). O que falta é o resto — e o
 que falta tem número.
 
+> **ATUALIZADO PELO CARD-025 (2026-08-29).** Quando este card foi escrito, o
+> "retry no job" **não existia**: o `arq` não retenta exceção comum, e o
+> `ProcessTurn` levantava a exceção crua achando que ela voltava para a fila —
+> medido, 1 chamada, não 2 ([ADR-0052](../adr/0052-o-retry-do-arq-e-explicito-e-a-marcacao-de-falha-mora-num-lugar-so.md)).
+> O CARD-025 o fez existir: o caso de uso levanta `RetryableTurnFailureError` e
+> `worker/main.py` traduz em `arq.Retry(defer=0)`. **Consequência para este
+> card:** a política de retry que ele vai desenhar tem agora um mecanismo real
+> em que se apoiar — e o `defer=0` provisório do CARD-025 é exatamente o lugar
+> onde o backoff exponencial com jitter deve entrar.
+
 ## Problema
 
 **1. O adapter de storage não tem timeout, e o default do botocore é maior que
@@ -53,7 +63,13 @@ processo: *"um serviço travado segura conexões, que seguram threads"*. O
 Com a Anthropic fora do ar, cada turn paga `teacher_timeout_seconds × 2`
 tentativas do SDK × `MAX_TRIES = 2` — até **~120 s** de espera por turn
 (`config.py:184-188` já documenta o 3× do SDK) — e todos os alunos pagam, um a
-um, porque nada guarda que o provedor está fora. O guia §01: *"Circuit Breaker
+um, porque nada guarda que o provedor está fora.
+
+> **CORRIGIDO PELO CARD-025:** até 2026-08-29 o fator `MAX_TRIES = 2` **não se
+> aplicava** (o retry não existia), então o pior caso real era ~60 s, não ~120 s.
+> Com o retry agora funcionando, **os ~120 s passaram a ser verdade** — e o
+> `defer=0` os torna consecutivos, sem espera entre as tentativas. Isso reforça
+> a urgência do circuit breaker em vez de reduzi-la. O guia §01: *"Circuit Breaker
 impede insistir num serviço morto"*.
 
 **4. Não está escrito o que o aluno vê.** Hoje o desfecho é `failed` com motivo.

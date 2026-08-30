@@ -254,6 +254,39 @@ class Settings(BaseSettings):
     # prazo é conexão vazando, e cada uma segura uma conexão de Redis.
     sse_timeout: timedelta = timedelta(seconds=60)
 
+    # --- Varredura de turns travados (CARD-025, ADR-0052) --------------------
+    # Depois de quanto tempo parado um turn é dado como perdido. **A conta, e
+    # não um número redondo** — é o pior caso LEGÍTIMO de um turn que ainda pode
+    # dar certo, medido, não estimado:
+    #
+    #   STT        8 s  = `max_turn_audio_duration` (120 s) x RTF 0,067
+    #                     (faster-whisper small.en float32, medicao-latencia §3.2)
+    #   professor 60 s  = `teacher_timeout_seconds` (30 s) x 2 tentativas do SDK
+    #   TTS        4 s  = `teacher_max_tokens` (700) ~ 2.800 chars x RTF 0,024
+    #                     (Piper, medicao-latencia §9.1)
+    #   IO         5 s  = encode AAC + ~8 puts no S3 + commits (ADR-0034: 122 ms
+    #                     por chamada medidos)
+    #   ------------------
+    #   pipeline  77 s
+    #
+    # **Não há fator de retentativa do arq nesta conta**, e essa é a correção que
+    # o CARD-025 trouxe: exceção comum não é retentada (medido — ADR-0052), então
+    # o `MAX_TRIES` nunca multiplicou nada. Os 300 s são ~3,9x os 77 s, e a folga
+    # cobre a espera na fila: com `MAX_JOBS = 1` (ADR-0025) um turn espera os que
+    # estão à frente, e o p50 de um turn saudável é 2,34 s (ADR-0047).
+    #
+    # Errar para o lado CURTO custa a fala do aluno — mata um turn que estava só
+    # demorando. Para o lado longo custa espera que o aluno já perdeu de qualquer
+    # forma, e que o CARD-032 ("Descartar") vai deixá-lo cortar à mão.
+    stale_turn_after: timedelta = timedelta(minutes=5)
+
+    # Teto do lote de UMA rodada da varredura. Existe por causa do `MAX_JOBS = 1`:
+    # o cron_job é um job, e enquanto ele roda nenhum turn de aluno é processado.
+    # 50 encerramentos são milissegundos; 500 numa rodada só seriam o aluno vivo
+    # esperando a limpeza. O que sobrar fica para a próxima rodada, um minuto
+    # depois — a varredura é convergente, não precisa ser exaustiva.
+    stale_sweep_batch_limit: int = Field(default=50, gt=0)
+
     # --- Proteção de custo (ADR-0010, visão §D) ------------------------------
     # Decimal, não float: dinheiro em binário de ponto flutuante acumula erro.
     # Equivalente mental exato: `decimal` do C#.
