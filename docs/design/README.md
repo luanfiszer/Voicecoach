@@ -5,6 +5,8 @@
 | `Design.pdf` | o entregável original do Claude Design (8 páginas, artboards em imagem) |
 | `prompt-claude-design-mobile.md` | o prompt que o gerou, em 2026-08-17 |
 | `artboards/` | as mesmas telas extraídas do PDF em PNG, **legíveis por qualquer sessão sem ferramenta externa** |
+| `briefing-produto-para-design-2026-08-27.html` | **o briefing entregue à designer** — regras de negócio, fluxos e o que é lei × o que está em aberto |
+| `briefing-produto-para-design-2026-08-27.pdf` | o mesmo, em PDF, para circular por e-mail |
 
 Os PNGs foram extraídos do próprio PDF (mesmas imagens, sem reprocessamento). O
 PDF não tem texto extraível — são páginas de imagem —, e a extração existe porque
@@ -111,3 +113,37 @@ e a consulta** que sustentam aquilo — e nasce antes.
 
 **O que está desenhado e foi recusado:** *"Avisar quando voltar"* (artboard 16) é
 push, cortado pela visão §F com gatilho escrito. Está em "Out" do CARD-027.
+
+## O briefing para a designer (2026-08-27)
+
+O briefing é o documento entregue a quem vai cuidar de UI/UX. Ele **não repete**
+este README: enquanto aqui está o histórico de como o design chegou onde chegou,
+lá está o que o produto faz hoje, escrito do ponto de vista de quem usa — sem
+`Turn`, `Session` nem `TurnStage`, com uma tabela de vocabulário amarrando os
+dois lados.
+
+O que ele carrega e vale conhecer antes de mexer em qualquer tela:
+
+- **a cascata explicada como mecanismo**, com os tempos medidos, e o que ela
+  **proíbe** na tela (nada de "aguarde", nada de barra de 3 passos, nada de
+  duração total durante a reprodução);
+- **cada regra marcada como Lei, Feito ou Aberto** — é a primeira pergunta de
+  quem entra num produto existente ("o que eu posso mudar?"), respondida regra a
+  regra em vez de em prosa;
+- **as seis perguntas em aberto**, da mais cara para a mais barata, começando
+  pela tela que não existe: professor falando enquanto o feedback ainda vem.
+
+**Ele é derivado do código e das decisões registradas, não de memória — e é uma
+foto, não um espelho.** Quando uma regra mudar aqui (um ADR novo, um card
+fechando uma decisão), a foto envelhece e nada avisa. Daí a **data no nome**: uma
+revisão nova é um arquivo novo, com a data do dia, e o anterior fica como
+registro do que a designer recebeu naquele momento. Vale reler as seções de regra
+ao fechar qualquer card das Fases 2 e 3.
+
+O HTML e o PDF têm o mesmo conteúdo; o PDF é a versão de papel (A4, seção nova a
+cada página, fontes embutidas) e o HTML é a versão que também está publicada como
+página, onde a designer pode comentar.
+
+Ele usa a paleta e a tipografia do próprio app (o artboard 17 e o
+`theme/tokens.ts`), de propósito: a designer já abre o documento vendo a
+linguagem visual com que vai trabalhar.
