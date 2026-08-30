@@ -50,7 +50,25 @@ class FabricaContada:
     def __call__(self, settings: Settings) -> object:
         self.chamadas += 1
         self.registro.append(f"carrega:{self.rotulo}")
-        return object()
+        return _RecursoFalso(self.registro, self.rotulo)
+
+
+class _RecursoFalso:
+    """Um recurso do `ctx` que sabe registrar o próprio fechamento.
+
+    Existe desde o CARD-026: o storage passou a ter um `ThreadPoolExecutor`
+    próprio (o bulkhead do ADR-0053), e um executor sem `shutdown()` mantém
+    threads vivas e o processo não termina. Como o sintoma disso NÃO é uma
+    falha — é a suíte demorando para encerrar —, o fechamento precisa ser
+    afirmado por um teste, não observado por acaso.
+    """
+
+    def __init__(self, registro: list[str], rotulo: str) -> None:
+        self._registro = registro
+        self._rotulo = rotulo
+
+    def close(self) -> None:
+        self._registro.append(f"fecha:{self._rotulo}")
 
 
 def _settings_de_teste() -> Settings:
@@ -154,6 +172,10 @@ async def test_o_shutdown_apaga_a_chave_e_devolve_as_conexoes(
 
     assert "ready:delete" in registro
     assert "engine:dispose" in registro
+    # CARD-026: o pool de threads só do storage também é recurso do processo, e
+    # fecha aqui. Sem esta linha, remover o `storage.close()` do `shutdown`
+    # passaria em todos os gates — e o worker deixaria de terminar.
+    assert "fecha:storage" in registro
 
 
 def test_o_arq_nao_consome_job_antes_de_o_startup_retornar() -> None:

@@ -58,6 +58,7 @@ from voicecoach.application.ports.teacher_llm import (
     LlmError,
     Speaker,
     SpokenSentence,
+    TeacherUnavailableError,
     TokenUsage,
     Utterance,
 )
@@ -115,6 +116,25 @@ FALHAS_DE_INFRAESTRUTURA = (
 REPROCESSAMENTO_APOS_ENTREGA = (
     "reprocessamento recusado: o aluno já ouviu parte desta resposta"
 )
+
+# **Motivo estável, e "estável" é o ponto** (CARD-026, D4; ADR-0053 decisão 6).
+# Todo outro motivo gravado num turn é `str(exc)` — texto que descreve a falha
+# para quem lê um log. Este é diferente: ele é a **única** informação com que o
+# app distingue "a dependência caiu" de "não deu para entender sua fala", e as
+# duas telas são outras. O CARD-027 desenha em cima dele e o CARD-033 precisa
+# que ele seja distinguível de "o produto pausou por orçamento".
+#
+# Constante e não interpolação da exceção porque um motivo que carrega o
+# `type(exc).__name__` muda quando alguém renomeia uma classe — e a tela do
+# aluno deixaria de casar sem que teste nenhum reclamasse.
+#
+# **Dívida declarada:** isto é um contrato por string, e string é o tipo mais
+# fraco que serve. O lugar certo é um campo estruturado no `Failed` e no `GET`,
+# com o `assert_never` do ADR-0039 cobrando exaustividade — o que muda a rota, o
+# schema e o client TypeScript. Fica para o CARD-027, que é quem tem a tela e
+# portanto quem sabe de quantos casos ela precisa. Gatilho: o segundo motivo que
+# o app precisar distinguir.
+PROVEDOR_INDISPONIVEL = "provedor indisponível: o professor não atendeu"
 
 
 class RetryableTurnFailureError(RuntimeError):
@@ -577,7 +597,7 @@ class ProcessTurnHandler:
         (ADR-0012).
         """
         if turn.audio_chunks or final:
-            await self._marcar_falha(turn, str(exc))
+            await self._marcar_falha(turn, _motivo(exc))
             return
         logger.warning(
             "turn %s falhou antes do primeiro trecho (%s); pedindo nova tentativa",
@@ -612,6 +632,24 @@ class ProcessTurnHandler:
         decidir o contrário sem perceber.
         """
         await publicar_tolerante(self._events, turn_id, event)
+
+
+def _motivo(exc: Exception) -> str:
+    """O que fica gravado no turn — e é o que o aluno acaba lendo.
+
+    Duas categorias, e a diferença é de quem é o problema:
+
+    - **o provedor não atendeu** (`TeacherUnavailableError`): estado transitório
+      e conhecido. Motivo constante, porque o app decide a tela por ele;
+    - **qualquer outra falha**: a mensagem da exceção, como sempre foi.
+
+    O `isinstance` é sobre o tipo da PORTA, não sobre o do SDK: `application` não
+    conhece `anthropic` (ADR-0012), e quem classificou "isto é indisponibilidade"
+    foi o adapter, que é quem tinha a informação para isso.
+    """
+    if isinstance(exc, TeacherUnavailableError):
+        return PROVEDOR_INDISPONIVEL
+    return str(exc)
 
 
 def _primeira_falha(grupo: BaseExceptionGroup[BaseException]) -> BaseException:

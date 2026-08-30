@@ -45,6 +45,30 @@ class LlmError(RuntimeError):
     """
 
 
+class TeacherUnavailableError(LlmError):
+    """O provedor não atendeu: conexão, prazo, 429 ou 5xx — **não** o conteúdo.
+
+    A distinção não é cosmética; ela é a pergunta que separa dois desfechos
+    diferentes para o aluno (CARD-026, D4) e alimenta duas decisões do sistema:
+
+    - o **breaker** conta *isto* e ignora falha de conteúdo. Um `spoken_reply`
+      fora do schema é o provedor **funcionando** e respondendo mal; abrir o
+      circuito por causa dele derrubaria o produto inteiro por um bug de prompt
+      — é o cenário "com erro" da §4.7 do prompt do card, e o que separa um
+      breaker útil de um que abre sozinho em produção;
+    - a **tela**: "o professor está indisponível, tente em instantes" é
+      transitório e verdadeiro; "não consegui entender sua fala" seria mentira.
+      O CARD-027 desenha em cima desta distinção e o CARD-033 precisa que ela
+      seja distinguível de "o produto pausou por orçamento".
+
+    Subclasse de ``LlmError`` de propósito: quem só quer saber "o professor
+    falhou?" (o `FALHAS_DE_INFRAESTRUTURA` do `ProcessTurn`) continua
+    funcionando sem mudar uma linha, e quem precisa da distinção a pede pelo
+    tipo. Herança como **refinamento** de um erro existente, não como categoria
+    nova ao lado dele.
+    """
+
+
 class Speaker(StrEnum):
     """Quem falou. Duas vozes, e a enum existe para não trafegar ``str`` cru."""
 

@@ -2,7 +2,7 @@
 
 - **ID:** CARD-026
 - **Épico:** Fase 2 — Proteção de margem (abre a fase)
-- **Plataforma:** backend · **Esforço:** M · **Status:** backlog
+- **Plataforma:** backend · **Esforço:** M · **Status:** concluído (2026-08-30)
 - **Dependências:** CARD-009 (concluído), CARD-012 (concluído — a latência
   medida é o critério); ADR-0030, ADR-0034, ADR-0037, ADR-0045
 
@@ -162,3 +162,106 @@ particular: o `ThreadPoolExecutor` por trás do `run_in_executor` **não** é o
 `HttpClientFactory` com handlers encadeados — em Python a política de resiliência
 é composta por decorator ou por wrapper explícito, não por pipeline registrado no
 contêiner de DI.
+
+---
+
+## Execução (2026-08-30)
+
+- **Status:** concluído
+- **Branch:** `card-026-resiliencia-na-fronteira-externa`
+- **ADR:** [ADR-0053](../adr/0053-a-fronteira-externa-tem-teto-e-o-professor-tem-disjuntor.md)
+- **Custo:** US$ 0,00 — nenhuma chamada à Anthropic. "Morto" e "lento" são um
+  socket que aceita e não responde; o resto é fake e MinIO local.
+
+### O achado que mudou o card: a requisição crua estava no professor, não no S3
+
+O card apontava o storage sem timeout (verdade, e corrigido). Mas o adapter do
+professor **não capturava exceção nenhuma**, e `AnthropicError` herda de
+`Exception`, não de `RuntimeError` — logo nenhuma casava com
+`FALHAS_DE_INFRAESTRUTURA`. Com a Anthropic fora do ar, a exceção atravessava o
+caso de uso inteiro: o turn não virava `failed`, o retry do CARD-025 não era
+pedido, e o aluno esperava até a varredura o encerrar 5 min depois. Era o único
+adapter dos cinco sem tradução de erro, e o único que fala com provedor pago.
+
+### As medições (o que substituiu os chutes)
+
+Defaults do `botocore`, contra um socket que aceita e nunca responde:
+
+| Configuração | Tempo de parede |
+|---|---|
+| como estava (60 s read, `retries` no default `legacy`) | **315 s** |
+| `read_timeout=2` sem tocar em `retries` (o erro comum) | 21 s |
+| escolhido: `read_timeout=3`, `max_attempts=1`, `standard` | ~9 s |
+
+Os 315 s são **maiores que o `stale_turn_after` de 5 min**: a varredura vinha
+matando turns antes de o `put_object` desistir.
+
+Lei do retry do botocore, medida nos dois modos: **conexões = `max_attempts` + 1**
+(o botocore normaliza `max_attempts=1` em `total_max_attempts=2` — o nome do
+parâmetro é que mente). Cada tentativa custa ainda ~1,2 s no `put_object`, do
+`Expect: 100-continue`.
+
+`put_object` real contra o MinIO, 10 amostras por tamanho:
+
+| Tamanho | p50 | max |
+|---|---|---|
+| trecho típico ~10 KB | 3,6 ms | 4,3 ms |
+| ~64 KB | 3,0 ms | 3,6 ms |
+| reply/full ~256 KB | 5,1 ms | 5,7 ms |
+| patológico ~2 MB | 19,4 ms | 23,6 ms |
+
+Camadas de retry, com o provedor morto: `max_retries=2` do SDK são **3**
+requisições HTTP (não 2); × 2 execuções da task pelo `arq` = **6 requisições e
+90 s**. Com `teacher_max_retries=1`: 2 × 2 = 4 requisições, 60 s.
+
+### Critérios de aceite
+
+| Critério | Desfecho | Evidência |
+|---|---|---|
+| storage que não responde aborta no timeout, abaixo do orçamento | ✅ | `test_storage_que_nao_responde_aborta_no_teto_configurado` mede e afirma o teto |
+| storage lento não consome o pool de CPU | ✅ **parcial** | pool próprio do storage (`test_o_storage_de_producao_tem_pool_proprio_e_ele_fecha`). STT/TTS/encoding seguem no pool default — ver dívidas |
+| professor indisponível em N chamadas ⇒ N+1 falha sem abrir conexão | ✅ | `test_com_o_circuito_aberto_a_falha_e_imediata_e_SEM_ABRIR_CONEXAO` conta invocações de `stream()`: para em 3 |
+| vencida a janela, a chamada seguinte tenta | ✅ | `test_vencida_a_janela_a_chamada_seguinte_tenta_de_novo` |
+| `put_object` repetido não duplica trecho | ✅ | idempotente por `(bucket, key)` derivada do turn (ADR-0024); o índice do trecho vem de `len(turn.audio_chunks)`, não do retry |
+| motivo distingue indisponibilidade de falha de conteúdo | ✅ | `PROVEDOR_INDISPONIVEL`, com os dois lados testados |
+
+### Gates (todos verdes, em `backend/`)
+
+```
+uv run ruff format --check src tests   117 files already formatted
+uv run ruff check src tests            All checks passed!
+uv run mypy                            Success: no issues found in 115 source files
+uv run lint-imports                    Contracts: 4 kept, 0 broken.
+uv run pytest --cov --cov-fail-under=80    378 passed — Total coverage: 93.27%
+uv run coverage report --include="*/domain/*,*/application/*" --fail-under=90   99%
+```
+
+**O gate morde** (injetada a violação e revertida): `from
+voicecoach.adapters.resilience import CircuitBreaker` em
+`application/use_cases/fail_turn.py` ⇒ *"voicecoach.application is not allowed to
+import voicecoach.adapters"*.
+
+### Regra do explicador
+
+Duas perguntas feitas **no ponto da decisão**, antes de qualquer código, sobre
+consequência observável (§6 do prompt do card):
+
+- **Q1** — *"com `read_timeout=2` e `retries` não configurado, quanto tempo de
+  parede leva um `put_object` contra uma porta que engole pacotes?"*
+- **Q2** — *"com o provedor morto, quantas requisições HTTP saem, e quantas
+  vezes a task inteira roda?"*
+
+**Desfecho das duas: dispensadas pelo desenvolvedor** (*"pula as perguntas"*) —
+registradas como dispensa, nunca como cumpridas (LEARNING-0004). Os experimentos
+rodaram assim mesmo porque bloqueavam os números, e o resultado está preso em
+teste: `test_o_numero_de_tentativas_e_max_attempts_MAIS_UM` e
+`test_storage_que_nao_responde_aborta_no_teto_configurado`.
+
+### Dívidas declaradas
+
+| Dívida | Gatilho / card |
+|---|---|
+| STT, TTS e encoding continuam no pool default | medição mostrando contenção de thread; hoje são ~2 threads contra um pool de 14 |
+| `PROVEDOR_INDISPONIVEL` é contrato por string, não campo estruturado | **CARD-027** (tem a tela e sabe de quantos casos precisa) |
+| Breaker com estado por processo | mais de uma réplica de worker chamando o professor (ADR-0053, alternativa C) |
+| Folga do `stale_turn_after` caiu para ~1,70× | refazer a conta ao mexer em `teacher_timeout_seconds`, `teacher_max_retries`, `s3_read_timeout` ou `s3_max_attempts` |

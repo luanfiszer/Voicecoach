@@ -7,9 +7,12 @@ Nenhum teste aqui toca a API. O que chama a rede vive em
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, cast
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any, cast
 
+import httpx2
 import pytest
+from anthropic import APIConnectionError, APIStatusError, APITimeoutError
 from fakes_llm import (
     FEEDBACK_COMPLETO,
     FakeClient,
@@ -20,6 +23,7 @@ from fakes_llm import (
 )
 
 from voicecoach.adapters.llm.anthropic_teacher import AnthropicTeacher
+from voicecoach.adapters.resilience import CircuitBreaker
 from voicecoach.application.ports.teacher_llm import (
     FeedbackReady,
     LlmError,
@@ -27,6 +31,7 @@ from voicecoach.application.ports.teacher_llm import (
     SpokenSentence,
     TeacherEvent,
     TeacherLlm,
+    TeacherUnavailableError,
     Utterance,
 )
 from voicecoach.domain.correction import CorrectionType, Severity
@@ -43,13 +48,26 @@ HISTORICO = [
 ]
 
 
-def adapter(cliente: FakeClient) -> AnthropicTeacher:
+def adapter(
+    cliente: FakeClient,
+    breaker: CircuitBreaker | None = None,
+) -> AnthropicTeacher:
     return AnthropicTeacher(
         cliente,
         model="claude-haiku-4-5",
         system_prompt="prompt de teste",
         max_tokens=700,
         timeout_seconds=30.0,
+        # Um breaker que nunca abre é o default dos testes que não são sobre
+        # ele: `failure_threshold` alto o basta para nenhum caso existente
+        # esbarrar nele. Quem testa o breaker passa o seu.
+        breaker=breaker
+        or CircuitBreaker(
+            failure_threshold=1_000_000,
+            recovery=timedelta(seconds=30),
+            clock=lambda: datetime(2026, 1, 1, tzinfo=UTC),
+            name="fake",
+        ),
     )
 
 
@@ -156,12 +174,26 @@ async def test_adapter_nao_guarda_estado_entre_duas_chamadas() -> None:
         assert len(chamada["messages"]) == len(HISTORICO)
 
 
-def test_adapter_so_guarda_configuracao() -> None:
-    """Inspeção direta: os atributos são os do construtor, e nada mais."""
+def test_adapter_so_guarda_configuracao_e_o_breaker() -> None:
+    """Inspeção direta: os atributos são os do construtor, e nada mais.
+
+    **O `_breaker` é a primeira exceção à regra "nada de estado entre
+    chamadas", e ela é deliberada** (CARD-026). O que o teste original proibia
+    era estado de CONVERSA — `_history` e `_last_reply` do protótipo, que faziam
+    a segunda chamada depender da primeira e travaram a evolução daquele código.
+    O breaker guarda estado sobre o **provedor**, não sobre o aluno: nenhuma
+    resposta muda por causa dele, e duas chamadas com o mesmo histórico
+    continuam dando a mesma saída (é o que o teste acima afirma).
+
+    A distinção vale escrita porque a próxima pessoa a acrescentar um atributo
+    aqui vai encontrar este teste e precisa saber qual dos dois casos é o seu.
+    """
     instancia = adapter(cliente_completo())
 
     guardado = {
-        nome: valor for nome, valor in vars(instancia).items() if nome != "_client"
+        nome: valor
+        for nome, valor in vars(instancia).items()
+        if nome not in ("_client", "_breaker")
     }
     assert guardado == {
         "_model": "claude-haiku-4-5",
@@ -169,6 +201,7 @@ def test_adapter_so_guarda_configuracao() -> None:
         "_max_tokens": 700,
         "_timeout": 30.0,
     }
+    assert isinstance(instancia._breaker, CircuitBreaker)
 
 
 # --- o fluxo completo, e a igualdade de dataclass que o torna asserível -------
@@ -346,3 +379,275 @@ async def test_papeis_do_historico_viram_user_e_assistant() -> None:
         "assistant",
         "user",
     ]
+
+
+# --- CARD-026: a fronteira externa deixa de ser uma requisição crua ----------
+#
+# Os três cenários da §4.7 do prompt do card são cenários DIFERENTES, e é fácil
+# escrever só o terceiro:
+#
+#   morto    — a conexão nem abre
+#   lento    — responde, mas depois do prazo
+#   com erro — responde rápido, com falha de conteúdo. NÃO abre o circuito
+#
+# O terceiro é o que separa um breaker útil de um que abre sozinho em produção.
+
+
+class ClienteQueFalha:
+    """Cliente do SDK que levanta onde o teste mandar.
+
+    `chamadas` é o que prova o critério "falha **sem abrir conexão**": com o
+    circuito aberto, `stream()` não é sequer invocado.
+    """
+
+    def __init__(self, erro: BaseException, *, no_aenter: bool = True) -> None:
+        self._erro = erro
+        self._no_aenter = no_aenter
+        self.chamadas = 0
+        self.messages = self
+
+    def stream(self, **kwargs: object) -> ClienteQueFalha:
+        self.chamadas += 1
+        return self
+
+    async def __aenter__(self) -> ClienteQueFalha:
+        if self._no_aenter:
+            raise self._erro
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    def __aiter__(self) -> ClienteQueFalha:
+        return self
+
+    async def __anext__(self) -> object:
+        # Falha DEPOIS de o stream ter aberto: o provedor demonstrou estar vivo.
+        raise self._erro
+
+
+class Relogio:
+    """Relógio controlado pelo teste — a janela de recuperação sem esperar 30 s."""
+
+    def __init__(self) -> None:
+        self.agora = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
+
+    def __call__(self) -> datetime:
+        return self.agora
+
+    def avanca(self, delta: timedelta) -> None:
+        self.agora += delta
+
+
+def breaker_de_teste(relogio: Relogio, *, limite: int = 3) -> CircuitBreaker:
+    return CircuitBreaker(
+        failure_threshold=limite,
+        recovery=timedelta(seconds=30),
+        clock=relogio,
+        name="professor (teste)",
+    )
+
+
+def _pedido() -> httpx2.Request:
+    return httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+
+
+def morto() -> APIConnectionError:
+    return APIConnectionError(request=_pedido())
+
+
+def lento() -> APITimeoutError:
+    return APITimeoutError(request=_pedido())
+
+
+def status(codigo: int) -> APIStatusError:
+    return APIStatusError(
+        f"HTTP {codigo}", response=httpx2.Response(codigo, request=_pedido()), body=None
+    )
+
+
+def _adapter_que_falha(
+    erro: BaseException, disjuntor: CircuitBreaker, *, no_aenter: bool = True
+) -> tuple[AnthropicTeacher, ClienteQueFalha]:
+    cliente = ClienteQueFalha(erro, no_aenter=no_aenter)
+    porta = AnthropicTeacher(
+        cast("Any", cliente),
+        model="claude-haiku-4-5",
+        system_prompt="prompt de teste",
+        max_tokens=700,
+        timeout_seconds=30.0,
+        breaker=disjuntor,
+    )
+    return porta, cliente
+
+
+@pytest.mark.parametrize(
+    ("rotulo", "erro"),
+    [
+        ("morto", morto()),
+        ("lento", lento()),
+        ("sobrecarregado (529)", status(529)),
+        ("rate limited (429)", status(429)),
+        ("erro do provedor (503)", status(503)),
+    ],
+)
+async def test_provedor_que_nao_atende_vira_erro_DA_PORTA(  # noqa: N802 — o nome É a asserção
+    rotulo: str, erro: BaseException
+) -> None:
+    """**O buraco que este card encontrou, e o maior deles.**
+
+    O adapter não capturava nada, e a hierarquia do SDK é
+    `AnthropicError -> Exception` — não `RuntimeError`. Nenhuma delas casava com
+    o `FALHAS_DE_INFRAESTRUTURA` do `ProcessTurn`, então o provedor fora do ar
+    atravessava o caso de uso INTEIRO sem ser capturado: o turn não era marcado
+    `failed`, o retry do CARD-025 não era pedido, e o aluno ficava na tela de
+    espera até a varredura o encerrar 5 minutos depois.
+
+    Se este teste um dia falhar porque o `anthropic` passou a herdar de
+    `RuntimeError`, a tradução continua certa — o que ela garante é o tipo da
+    PORTA, e é dele que o caso de uso depende.
+    """
+    relogio = Relogio()
+    porta, _ = _adapter_que_falha(erro, breaker_de_teste(relogio))
+
+    with pytest.raises(TeacherUnavailableError):
+        await coleta(porta)
+
+
+@pytest.mark.parametrize("codigo", [400, 401, 403, 404])
+async def test_erro_que_e_culpa_NOSSA_nao_vira_indisponibilidade(  # noqa: N802 — o nome É a asserção
+    codigo: int,
+) -> None:
+    """Chave errada não é "o provedor caiu", e a diferença tem consequência.
+
+    Um 401 tratado como indisponibilidade abriria o circuito e esconderia o
+    defeito atrás de uma tela de "serviço indisponível" que nunca se resolveria
+    sozinha — o produto ficaria fora do ar esperando um provedor que está bem.
+    """
+    relogio = Relogio()
+    disjuntor = breaker_de_teste(relogio)
+    porta, _ = _adapter_que_falha(status(codigo), disjuntor)
+
+    with pytest.raises(LlmError) as capturado:
+        await coleta(porta)
+
+    assert not isinstance(capturado.value, TeacherUnavailableError)
+    assert not disjuntor.aberto
+
+
+async def test_falha_de_CONTEUDO_nao_abre_o_circuito() -> None:  # noqa: N802 — o nome É a asserção
+    """**O terceiro cenário da §4.7, e o mais fácil de esquecer.**
+
+    O provedor responde rápido e bem; o que veio dentro é que está fora do
+    schema. Isso é o professor FUNCIONANDO e respondendo mal — tipicamente um
+    bug de prompt nosso. Um breaker que contasse isto abriria o circuito num dia
+    de deploy de prompt e derrubaria o produto inteiro, com a tela dizendo ao
+    aluno que o serviço está indisponível quando o serviço está ótimo.
+    """
+    relogio = Relogio()
+    disjuntor = breaker_de_teste(relogio, limite=2)
+    # Stream que fecha sem chamar a tool: `_entrada_da_tool` levanta `LlmError`.
+    cliente = FakeClient(em_pedacos('{"spoken_reply": "oi"}'), FakeMessage(content=[]))
+    porta: TeacherLlm = adapter(cliente, disjuntor)
+
+    for _ in range(10):
+        with pytest.raises(LlmError):
+            await coleta(porta)
+
+    assert not disjuntor.aberto
+
+
+async def test_falha_DEPOIS_de_o_stream_abrir_nao_conta_para_o_breaker() -> None:  # noqa: N802 — o nome É a asserção
+    """A janela do breaker termina no `__aenter__`, e é por isso que ele é nosso.
+
+    Se o stream abriu, o provedor está vivo — ele atendeu. Uma queda no meio
+    derruba o turn (vira `TeacherUnavailableError`, o aluno é avisado), mas não
+    é evidência de que o provedor esteja fora do ar, e contá-la faria o breaker
+    abrir por uma conexão instável de um aluno só.
+
+    **É esta linha que nenhuma biblioteca de breaker daria de graça:** todas
+    embrulham corrotina, cujo desfecho é um só no fim. Aqui há dois desfechos
+    distintos no meio de um gerador.
+    """
+    relogio = Relogio()
+    disjuntor = breaker_de_teste(relogio, limite=1)
+    porta, _ = _adapter_que_falha(morto(), disjuntor, no_aenter=False)
+
+    with pytest.raises(TeacherUnavailableError):
+        await coleta(porta)
+
+    assert not disjuntor.aberto
+
+
+async def test_com_o_circuito_aberto_a_falha_e_imediata_e_SEM_ABRIR_CONEXAO() -> None:  # noqa: N802 — o nome É a asserção
+    """Critério de aceite: o turn N+1 falha sem abrir conexão e em tempo desprezível.
+
+    `chamadas` conta invocações de `stream()` — o momento em que a requisição
+    seria montada. Depois de aberto o circuito, ele **para de crescer**: é isso
+    que transforma 60 s de espera por aluno em microssegundos, e é o que o card
+    quer dizer com "a falha é barata".
+    """
+    relogio = Relogio()
+    disjuntor = breaker_de_teste(relogio, limite=3)
+    porta, cliente = _adapter_que_falha(morto(), disjuntor)
+
+    for _ in range(3):
+        with pytest.raises(TeacherUnavailableError):
+            await coleta(porta)
+    assert cliente.chamadas == 3
+    assert disjuntor.aberto
+
+    for _ in range(20):
+        with pytest.raises(TeacherUnavailableError, match="circuito aberto"):
+            await coleta(porta)
+
+    assert cliente.chamadas == 3  # nenhuma conexão nova foi sequer montada
+
+
+async def test_vencida_a_janela_a_chamada_seguinte_tenta_de_novo() -> None:
+    """Critério de aceite: o circuito não fica aberto para sempre."""
+    relogio = Relogio()
+    disjuntor = breaker_de_teste(relogio, limite=1)
+    porta, cliente = _adapter_que_falha(morto(), disjuntor)
+
+    with pytest.raises(TeacherUnavailableError):
+        await coleta(porta)
+    with pytest.raises(TeacherUnavailableError, match="circuito aberto"):
+        await coleta(porta)
+    assert cliente.chamadas == 1
+
+    relogio.avanca(timedelta(seconds=31))
+
+    with pytest.raises(TeacherUnavailableError):
+        await coleta(porta)
+    assert cliente.chamadas == 2  # a sonda de fato tentou
+
+
+async def test_provedor_que_volta_fecha_o_circuito_e_o_produto_volta() -> None:
+    """O caminho de volta inteiro, que é o que justifica o breaker existir."""
+    relogio = Relogio()
+    disjuntor = breaker_de_teste(relogio, limite=1)
+    quebrado = ClienteQueFalha(morto())
+    saudavel = cliente_completo()
+    porta = AnthropicTeacher(
+        cast("Any", quebrado),
+        model="claude-haiku-4-5",
+        system_prompt="prompt de teste",
+        max_tokens=700,
+        timeout_seconds=30.0,
+        breaker=disjuntor,
+    )
+
+    with pytest.raises(TeacherUnavailableError):
+        await coleta(porta)
+    assert disjuntor.aberto
+
+    # O provedor volta: troca-se o cliente por um que responde, como se a rede
+    # tivesse se restabelecido entre um turn e outro.
+    porta._client = cast("Any", saudavel)
+    relogio.avanca(timedelta(seconds=31))
+
+    eventos = await coleta(porta)
+
+    assert not disjuntor.aberto
+    assert isinstance(eventos[-1], FeedbackReady)

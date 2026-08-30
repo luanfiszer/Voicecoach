@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
 import boto3
@@ -66,6 +67,7 @@ class S3MediaStorage:
         client: Any,  # noqa: ANN401 — ver abaixo
         bucket: str,
         signer: Any = None,  # noqa: ANN401 — mesmo motivo do `client`
+        executor: ThreadPoolExecutor | None = None,
     ) -> None:
         # `Any` é deliberado e não preguiça: o `boto3` monta os clientes em
         # RUNTIME a partir de arquivos JSON de serviço, então `client("s3")` não
@@ -80,6 +82,27 @@ class S3MediaStorage:
         # aparelho do aluno alcança (ADR-0045). Default `None` = o mesmo, para
         # que nada mude onde a separação não existe.
         self._signer = signer if signer is not None else client
+        # **O bulkhead** (ADR-0053, decisão 4). `None` = o pool default do event
+        # loop, que é o que os testes usam e o que este adapter fazia antes.
+        # Em produção quem passa um pool próprio é `create_media_storage`, e
+        # quem o FECHA é o `close()` aqui embaixo, chamado pela composition root.
+        self._executor = executor
+
+    def close(self) -> None:
+        """Encerra o pool próprio, se houver. Chamado pela composition root.
+
+        **Um executor sem `shutdown()` mantém threads vivas e o processo não
+        termina** — e o sintoma não é uma falha, é a suíte de testes demorando
+        para encerrar. Por isso o dono é explícito: `api/lifespan.py` na API e
+        `worker/main.py:shutdown` no worker, ao lado do `engine.dispose()` que
+        já existia.
+
+        `wait=False`: no desligamento não se espera um upload pendurado nos
+        segundos do timeout. `cancel_futures=True` descarta o que ainda nem
+        começou. Idempotente — chamar duas vezes não levanta.
+        """
+        if self._executor is not None:
+            self._executor.shutdown(wait=False, cancel_futures=True)
 
     async def put(self, key: str, data: bytes, content_type: str) -> None:
         """Grava o objeto **já com a tag de retenção** derivada da chave.
@@ -172,7 +195,7 @@ class S3MediaStorage:
         """
         loop = asyncio.get_running_loop()
         try:
-            return await loop.run_in_executor(None, fn)
+            return await loop.run_in_executor(self._executor, fn)
         except (ClientError, BotoCoreError) as exc:
             message = f"storage falhou em {getattr(fn, '__name__', fn)}: {exc}"
             raise MediaStorageError(message) from exc
@@ -190,7 +213,9 @@ class S3MediaStorage:
         """
         loop = asyncio.get_running_loop()
         try:
-            return await loop.run_in_executor(None, functools.partial(fn, **kwargs))
+            return await loop.run_in_executor(
+                self._executor, functools.partial(fn, **kwargs)
+            )
         except (ClientError, BotoCoreError) as exc:
             message = f"storage falhou em {getattr(fn, '__name__', fn)}: {exc}"
             raise MediaStorageError(message) from exc
@@ -211,6 +236,25 @@ def create_media_storage(settings: Settings) -> S3MediaStorage:
     **leitor** fará.
     """
 
+    # **Os três parâmetros de resiliência andam juntos, ou não andam**
+    # (ADR-0053, decisão 3). Configurar timeout e deixar `retries` no default é
+    # a armadilha do card: medido contra um socket que aceita e nunca responde,
+    # `read_timeout=2` sozinho dá **21 s** de tempo de parede, não 2 s.
+    #
+    # A lei, medida nos dois modos: **conexões que saem = `max_attempts` + 1**,
+    # e cada tentativa custa `read_timeout` + ~1,2 s no `put_object` (o
+    # `Expect: 100-continue` do upload). O `urllib3` está fora disto — o
+    # botocore o chama com `Retry(False)`, então quem retenta é só o botocore.
+    #
+    # `mode="standard"` e não `legacy`: o legacy tem outra lista de erros
+    # retentáveis e um teto próprio de 5 tentativas. Escolha, não default.
+    resiliencia = Config(
+        signature_version="s3v4",
+        connect_timeout=settings.s3_connect_timeout,
+        read_timeout=settings.s3_read_timeout,
+        retries={"max_attempts": settings.s3_max_attempts, "mode": "standard"},
+    )
+
     def montar(endpoint: str) -> Any:  # noqa: ANN401 — o boto3 não é tipado
         return boto3.client(
             "s3",
@@ -218,10 +262,17 @@ def create_media_storage(settings: Settings) -> S3MediaStorage:
             aws_access_key_id=settings.s3_access_key,
             aws_secret_access_key=settings.s3_secret_key,
             region_name=settings.s3_region,
-            config=Config(signature_version="s3v4"),
+            config=resiliencia,
         )
 
     client = montar(settings.s3_endpoint_url)
     assinatura = settings.s3_signing_endpoint_url
     signer = client if assinatura == settings.s3_endpoint_url else montar(assinatura)
-    return S3MediaStorage(client, settings.s3_bucket, signer)
+    # **O pool próprio nasce aqui e é fechado por quem chamou** — `close()`.
+    # `thread_name_prefix` não é cosmético: num `py-spy` ou num dump de threads
+    # é o que distingue "travado subindo áudio" de "travado transcrevendo".
+    executor = ThreadPoolExecutor(
+        max_workers=settings.s3_executor_workers,
+        thread_name_prefix="voicecoach-storage",
+    )
+    return S3MediaStorage(client, settings.s3_bucket, signer, executor)

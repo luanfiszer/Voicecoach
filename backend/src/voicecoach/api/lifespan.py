@@ -70,7 +70,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # `SUBSCRIBE` não aceita mais nenhum outro comando enquanto estiver ouvindo;
     # compartilhá-la com quem enfileira jobs travaria o POST no primeiro stream
     # aberto.
-    app.state.redis = redis.from_url(settings.redis_url)  # type: ignore[no-untyped-call]  # `from_url` perdeu a anotação no redis 5.3.1, que o arq fixa (ver adapters/health.py); gatilho: o arq aceitar redis>=6
+    #
+    # **`socket_connect_timeout` sim, `socket_timeout` NÃO** (CARD-026). Os dois
+    # parecem irmãos e um deles é armadilha: `socket_timeout` é o prazo de
+    # QUALQUER leitura do socket, e o `listen()` do pub/sub fica bloqueado à
+    # espera da próxima mensagem por tempo indeterminado — que é o
+    # comportamento correto, não uma falha. Configurá-lo derrubaria todo stream
+    # SSE ocioso com um `TimeoutError`, e o sintoma apareceria como
+    # "reconexões misteriosas" só nas sessões em que o aluno pensa antes de
+    # falar. O que precisa de teto aqui é o **estabelecimento** da conexão; o
+    # prazo do stream inteiro já existe e é o `sse_timeout` (ADR-0026, item 5).
+    app.state.redis = redis.from_url(  # type: ignore[no-untyped-call]  # `from_url` perdeu a anotação no redis 5.3.1, que o arq fixa (ver adapters/health.py); gatilho: o arq aceitar redis>=6
+        settings.redis_url,
+        socket_connect_timeout=settings.redis_connect_timeout,
+    )
 
     app.state.storage = create_media_storage(settings)
 
@@ -79,6 +92,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         await app.state.arq.aclose()
         await app.state.redis.aclose()
+        # O pool de threads só do storage (CARD-026, ADR-0053). Sem este
+        # `close()` as threads ficam vivas e o processo não termina — e o
+        # sintoma não é erro, é a suíte demorando para encerrar.
+        app.state.storage.close()
         # `dispose()` devolve as conexões do pool. Sem ele, subir e derrubar a
         # API num teste de integração vaza conexões entre casos.
         await engine.dispose()

@@ -159,6 +159,12 @@ async def shutdown(ctx: dict[str, Any]) -> None:
     readiness: WorkerReadiness | None = ctx.get("readiness")
     if readiness is not None:
         await readiness.stop()
+    # O pool de threads só do storage (CARD-026, ADR-0053). Mesmo motivo do
+    # `dispose()` abaixo: recurso aberto no `startup` fecha aqui, ou o processo
+    # não termina.
+    storage = ctx.get("storage")
+    if storage is not None:
+        storage.close()
     engine = ctx.get("engine")
     if engine is not None:
         await engine.dispose()
