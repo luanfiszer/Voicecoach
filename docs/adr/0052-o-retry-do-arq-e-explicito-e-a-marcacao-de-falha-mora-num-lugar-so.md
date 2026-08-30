@@ -69,9 +69,18 @@ a proteção de `Turn.fail()` disparasse, porque a entidade em memória ainda di
 derrube o lote. Um commit por turn, não um por rodada.
 
 **5. O prazo é `stale_turn_after = 5 min`, derivado do pior caso legítimo**, com
-a conta escrita no `config.py`: STT 8 s + professor 60 s + TTS 4 s + IO 5 s = 77 s
-de pipeline, ~3,9× de folga para a espera na fila. **Sem fator de retentativa do
-`arq`** — é o que a medição acima removeu da conta.
+a conta escrita no `config.py`. Ela tem duas parcelas, e a segunda é consequência
+da decisão 1 desta mesma ADR: o pipeline sem retry são 77 s (STT 8 + professor 60
++ TTS 4 + IO 5), mas como o retry **passou a existir**, o pedaço até o primeiro
+trecho (~69 s) dobra — a guarda do `ProcessTurn` só retenta antes dele
+(ADR-0037). Pior caso ≈ **146 s**, e os 300 s são ~2,05× isso.
+
+> **Erro corrigido no mesmo dia, e vale registrar por quê.** A primeira versão
+> desta conta dizia "sem fator de retentativa do `arq` — é o que a medição
+> removeu". Era verdade sobre o código **antes** da decisão 1, e falsa sobre o
+> código que esta mesma ADR produziu. A medição removeu o fator; a correção o
+> devolveu. É o modo de falha clássico de uma conta escrita no meio de uma
+> mudança: ela descreve o sistema de ontem com a autoridade de um número medido.
 
 ## O que a medição corrigiu no card, e no sentido contrário
 

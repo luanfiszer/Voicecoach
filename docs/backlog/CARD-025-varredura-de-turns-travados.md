@@ -189,9 +189,27 @@ Pior caso **legítimo** de um turn que ainda pode dar certo, escrito no
 | Encode + storage + commits | 5 s | ADR-0034 (122 ms medidos por chamada) |
 | **Pipeline** | **77 s** | |
 
-`stale_turn_after = 5 min` ≈ 3,9× os 77 s, com a folga cobrindo a espera na fila
-(`MAX_JOBS = 1`, p50 de 2,34 s por turn — ADR-0047). **Não há fator de
-retentativa do `arq` nesta conta**: ele não existe (ADR-0052).
+> **CORRIGIDO em 2026-08-29, ainda nesta sessão.** Esta conta parou de valer no
+> instante em que a D1 foi respondida: o retry do `arq` **passou a existir**, e
+> `MAX_TRIES = 2` voltou a multiplicar. Não multiplica tudo — a guarda do
+> `ProcessTurn` só retenta **antes do primeiro trecho** (ADR-0037):
+>
+> | | |
+> |---|---|
+> | até o 1º trecho | ~69 s (STT 8 + professor 60 + TTS da 1ª frase ~1) |
+> | × `MAX_TRIES` (2) | ~138 s |
+> | + o resto do pipeline | 8 s |
+> | **pior caso** | **~146 s** |
+>
+> `stale_turn_after = 5 min` é **~2,05×** os 146 s, não os ~3,9× que a versão
+> anterior desta seção afirmava. **O número continua certo; a justificativa
+> estava errada** — e como o card exigia "o prazo com a conta escrita", a conta
+> errada é um item da DoD não cumprido, não um detalhe. A folga encolheu pela
+> metade e continua cobrindo a espera na fila (`MAX_JOBS = 1`, p50 de 2,34 s —
+> ADR-0047).
+>
+> **Gatilho:** se o CARD-026 puser backoff no `defer` do `arq.Retry` (hoje 0), o
+> pior caso cresce e este prazo sobe junto.
 
 Cron a cada minuto ⇒ detecção entre 300 s e 360 s.
 
