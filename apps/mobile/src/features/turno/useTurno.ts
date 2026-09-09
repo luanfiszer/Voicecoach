@@ -401,6 +401,29 @@ export function useTurno(): Turno {
     [cliente, limpar, acompanhar],
   );
 
+  /**
+   * O turn fechou: registra os quatro intervalos e os gaps no log.
+   *
+   * **Existe porque a tela de conversa não mostra marcos** — quem os exibe é a
+   * rota `/medicao`, e ela usa um WAV fixo, não o microfone. Num aparelho
+   * físico, medir a fala REAL exige que o número saia por algum lugar; sem
+   * isto, o critério do CARD-037 depende de alguém cronometrar no olho.
+   */
+  useEffect(() => {
+    if (estado !== 'concluido' && estado !== 'falhou') return;
+    // Uma linha **por atualização de gap**, e não uma só: o `completed` chega
+    // enquanto o primeiro trecho ainda toca, então a linha final de cada turn é
+    // a última — que é a que tem os gaps completos. Tentei condicionar ao fim do
+    // playback e o log parou de sair: quando o instrumento e a medição competem,
+    // ganha o instrumento que registra demais, não o que registra de menos.
+    const i = intervalos(marcos);
+    console.info(
+      `[turno] ${estado} · up ${i.upload}ms · chunk ${i.ateOChunk}ms · ` +
+        `áudio ${i.ateOAudio}ms · TOTAL ${i.total}ms · ` +
+        `${trechos.length} trechos · gaps [${fila.gaps.join(', ')}]`,
+    );
+  }, [estado, marcos, trechos.length, fila.gaps]);
+
   // O primeiro instante audível vem da fila; ele é o quarto marco.
   useEffect(() => {
     if (fila.primeiroAudivelEm === null) return;

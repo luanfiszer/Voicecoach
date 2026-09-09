@@ -503,3 +503,57 @@ abrir, sem mensagem: é reconectar o cabo e rodar `pnpm run ios:device`.
 | A assinatura manual dos três frameworks pode voltar num build limpo | se voltar, investigar a fase `[CP] Embed Pods Frameworks`; o comando está registrado acima |
 | `S3_PUBLIC_ENDPOINT_URL` mora só no `.env` local, que não é versionado | **CARD-038** troca isso pelo túnel, que dá host estável aos dois lados |
 | Quando o IP do Mac muda, o app instalado precisa de recompilação | limitação do dev build (endereço gravado em build); o **CARD-038** também a elimina |
+
+---
+
+## Os números do aparelho (2026-09-09) — o critério de saída da Fase 1
+
+Cinco turns **com fala humana real**, gravados na tela de conversa do iPhone 17
+(iOS 26.6.1), backend na mesma LAN. Instrumento: os quatro marcos de
+`marcos.ts`, registrados no log ao fechar o turn.
+
+| Turn | upload | até o chunk | até o áudio | **TOTAL** | gaps |
+|---|---|---|---|---|---|
+| 1 | 235 ms | 1775 ms | 440 ms | **2450 ms** | 175, 155 |
+| 2 | 241 ms | 2476 ms | 320 ms | **3037 ms** | 175 |
+| 3 | 578 ms | 2281 ms | 298 ms | **3157 ms** | 244 |
+| 4 | 260 ms | 2755 ms | 325 ms | **3340 ms** | 772 |
+| 5 | 242 ms | 2497 ms | 297 ms | **3036 ms** | 358 |
+
+**p50 = 3037 ms** · gap p50 = **209 ms** · pior gap = **772 ms**
+
+### Comparação com o Simulador, e o que ela ensina
+
+| | Simulador (CARD-013) | **Aparelho** | Diferença |
+|---|---|---|---|
+| p50 ponta a ponta | 2340 ms | **3037 ms** | **+697 ms** |
+| gap entre trechos | 143 ms | **209 ms** | +66 ms |
+| alvo da fase | 2400 ms | — | **−637 ms** de distância |
+
+O alvo de 2,4 s **não foi atingido no aparelho**, e o número fica registrado
+assim mesmo — é o que este card pediu, e é o princípio do ADR-0048: número
+honesto vale mais que número bom.
+
+**Onde está o tempo, medido e não suposto:** a coluna do meio domina.
+"Até o chunk" é **~2,4 s dos 3,0 s** — isto é, o pipeline do servidor
+(STT → LLM → primeira sentença → TTS → upload do trecho). O que o aparelho
+acrescenta é pequeno e conhecido: upload ~250 ms e início do playback ~300 ms.
+
+Isso **muda para onde olhar** em qualquer trabalho futuro de latência: o
+gargalo não é o cliente, nem o transporte, nem a decodificação de AAC no
+iPhone — hipóteses que o card levantou como risco e que a medição derrubou.
+Otimizar o app renderia centenas de milissegundos no máximo; o caminho está no
+servidor.
+
+**O pior gap (772 ms) merece nota**: cinco dos seis gaps ficaram entre 155 e
+358 ms, e um destoou. Uma amostra não diz se é contenção de rede, de CPU ou do
+TTS produzindo a sentença seguinte mais devagar — fica registrado como
+observação, não como conclusão.
+
+### Critério da permissão — ainda em aberto
+
+O app foi desinstalado e reinstalado para zerar o estado de permissão (o que,
+como efeito colateral, **também apaga a confiança no certificado do
+desenvolvedor** — era o único app daquele Apple ID no aparelho). O ciclo de
+negar duas vezes **não chegou a ser concluído** nesta sessão. Segue como a
+única pendência de verificação do card, herdada do CARD-011.
