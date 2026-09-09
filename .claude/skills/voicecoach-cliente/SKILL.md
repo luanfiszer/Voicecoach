@@ -70,7 +70,9 @@ packages/api-client/src/
 | uma tela nova | `app/<rota>.tsx`, montando um componente de `src/features/` | ADR-0044 §3 |
 | estado de uma feature | um hook em `src/features/<nome>/use<Nome>.ts` | — |
 | cor, tamanho de fonte, alvo de toque | `src/theme/tokens.ts` — **nunca** hex no componente | design §17 |
-| um valor configurável (limite, URL) | `app.json > extra` + validação em `src/config.ts` | ADR-0044 §4 |
+| um valor configurável (limite, flag) | `app.json > extra` + validação em `src/config.ts` | ADR-0044 §4 |
+| o endereço do backend | **não fixe `localhost`**: o default é derivado do host do bundler; `extra.apiBaseUrl` é override explícito | ADR-0054 §6 |
+| uma chave de `Info.plist` (permissão de plataforma) | `app.json > expo.ios.infoPlist` — **nunca** o plist gerado | ADR-0054 §4 |
 | um tipo da API | `src/api/contrato.ts`, alias do gerado | ADR-0008 |
 | chamar a API | `criarCliente()` de `packages/api-client` — **nunca** montar URL à mão | ADR-0008, ADR-0046 |
 | dedup, recuo, reconexão, `AppState` | a máquina de estados **no app** — o client não faz nada disso | ADR-0046 §3 |
@@ -100,7 +102,15 @@ packages/api-client/src/
 - ❌ **`setTimeout` para limitar duração de gravação.** Mede o tempo do
   JavaScript, não o do microfone. Reaja a `durationMillis` (ADR-0044 §4).
 - ❌ **Sair para dev build porque algo não funcionou no Expo Go.** Isso é
-  **achado**, e vira ADR ou dívida no card (ADR-0002, ADR-0010).
+  **achado**, e vira ADR ou dívida no card (ADR-0002, ADR-0010). Em **iOS** o
+  achado já virou decisão: o dev build é o ambiente (ADR-0054) — o que não pode
+  é *descobrir isso de novo* em vez de ler o ADR.
+- ❌ **Editar `apps/mobile/ios/` à mão.** A pasta é **gerada** por
+  `expo prebuild` a partir do `app.json` e não é versionada: a edição some no
+  próximo build, sem aviso (ADR-0054 §4).
+- ❌ **`localhost` como endereço da API.** Funciona no Simulador e aponta para o
+  **próprio iPhone** no aparelho — a falha não se lê como configuração errada
+  (ADR-0054 §6).
 - ❌ **`any`, `!` (non-null assertion) e dependência de hook omitida.** São erro
   no Biome, não aviso (ADR-0043).
 - ❌ **`formData.append('audio', { uri, name, type })`.** É o idioma que todo
@@ -126,14 +136,17 @@ O terceiro existe porque no iOS, **depois da primeira negação**,
 terceiro com o **artboard 13** (microcopy pronta: "Precisamos do microfone" →
 *Abrir Ajustes* / *Agora não*).
 
-> **O Simulador não prova permissão.** O microfone é o do Mac e o estado
-> "negada permanentemente" não se reproduz. Esse fluxo se aceita **em aparelho
-> físico**, ou você testou outra coisa.
+> **O Simulador não prova três coisas** (ADR-0054 item 3), e isto é regra:
+> **o microfone** (ele não existe — medido: pico = 0, RMS = 0 em quatro
+> gravações, e o `tccd` do host não registra evento nenhum), **qualquer número
+> de latência**, e o estado **"negada permanentemente"**. Para os três, é
+> aparelho físico — ou você testou outra coisa.
 >
 > **E o aparelho físico não é alcançável por Expo Go** (ADR-0048): a App Store
-> está no SDK 54 e o projeto no 57. O caminho é `npx expo run:ios --device`
-> (dev build local, custo zero). Não invente que o Simulador basta — a dívida
-> está declarada no CARD-012, e ela é do canal, não do trabalho.
+> está no SDK 54 e o projeto no 57. O caminho é `pnpm run ios:device`
+> (= `expo run:ios --device`; dev build local, conta Apple gratuita, custo zero
+> — ADR-0054). O certificado **expira em 7 dias** e o sintoma é o app não abrir;
+> o procedimento está em `apps/mobile/README.md`.
 
 ## Áudio (ADR-0002, ADR-0044)
 

@@ -28,9 +28,34 @@ Regra em vigor:
 Uma só, pela regra nova: pergunta da sessão **imediatamente anterior** que ficou
 sem desfecho volta **uma** vez.
 
-**Nenhuma.** O CARD-026 (2026-08-30) fez as suas duas perguntas no ponto da
-decisão e as duas foram **dispensadas pelo desenvolvedor** — dispensa não volta
-na abertura seguinte (ela não é "sem desfecho"; o desfecho é a dispensa).
+**Nenhuma.** O CARD-037 (2026-09-09) fez as suas duas perguntas no ponto da
+decisão e **as duas foram respondidas** — nada fica pendente para a abertura
+seguinte.
+
+> **CARD-037 (2026-09-09): duas perguntas, as duas conferidas rodando.**
+>
+> - **Q1** *"o que o `expo prebuild` faz com um `Info.plist` que já existe?"* —
+>   feita **antes** de escrever `expo.ios.infoPlist` no `app.json`. Resposta:
+>   **"regenera a partir do `app.json`"**, e foi o que o prebuild real mostrou:
+>   as três chaves do plist gerado (`NSMicrophoneUsageDescription`,
+>   `NSLocalNetworkUsageDescription`, `NSAppTransportSecurity`) vieram todas da
+>   config. **O que a execução acrescentou:** sem `--clean` o prebuild *mescla*
+>   sobre o plist existente, com o `app.json` tendo precedência — então uma
+>   chave escrita à mão pode sobreviver até o primeiro `--clean`, o que é pior
+>   que sumir na hora, porque some **depois**, sem relação de causa visível.
+> - **Q2** *"o que aparece na tela hoje quando o backend está inalcançável?"* —
+>   feita **antes** de escrever o `ErroDeRede`. Resposta: **"algo genérico com
+>   status correto"** — a primeira metade certa, a segunda desmentida pela
+>   execução na hora: `TypeError: fetch failed`, **`status` não existe**, o host
+>   não aparece na mensagem. Não há status porque não houve resposta HTTP. Da
+>   resposta saiu o pedido *"ter uma forma de mapear esses erros com
+>   facilidade"*, que virou a separação implementada: `ErroDeRede` (sem status,
+>   nomeia o host, é diagnóstico de ambiente) × `ErroDaApi` (Problem Details,
+>   é o que o aluno lê).
+
+O CARD-026 (2026-08-30) tinha feito as suas duas perguntas no ponto da decisão e
+as duas foram **dispensadas pelo desenvolvedor** — dispensa não volta na abertura
+seguinte (ela não é "sem desfecho"; o desfecho é a dispensa).
 
 > **CARD-026 (2026-08-30): duas perguntas no ponto certo, as duas dispensadas.**
 > Feitas antes de qualquer código, sobre consequência observável, nas duas

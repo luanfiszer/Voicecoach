@@ -13,6 +13,7 @@ export {
   criarCliente,
   type EnvioDeTurn,
   ErroDaApi,
+  ErroDeRede,
   ErroDeStream,
   type EventoDoTurn,
   type OpcoesDoCliente,

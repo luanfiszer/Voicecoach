@@ -31,6 +31,71 @@ type Extra = {
   sseHabilitado: boolean;
 };
 
+/**
+ * A porta em que o backend escuta (`uvicorn --port 8000`).
+ *
+ * Constante, e não configuração: ela só é usada para *derivar* a URL do host do
+ * bundler. Quem roda o backend em outro lugar tem o caminho certo, que é
+ * `extra.apiBaseUrl` — uma configuração que já existe resolve melhor que duas.
+ */
+const PORTA_DA_API = 8000;
+
+/**
+ * De onde saiu o `apiBaseUrl` efetivo. Vai no log de arranque **junto com o
+ * valor**: saber que a URL é `http://192.168.0.12:8000` importa menos do que
+ * saber *por que* ela é essa.
+ */
+export type OrigemDaApi = 'extra' | 'bundler';
+
+/**
+ * O host do Metro, quando há um.
+ *
+ * `hostUri` é `"192.168.0.12:8081"` (ou `"127.0.0.1:8081"` no Simulador) e
+ * **só existe em desenvolvimento com o Expo CLI** — num build de produção ele é
+ * `undefined`, e é por isso que a ausência dele aqui não tem plano B silencioso.
+ */
+function hostDoBundler(): string | null {
+  const hostUri = Constants.expoConfig?.hostUri;
+  if (typeof hostUri !== 'string' || hostUri.length === 0) return null;
+  const host = hostUri.split('/')[0]?.split(':')[0];
+  return host && host.length > 0 ? host : null;
+}
+
+/**
+ * Resolve o `apiBaseUrl` em três degraus (ADR-0054 item 6).
+ *
+ * **`localhost` não pode ser default** (CARD-037): no Simulador ele funciona,
+ * porque o Simulador compartilha a pilha de rede do Mac; num iPhone ele aponta
+ * para o **próprio iPhone** e falha de um jeito que não se lê como configuração
+ * errada. Derivar do host do bundler resolve os dois ambientes sem editar nada,
+ * e sobrevive ao IP que o DHCP troca: se o Metro alcança o aparelho, o backend
+ * também alcança — é a mesma máquina.
+ */
+function resolverApiBaseUrl(bruto: unknown): { url: string; origem: OrigemDaApi } {
+  // 1. Override explícito. É o degrau que o CARD-038 vai usar quando o backend
+  //    sair da LAN e passar a viver atrás de um túnel.
+  if (typeof bruto === 'string' && bruto.length > 0) {
+    return { url: bruto, origem: 'extra' };
+  }
+  if (bruto !== undefined && bruto !== null) {
+    throw new Error(`extra.apiBaseUrl inválido: ${String(bruto)}`);
+  }
+
+  // 2. O host do bundler, com a porta da API.
+  const host = hostDoBundler();
+  if (host) {
+    return { url: `http://${host}:${PORTA_DA_API}`, origem: 'bundler' };
+  }
+
+  // 3. Nada resolveu. Falhar no arranque é melhor que falhar no meio da
+  //    primeira gravação do aluno.
+  throw new Error(
+    'Não foi possível resolver o endereço da API: não há `extra.apiBaseUrl` em ' +
+      'app.json e o app não está sendo servido pelo Expo CLI (sem `hostUri`). ' +
+      'Defina `expo.extra.apiBaseUrl` com a URL do backend.',
+  );
+}
+
 function lerExtra(): Extra {
   const bruto = Constants.expoConfig?.extra;
   if (!bruto) {
@@ -42,17 +107,22 @@ function lerExtra(): Extra {
     throw new Error(`extra.limiteGravacaoSegundos inválido: ${String(limite)}`);
   }
 
-  const url = bruto.apiBaseUrl;
-  if (typeof url !== 'string' || url.length === 0) {
-    throw new Error(`extra.apiBaseUrl inválido: ${String(url)}`);
-  }
+  const api = resolverApiBaseUrl(bruto.apiBaseUrl);
 
   const sse = bruto.sseHabilitado;
   if (typeof sse !== 'boolean') {
     throw new Error(`extra.sseHabilitado inválido: ${String(sse)}`);
   }
 
-  return { limiteGravacaoSegundos: limite, apiBaseUrl: url, sseHabilitado: sse };
+  // O critério de aceite do CARD-037 se lê no log de arranque: num aparelho
+  // físico, a primeira pergunta é sempre "com quem esse app está falando?".
+  console.info(`[config] apiBaseUrl=${api.url} (origem: ${api.origem})`);
+
+  return {
+    limiteGravacaoSegundos: limite,
+    apiBaseUrl: api.url,
+    sseHabilitado: sse,
+  };
 }
 
 export const config: Extra = lerExtra();
