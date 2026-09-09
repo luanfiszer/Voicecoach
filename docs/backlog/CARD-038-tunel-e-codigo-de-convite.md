@@ -63,6 +63,15 @@ certificado válido, e com URL estável no plano nomeado. Alternativa: `ngrok`,
 que o protótipo do `english_teacher_bot/` já usava, com URL que muda a cada
 reinício no free tier.
 
+> **O lado do app já está preparado — não invente mecanismo novo.** O CARD-037
+> ([ADR-0054](../adr/0054-o-ambiente-de-execucao-do-ios-e-o-dev-build-local.md)
+> item 6) resolve o `apiBaseUrl` em três degraus, e `apps/mobile/src/config.ts`
+> nomeia o primeiro deles como sendo deste card: *"override explícito — é o
+> degrau que o CARD-038 vai usar quando o backend sair da LAN e passar a viver
+> atrás de um túnel"*. Apontar o app para o túnel é preencher
+> `extra.apiBaseUrl`; a origem já vai para o log de arranque como `'extra'`.
+> A derivação pelo host do bundler continua servindo o desenvolvimento na LAN.
+
 > ### Decisão arquitetural embutida — **ADR obrigatório antes da implementação**
 >
 > Critério **4 de `docs/adr/README.md` — afeta segurança ou privacidade**, e

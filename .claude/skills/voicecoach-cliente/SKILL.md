@@ -110,7 +110,12 @@ packages/api-client/src/
   próximo build, sem aviso (ADR-0054 §4).
 - ❌ **`localhost` como endereço da API.** Funciona no Simulador e aponta para o
   **próprio iPhone** no aparelho — a falha não se lê como configuração errada
-  (ADR-0054 §6).
+  (ADR-0054 §6). Vale também para a **mídia**: URL assinada com host
+  inalcançável não toca, e reescrevê-la no cliente dá 403 (ADR-0045) — quem
+  resolve é `S3_PUBLIC_ENDPOINT_URL` no servidor.
+- ❌ **Contar com `Constants.expoConfig.hostUri` fora do Expo Go.** Ele vem do
+  *manifesto* do Expo CLI, e num **dev build é `undefined`** — medido no
+  CARD-037. O que existe nos dois é `SourceCode.scriptURL`.
 - ❌ **`any`, `!` (non-null assertion) e dependência de hook omitida.** São erro
   no Biome, não aviso (ADR-0043).
 - ❌ **`formData.append('audio', { uri, name, type })`.** É o idioma que todo

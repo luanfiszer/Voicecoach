@@ -2,7 +2,7 @@
 
 - **ID:** CARD-037
 - **Épico:** Fase 1 — fechamento honesto (o número que faltou)
-- **Plataforma:** mobile/infra · **Esforço:** M · **Status:** **preparação concluída — aguardando o aparelho** (sessão de 2026-09-09)
+- **Plataforma:** mobile/infra · **Esforço:** M · **Status:** **app rodando no iPhone, com áudio nos dois sentidos** (2026-09-09) — faltam os números (`p50`, gaps) e a permissão negada
 - **Dependências:** CARD-011, CARD-012, [ADR-0048](../adr/0048-o-expo-go-da-loja-ficou-para-tras-e-o-aparelho-fisico-vira-divida.md),
   [ADR-0002](../adr/0002-stack-de-cliente-expo-mais-web-separada.md),
   [ADR-0010](../adr/0010-politica-de-custo-projeto-pessoal.md)
@@ -430,3 +430,76 @@ própria explicação. Nada entra em `docs/perguntas-em-aberto.md` como pendênc
 | A copy de aluno para os Problem Details (415, 413, 422, 409, 503…) continua sendo o `title` cru do servidor | **CARD-027** — telas de exceção |
 | O `apiBaseUrl` derivado do bundler assume que Metro e backend são a mesma máquina | deixa de valer no **CARD-038** (túnel); o degrau `extra.apiBaseUrl` já existe para isso |
 | A fronteira `apps/` ↔ `packages/` continua sem gate automático | dívida antiga, registrada na skill `voicecoach-cliente` |
+
+---
+
+## Execução — parte 2: o aparelho na mão (mesma sessão, 2026-09-09)
+
+O roteiro acima foi executado **com o desenvolvedor operando o iPhone**. O app
+está instalado, abre, ouve e responde com áudio. Cinco obstáculos apareceram no
+caminho, e **nenhum deles era visível no Simulador** — é a tese do ADR-0054 se
+pagando no mesmo dia em que foi escrita.
+
+### O que aconteceu, em ordem
+
+| # | Sintoma | Causa real | Como se resolveu |
+|---|---|---|---|
+| 1 | `xcodebuild: Timed out waiting for all destinations` | **Modo de Desenvolvedor desligado** no iPhone (`developerModeStatus: disabled`, confirmado por `devicectl device info details`). Era também o motivo do aparelho ficar preso em `connected (no DDI)` por 10 min | *Ajustes → Privacidade e Segurança → Modo de Desenvolvedor* + reinício |
+| 2 | `no member named 'executeSync' in 'worklets::WorkletRuntime'` | `expo-modules-core@57.0.12` declara peer `react-native-worklets ^0.7.4…^0.10.0`; o `expo-router` puxa **0.12.1** via `@expo/ui`, e o pnpm só avisa. **Esse arquivo nunca tinha sido compilado**: no Simulador ele vem pronto dentro do cliente Expo | `expo install --fix` (decisão do desenvolvedor entre duas rotas). A `57.0.17` já usa `runSync`, o nome novo |
+| 3 | `ApplicationVerificationFailed` a 40% da instalação, com `Build Succeeded` | `hermesvm.framework`, `ReactNativeDependencies.framework` e `ExpoModulesJSI.framework` embutidos **sem assinatura** (`No code signature found`) — os três pré-compilados que o RN 0.86 baixa prontos | `codesign` nos três + reassinatura do `.app`; o build incremental seguinte já instalou sozinho |
+| 4 | O erro alto do `config.ts` na primeira abertura | **`Constants.expoConfig.hostUri` é `undefined` no dev build** — ele vem do manifesto que o CLI entrega ao Expo Go, e aqui não há manifesto | degrau 2 passou a usar `SourceCode.scriptURL` (ADR-0054 item 6, com a correção registrada lá) |
+| 5 | App ouvia, transcrevia, e **não saía som** | as URLs assinadas da mídia apontavam para `http://localhost:9000` — no iPhone, o próprio iPhone. Já decidido no ADR-0045: quem assina com host alcançável é o servidor | `S3_PUBLIC_ENDPOINT_URL` no `.env` do backend. **Com nome mDNS, não IP** — ver abaixo |
+
+### O DHCP trocou o IP no meio da sessão — ao vivo
+
+O risco escrito na seção "Riscos" deste card aconteceu **durante a execução**:
+o Mac saiu de `192.168.15.98` para `.99`. Duas consequências opostas, e é o
+argumento mais forte a favor do desenho escolhido:
+
+- **o app se ajustou sozinho** — o degrau 2 deriva o host de onde o JavaScript
+  veio, então o arranque seguinte logou `apiBaseUrl=http://192.168.15.99:8000`
+  sem ninguém editar nada;
+- **a configuração do backend não** — o `S3_PUBLIC_ENDPOINT_URL` que eu tinha
+  acabado de escrever com o IP ficou obsoleto em minutos. Por isso ele passou a
+  usar o **nome mDNS** do Mac (`MacBook-Air-de-Luan.local:9000`), que sobrevive à
+  troca. O dev build, porém, **grava o endereço do bundler em tempo de
+  compilação**: quando o IP muda, o app existente responde `No script URL
+  provided` e é preciso recompilar (incremental, ~2 min).
+
+### Critérios de aceite — verificados
+
+| Critério | Situação | Evidência |
+|---|---|---|
+| `apiBaseUrl` efetivo no log, não `localhost` | ✅ **cumprido** | `INFO [config] apiBaseUrl=http://192.168.15.99:8000 (origem: bundler)`, em arranque limpo, com o IP **derivado** depois da troca do DHCP |
+| fala real com pico > 0 e transcrição correspondente | ✅ **cumprido** | 7 turns saíram do iPhone (`192.168.15.69`), todos `202 Accepted`. Um deles: `transcript = 'Can you search in the web to know what the last result?'`, `status: completed`, 2 trechos, 0 falhas — **o oposto exato do `'You'` do Simulador** |
+| erro nomeia o host inalcançável | ✅ **cumprido, sem simulação** | quando a API caiu de verdade: `[turno] falhou no envio: [ErroDeRede: não foi possível alcançar http://192.168.15.98:8000 (fetch failed: …)]`. Foi essa mensagem que apontou o backend morto em segundos |
+| áudio da resposta tocando no aparelho | ✅ **cumprido** | confirmado pelo desenvolvedor após a correção do `S3_PUBLIC_ENDPOINT_URL` |
+| `p50` de 5 turns consecutivos | ❌ **em aberto** | os 7 turns foram de depuração, não de medição; os marcos não foram colhidos |
+| gap entre trechos comparado ao do Simulador (< 150 ms) | ❌ **em aberto** | idem |
+| `negada-permanentemente` + `Linking.openSettings()` | ❌ **em aberto** | exige desinstalar, reinstalar e negar duas vezes — não foi exercitado |
+| gates verdes, backend sem alteração de código | ✅ **cumprido** | ver evidência 4 da parte 1; o backend mudou só de **configuração** (`.env`, que não é versionado) |
+
+**Quatro dos sete critérios estão cumpridos com evidência real de aparelho, três
+seguem abertos.** Os três que faltam são de medição e de permissão — nenhum deles
+depende de código novo, só de uma sessão curta com o iPhone.
+
+### Certificado — a conta dos 7 dias
+
+```
+Perfil : iOS Team Provisioning Profile: com.luanfiszer.voicecoach
+Team   : 3S867CUU3L (Luan Fiszer) — conta gratuita
+Device : 00008150-001935411E46401C
+Expira : 2026-09-16
+```
+
+**Instalado em 2026-09-09, expira em 2026-09-16.** Depois disso o app deixa de
+abrir, sem mensagem: é reconectar o cabo e rodar `pnpm run ios:device`.
+
+### Dívidas novas desta parte
+
+| Dívida | Gatilho / onde resolve |
+|---|---|
+| `p50`, gap e permissão negada continuam sem número | sessão curta com o iPhone; o app já está instalado e o roteiro acima vale |
+| A assinatura manual dos três frameworks pode voltar num build limpo | se voltar, investigar a fase `[CP] Embed Pods Frameworks`; o comando está registrado acima |
+| `S3_PUBLIC_ENDPOINT_URL` mora só no `.env` local, que não é versionado | **CARD-038** troca isso pelo túnel, que dá host estável aos dois lados |
+| Quando o IP do Mac muda, o app instalado precisa de recompilação | limitação do dev build (endereço gravado em build); o **CARD-038** também a elimina |

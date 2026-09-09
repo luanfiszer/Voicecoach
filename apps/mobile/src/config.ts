@@ -16,6 +16,7 @@
  */
 
 import Constants from 'expo-constants';
+import { NativeModules } from 'react-native';
 
 type Extra = {
   limiteGravacaoSegundos: number;
@@ -48,16 +49,44 @@ const PORTA_DA_API = 8000;
 export type OrigemDaApi = 'extra' | 'bundler';
 
 /**
- * O host do Metro, quando há um.
+ * O módulo nativo que sabe de onde o JavaScript foi carregado.
  *
- * `hostUri` é `"192.168.0.12:8081"` (ou `"127.0.0.1:8081"` no Simulador) e
- * **só existe em desenvolvimento com o Expo CLI** — num build de produção ele é
- * `undefined`, e é por isso que a ausência dele aqui não tem plano B silencioso.
+ * Sem paralelo em C#: não é configuração nem variável de ambiente — é o próprio
+ * runtime dizendo qual URL serviu o código que está executando agora.
+ */
+type SourceCode = {
+  scriptURL?: string;
+  getConstants?: () => { scriptURL?: string };
+};
+
+/**
+ * O host do Metro, quando há um. **Duas fontes, porque os dois ambientes de
+ * desenvolvimento respondem de formas diferentes** (medido no CARD-037):
+ *
+ * | Ambiente | `Constants.expoConfig.hostUri` | `SourceCode.scriptURL` |
+ * |---|---|---|
+ * | Expo Go | `"192.168.0.12:8081"` | a URL do bundle |
+ * | **dev build** | **`undefined`** | a URL do bundle |
+ * | produção | `undefined` | `file://…` (sem host) |
+ *
+ * O `hostUri` vem do *manifesto* que o Expo CLI entrega ao Expo Go — e num dev
+ * build **não há manifesto**, porque o app é o seu próprio host (ADR-0054). O
+ * que sobra em ambos é de onde o JavaScript veio, que é o que se quer saber.
  */
 function hostDoBundler(): string | null {
   const hostUri = Constants.expoConfig?.hostUri;
-  if (typeof hostUri !== 'string' || hostUri.length === 0) return null;
-  const host = hostUri.split('/')[0]?.split(':')[0];
+  if (typeof hostUri === 'string' && hostUri.length > 0) {
+    const host = hostUri.split('/')[0]?.split(':')[0];
+    if (host && host.length > 0) return host;
+  }
+
+  const modulo = NativeModules.SourceCode as SourceCode | undefined;
+  const scriptURL = modulo?.getConstants?.().scriptURL ?? modulo?.scriptURL;
+  // Em produção o bundle é `file://…`: não há host, e cair aqui é o caminho
+  // certo para o erro alto do terceiro degrau.
+  if (typeof scriptURL !== 'string' || !scriptURL.startsWith('http')) return null;
+  const semEsquema = scriptURL.split('://')[1];
+  const host = semEsquema?.split('/')[0]?.split(':')[0];
   return host && host.length > 0 ? host : null;
 }
 
@@ -81,7 +110,7 @@ function resolverApiBaseUrl(bruto: unknown): { url: string; origem: OrigemDaApi 
     throw new Error(`extra.apiBaseUrl inválido: ${String(bruto)}`);
   }
 
-  // 2. O host do bundler, com a porta da API.
+  // 2. O host de onde o JavaScript veio, com a porta da API.
   const host = hostDoBundler();
   if (host) {
     return { url: `http://${host}:${PORTA_DA_API}`, origem: 'bundler' };
@@ -91,7 +120,7 @@ function resolverApiBaseUrl(bruto: unknown): { url: string; origem: OrigemDaApi 
   //    primeira gravação do aluno.
   throw new Error(
     'Não foi possível resolver o endereço da API: não há `extra.apiBaseUrl` em ' +
-      'app.json e o app não está sendo servido pelo Expo CLI (sem `hostUri`). ' +
+      'app.json e o JavaScript não veio de um bundler por HTTP. ' +
       'Defina `expo.extra.apiBaseUrl` com a URL do backend.',
   );
 }

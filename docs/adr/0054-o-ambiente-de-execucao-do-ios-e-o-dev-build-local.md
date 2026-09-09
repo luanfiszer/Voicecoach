@@ -79,11 +79,21 @@ override explícito e erro alto quando nenhum dos dois resolve.**
 6. **A resolução do `apiBaseUrl` tem três degraus, nesta ordem:**
    1. `extra.apiBaseUrl`, quando presente — **override explícito**, que é o que
       o CARD-038 vai usar quando o backend sair da LAN;
-   2. o host do bundler (`Constants.expoConfig.hostUri`) com a porta da API — no
-      aparelho, esse host **já é o IP do Mac na LAN**, porque o Metro e o backend
-      são a mesma máquina;
+   2. **o host de onde o JavaScript veio**, com a porta da API — no aparelho,
+      esse host **já é o IP do Mac na LAN**, porque o Metro e o backend são a
+      mesma máquina;
    3. nada resolveu ⇒ **erro alto no import**, dizendo o que configurar.
    O valor efetivo e a **origem** dele são registrados no log de arranque.
+
+   > **Correção feita na própria sessão, com o aparelho na mão.** A primeira
+   > versão deste item dizia "o host do bundler (`Constants.expoConfig.hostUri`)".
+   > **`hostUri` é `undefined` num dev build**: ele vem do *manifesto* que o Expo
+   > CLI entrega ao Expo Go, e um dev build não tem manifesto — o app é o próprio
+   > host. O que existe nos dois ambientes é `SourceCode.scriptURL`, a URL de
+   > onde o bundle foi carregado, e é dela que o host é extraído (`hostUri`
+   > continua sendo tentado primeiro, para o Expo Go). Quem revelou isso foi o
+   > erro alto do degrau 3, disparando na primeira abertura no iPhone: a decisão
+   > de falhar barulhento se pagou antes de o card fechar.
 7. **Falha de rede nomeia o host.** O client passa a envolver a falha de
    transporte num `ErroDeRede` que carrega a `baseUrl` tentada. O `fetch` do
    React Native devolve `TypeError: Network request failed` — sem host, sem
@@ -177,6 +187,20 @@ override explícito e erro alto quando nenhum dos dois resolve.**
   motivo de ele existir.
 - **Uma configuração nativa a mais para lembrar** (`NSLocalNetworkUsageDescription`),
   num arquivo que ninguém edita diretamente porque é gerado.
+
+## O que só o aparelho revelou (sessão de 2026-09-09)
+
+Cada item abaixo é a tese deste ADR se pagando — e **nenhum deles era visível no
+Simulador**, porque lá nada disso é compilado, assinado ou roteado:
+
+| Achado | Por que ficou invisível até aqui |
+|---|---|
+| **`expo-modules-core` não compila contra `react-native-worklets@0.12`** (`no member named 'executeSync'`) | o `peerDependencies` pede `^0.7.4…^0.10.0`, o `expo-router` puxa `0.12.1` via `@expo/ui`, e o pnpm só **avisa**. No Simulador o `expo-modules-core` vinha pré-compilado dentro do cliente Expo: **ninguém nunca tinha compilado esse arquivo**. Resolvido alinhando o SDK (`expo install --fix`), cuja `57.0.17` já usa `runSync` |
+| **Três frameworks pré-compilados são embutidos sem assinatura** (`hermesvm`, `ReactNativeDependencies`, `ExpoModulesJSI`) | `Build Succeeded`, e o iOS recusa na instalação: `ApplicationVerificationFailed`. Assinatura de código não existe no Simulador |
+| **O iPhone recusa app de desenvolvimento com o Modo de Desenvolvedor desligado** | conceito que só existe em hardware; o sintoma no `xcodebuild` é um timeout de destino, não um erro de permissão |
+| **`Constants.expoConfig.hostUri` é `undefined` no dev build** | ver a correção do item 6 |
+| **A URL assinada da mídia apontava para `localhost:9000`** | no Simulador `localhost` é o Mac. No iPhone é o iPhone — o áudio simplesmente não toca. A saída já estava decidida (ADR-0045, `S3_PUBLIC_ENDPOINT_URL`), e **reescrever o host no cliente daria 403**, porque ele entra no SigV4 |
+| **O DHCP trocou o IP do Mac no meio da sessão** (`.98` → `.99`) | o app se ajustou sozinho (item 6); a configuração do storage, não. Por isso ela passou a usar o **nome mDNS** (`<host>.local`) em vez do IP |
 
 **Equivalente mental .NET:** o Expo Go é rodar seu plugin dentro de um host que
 *outra pessoa* publicou — se o host é de uma versão anterior do contrato, seu

@@ -50,6 +50,32 @@ O bundle identifier é `com.luanfiszer.voicecoach` (`app.json > ios`). Trocá-lo
 faz o iOS tratar o app como **outro** app: instalação nova, e a permissão de
 microfone volta ao estado inicial.
 
+### Os quatro tropeços da primeira vez (CARD-037, medidos)
+
+Nenhum deles é erro do projeto; todos são do ambiente, e todos custam tempo se
+você não souber o sintoma:
+
+| Sintoma | O que é | Cura |
+|---|---|---|
+| `xcodebuild: Timed out waiting for all destinations` | **Modo de Desenvolvedor** desligado no iPhone (o aparelho fica em `connected (no DDI)`) | *Ajustes → Privacidade e Segurança → Modo de Desenvolvedor* + reinício. Confirme com `xcrun devicectl device info details --device <id> \| grep developerMode` |
+| `ApplicationVerificationFailed` com `Build Succeeded` | frameworks pré-compilados (`hermesvm`, `ReactNativeDependencies`, `ExpoModulesJSI`) embutidos **sem assinatura** | `codesign --force --sign "<sua identidade>" --timestamp=none <framework>` nos três, depois reassinar o `.app` com `--entitlements` |
+| `no member named 'executeSync'` ao compilar `expo-modules-core` | peer de `react-native-worklets` fora da faixa — **nunca compilado no Simulador** | `pnpm exec expo install --fix` |
+| `No script URL provided`, tela preta | o dev build grava o endereço do bundler **em tempo de compilação**, e o IP do Mac mudou | recompile (`pnpm run ios:device`, incremental) |
+
+### O áudio da resposta precisa de um host que o iPhone alcance
+
+A mídia é servida por URL assinada, e **o host entra na assinatura SigV4** — não
+há conserto do lado do cliente (ADR-0045). Se o backend assinar com
+`localhost:9000`, no aparelho isso é o próprio aparelho e o áudio não toca. No
+`.env` do backend:
+
+```
+S3_PUBLIC_ENDPOINT_URL=http://<seu-mac>.local:9000
+```
+
+**Nome mDNS, não IP:** o DHCP trocou o IP do Mac no meio da sessão do CARD-037.
+O nome sobrevive à troca; o IP, não.
+
 ### Os 7 dias — o que vai acontecer, e quando
 
 O certificado de conta gratuita **expira em 7 dias**. O sintoma não é uma
@@ -58,7 +84,7 @@ mensagem: é o app simplesmente **não abrir**. A cura é repetir
 
 | Instalado em | Expira em |
 |---|---|
-| _(preencher na primeira instalação — CARD-037)_ | _(+7 dias)_ |
+| 2026-09-09 | **2026-09-16** |
 
 ### A pasta `ios/` é gerada, não versionada
 
