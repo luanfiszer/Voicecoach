@@ -90,7 +90,12 @@ export type Cliente = {
   ): AsyncGenerator<EventoDoTurn>;
 };
 
-/** Erro de resposta da API, com o que o Problem Details (ADR-0040) trouxer. */
+/**
+ * Erro de **resposta** da API, com o que o Problem Details (ADR-0040) trouxer.
+ *
+ * Tem `status`: o servidor respondeu, e o que ele disse é para o aluno ler.
+ * Contraste com `ErroDeRede`, logo abaixo.
+ */
 export class ErroDaApi extends Error {
   readonly status: number;
   readonly detalhe: string | null;
@@ -100,6 +105,42 @@ export class ErroDaApi extends Error {
     this.name = 'ErroDaApi';
     this.status = status;
     this.detalhe = detalhe;
+  }
+}
+
+/**
+ * Falha de **transporte**: a requisição não chegou a ter resposta.
+ *
+ * **Não tem `status`** — e essa é a diferença que importa. Medido:
+ *
+ * ```
+ * fetch("http://127.0.0.1:59999/…")
+ *   TypeError: fetch failed        (no React Native: "Network request failed")
+ *   status  -> (não existe)
+ *   message -> não contém o host
+ * ```
+ *
+ * No Node o host ainda aparece em `cause.code`/`cause.message` (`ECONNREFUSED`);
+ * no Hermes não há `cause` nenhuma, e sobra um texto fixo. O único lugar que
+ * **sabe** qual endereço falhou é este client, porque foi ele quem montou a URL
+ * — por isso a tradução mora aqui e não na tela (ADR-0054 item 7).
+ *
+ * Quem vê esta mensagem é o desenvolvedor com um aparelho na mão: Mac dormindo,
+ * IP trocado pelo DHCP, backend não subiu, permissão de rede local negada. Copy
+ * de aluno é assunto do `ErroDaApi`, que tem status e `title`.
+ */
+export class ErroDeRede extends Error {
+  /** A base URL que o client tentou alcançar. */
+  readonly host: string;
+  /** O erro original, preservado para o log. */
+  readonly causa: unknown;
+
+  constructor(host: string, causa: unknown) {
+    const detalhe = causa instanceof Error ? causa.message : String(causa);
+    super(`não foi possível alcançar ${host} (${detalhe})`);
+    this.name = 'ErroDeRede';
+    this.host = host;
+    this.causa = causa;
   }
 }
 
@@ -134,12 +175,29 @@ function esperar(ms: number, sinal?: AbortSignal): Promise<void> {
 function valeRepetir(erro: unknown): boolean {
   if (erro instanceof ErroDaApi) return erro.status >= 500;
   if (erro instanceof DOMException && erro.name === 'AbortError') return false;
-  return true; // falha de rede: é o caso de uso inteiro da idempotência
+  return true; // ErroDeRede e afins: é o caso de uso inteiro da idempotência
 }
 
 export function criarCliente(opcoes: OpcoesDoCliente): Cliente {
   const base = opcoes.baseUrl.replace(/\/+$/, '');
-  const executar = opcoes.fetch ?? fetch;
+  const fetchCru = opcoes.fetch ?? fetch;
+
+  /**
+   * Todo `fetch` do client passa por aqui, e só por isto: falha de transporte
+   * vira `ErroDeRede` **nomeando o host**.
+   *
+   * O `AbortError` escapa intocado de propósito — ele não é falha de rede, é
+   * cancelamento nosso, e `valeRepetir` conta com o tipo original para não
+   * repetir o que o app acabou de cancelar.
+   */
+  async function executar(url: string, init: RequestInit): Promise<Response> {
+    try {
+      return await fetchCru(url, init);
+    } catch (erro) {
+      if (erro instanceof DOMException && erro.name === 'AbortError') throw erro;
+      throw new ErroDeRede(base, erro);
+    }
+  }
 
   function cabecalhos(extras?: Record<string, string>): Record<string, string> {
     const saida: Record<string, string> = { ...extras };

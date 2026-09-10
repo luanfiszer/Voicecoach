@@ -197,5 +197,6 @@ tabela é alteração que ninguém vai conseguir auditar depois.
 | 2026-08-25 | Regra nova: **o relógio da medição tem de ser mais fino que o critério** | CARD-012. A 1ª leva de 10 execuções mediu gap p50 de 594 ms com `updateInterval` no default de 500 ms — o número era a tick, não o produto (ADR-0047 §6) |
 | 2026-08-26 | Regra nova: **Expo Go não alcança aparelho iOS neste SDK** | CARD-012. App Store em 54.0.2 (SDK 54, de 2025-09-23) nas quatro lojas conferidas, projeto no SDK 57. O caminho é dev build local por cabo (ADR-0048) |
 | 2026-08-25 | Regra nova: **os payloads do SSE são tipos gerados** | CARD-012. Quatro dos cinco estavam fora do OpenAPI, e a promessa do ADR-0008 era falsa justamente para o stream. Corrigido por envelope na rota (ADR-0046 §5) |
+| 2026-09-09 | Regra nova: **em iOS o ambiente é o dev build; `localhost` deixa de ser default; `Info.plist` só via `app.json`** | CARD-037. O Simulador não tem microfone (pico = 0 em 4 gravações, `tccd` sem evento) — não é permissão nem configuração. O ADR-0054 escolhe o substituto que o 0048 deixou em aberto, e o `apiBaseUrl` passa a derivar do host do bundler |
 
 *Esta skill cresce pelos postmortems (`docs/learnings/`), não por antecipação.*

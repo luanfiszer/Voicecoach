@@ -8,7 +8,11 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.luanfiszer.voicecoach",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "O Voicecoach fala com o servidor de desenvolvimento na sua rede local — sem isso, a aula não sai do aparelho."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -38,7 +42,6 @@
     },
     "extra": {
       "limiteGravacaoSegundos": 90,
-      "apiBaseUrl": "http://localhost:8000",
       "sseHabilitado": true
     }
   }

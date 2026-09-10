@@ -5,9 +5,9 @@ telas da conversa. Stack decidida no ADR-0002 (Expo + React Native +
 TypeScript, áudio via `expo-audio`); as dependências de arranque e o porquê de
 cada uma estão no [ADR-0044](../../docs/adr/0044-dependencias-de-arranque-do-app-expo-e-convivencia-com-pnpm.md).
 
-**Estado:** a tela de conversa existe com o ciclo de gravação completo
-(CARD-011). Não há upload, nem consumo de SSE na tela, nem playback da resposta
-do professor — isso é o CARD-012.
+**Estado:** o ciclo completo existe — gravação (CARD-011), upload, consumo do
+SSE com recuo para polling e playback encadeado (CARD-012). Desde o CARD-037 o
+**iOS físico roda por dev build local**, não por Expo Go (ADR-0054).
 
 ## Como rodar
 
@@ -24,11 +24,86 @@ cd apps/mobile
 pnpm expo start --ios
 ```
 
-No aparelho físico: `pnpm expo start` e leia o QR code com o Expo Go.
-**O aparelho físico não é opcional** para permissão de microfone — ver abaixo.
-
 > Nenhum `.npmrc` é necessário: o Metro resolve os symlinks do pnpm sozinho
 > (medido no CARD-011; detalhes e o gatilho para reabrir no ADR-0044 §2).
+
+### No iPhone físico — dev build, **não** Expo Go (ADR-0054)
+
+O Expo Go da App Store está no SDK 54 e o projeto no 57: **um iPhone só instala
+pela App Store, e lá não há build mais novo** (ADR-0048). O caminho é compilar o
+seu próprio cliente, assinado com Apple ID **gratuito** — custo R$ 0 (ADR-0010).
+
+Com o iPhone ligado por cabo e desbloqueado:
+
+```bash
+cd apps/mobile
+pnpm run ios:device          # = expo run:ios --device
+```
+
+Na **primeira** vez, o build para pedindo assinatura. No Xcode, em
+`Signing & Capabilities` do alvo `Voicecoach`: marque *Automatically manage
+signing* e escolha o seu Apple ID como *Team* (`Add an Account…` se ele não
+estiver lá). Depois, no iPhone: *Ajustes → Geral → VPN e Gerenciamento de
+Dispositivo → confiar no certificado*.
+
+O bundle identifier é `com.luanfiszer.voicecoach` (`app.json > ios`). Trocá-lo
+faz o iOS tratar o app como **outro** app: instalação nova, e a permissão de
+microfone volta ao estado inicial.
+
+### Os quatro tropeços da primeira vez (CARD-037, medidos)
+
+Nenhum deles é erro do projeto; todos são do ambiente, e todos custam tempo se
+você não souber o sintoma:
+
+| Sintoma | O que é | Cura |
+|---|---|---|
+| `xcodebuild: Timed out waiting for all destinations` | **Modo de Desenvolvedor** desligado no iPhone (o aparelho fica em `connected (no DDI)`) | *Ajustes → Privacidade e Segurança → Modo de Desenvolvedor* + reinício. Confirme com `xcrun devicectl device info details --device <id> \| grep developerMode` |
+| `ApplicationVerificationFailed` com `Build Succeeded` | frameworks pré-compilados (`hermesvm`, `ReactNativeDependencies`, `ExpoModulesJSI`) embutidos **sem assinatura** | `codesign --force --sign "<sua identidade>" --timestamp=none <framework>` nos três, depois reassinar o `.app` com `--entitlements` |
+| `no member named 'executeSync'` ao compilar `expo-modules-core` | peer de `react-native-worklets` fora da faixa — **nunca compilado no Simulador** | `pnpm exec expo install --fix` |
+| `No script URL provided`, tela preta | o dev build grava o endereço do bundler **em tempo de compilação**, e o IP do Mac mudou | recompile (`pnpm run ios:device`, incremental) |
+
+### O áudio da resposta precisa de um host que o iPhone alcance
+
+A mídia é servida por URL assinada, e **o host entra na assinatura SigV4** — não
+há conserto do lado do cliente (ADR-0045). Se o backend assinar com
+`localhost:9000`, no aparelho isso é o próprio aparelho e o áudio não toca. No
+`.env` do backend:
+
+```
+S3_PUBLIC_ENDPOINT_URL=http://<seu-mac>.local:9000
+```
+
+**Nome mDNS, não IP:** o DHCP trocou o IP do Mac no meio da sessão do CARD-037.
+O nome sobrevive à troca; o IP, não.
+
+### Os 7 dias — o que vai acontecer, e quando
+
+O certificado de conta gratuita **expira em 7 dias**. O sintoma não é uma
+mensagem: é o app simplesmente **não abrir**. A cura é repetir
+`pnpm run ios:device` com o cabo. Registre a data aqui a cada reinstalação:
+
+| Instalado em | Expira em |
+|---|---|
+| 2026-09-09 | **2026-09-16** |
+
+### A pasta `ios/` é gerada, não versionada
+
+`expo run:ios` roda `expo prebuild`, que **gera** `ios/` a partir do `app.json`
+(Continuous Native Generation). A pasta está no `.gitignore` — e a consequência
+que morde é: **editar `Info.plist` ou o projeto do Xcode à mão é trabalho que o
+próximo prebuild apaga**. O que precisar entrar no plist entra em
+`expo.ios.infoPlist`. Verificado no CARD-037: as três chaves que importam saem
+de lá.
+
+```
+NSMicrophoneUsageDescription    ← plugin expo-audio
+NSLocalNetworkUsageDescription  ← expo.ios.infoPlist
+NSAppTransportSecurity: { NSAllowsArbitraryLoads: false,
+                          NSAllowsLocalNetworking: true }
+```
+
+A última é o que permite HTTP em claro contra o Mac na LAN sem afrouxar o ATS
+para a internet inteira.
 
 ## Quality gates (ADR-0043)
 
@@ -48,12 +123,14 @@ automatizado** — adiado com gatilho escrito no ADR-0043 item 6.
 app/                  ROTAS (expo-router: o arquivo É a rota)
   _layout.tsx           layout raiz
   index.tsx             "/" — monta a tela de conversa
-  spike-sse.tsx         SPIKE do ADR-0026, descartável — sai no CARD-012
+  medicao.tsx           a rota de medição, disparável por deep link (ADR-0047)
 src/
-  config.ts             app.json > extra, validado no import
+  config.ts             app.json > extra + resolução do apiBaseUrl (ADR-0054)
   theme/tokens.ts       paleta, tipografia, alvos — ÚNICA fonte de cor
   api/contrato.ts       aliases dos tipos gerados do OpenAPI
-  features/gravacao/    a feature: hook de estado + componentes
+  features/gravacao/    captura: permissão, botão, overlay
+  features/turno/       o turn: upload, stream, fila de playback, marcos
+ios/                  GERADA por `expo prebuild` — não versionada, não editada
 ```
 
 ## Configuração
@@ -63,7 +140,39 @@ src/
 | Chave | Hoje | Por quê |
 |---|---|---|
 | `limiteGravacaoSegundos` | `90` | **Menor que os 120 s** que o backend aceita (`max_turn_audio_duration`). Se o cliente gravar mais que o servidor aceita, o aluno fala, espera o upload e recebe um 413 |
-| `apiBaseUrl` | `http://localhost:8000` | Funciona no Simulador. **Em aparelho físico, troque pelo IP da máquina** na rede local |
+| `sseHabilitado` | `true` | Desligada, exercita o contrato de recuo (`GET /v1/turns/{id}`) do ADR-0026 |
+| `apiBaseUrl` | **ausente** | Override explícito. Sem ela, o endereço é **derivado** — ver abaixo |
+
+### O endereço da API não tem default silencioso (ADR-0054 item 6)
+
+`localhost` funcionava no Simulador porque ele compartilha a pilha de rede do
+Mac. **Num iPhone, `localhost` é o próprio iPhone** — e a falha resultante não
+se lê como configuração errada. A resolução tem três degraus:
+
+1. `extra.apiBaseUrl`, se existir — é o degrau que o **CARD-038** vai usar
+   quando o backend sair da LAN e passar a viver atrás de um túnel;
+2. o host do bundler (`Constants.expoConfig.hostUri`) com a porta `8000` — no
+   aparelho, esse host **já é o IP do Mac**, e ele acompanha sozinho o IP que o
+   DHCP trocar: se o Metro alcança o aparelho, o backend também alcança;
+3. nada resolveu ⇒ **erro no arranque**, dizendo o que configurar.
+
+O valor efetivo e a origem dele saem no log do Metro:
+
+```
+[config] apiBaseUrl=http://192.168.0.12:8000 (origem: bundler)
+```
+
+Suba o backend com `--host 0.0.0.0`: em `127.0.0.1` ele só aceita conexão do
+próprio Mac, e o iPhone recebe conexão recusada.
+
+### Quando o backend não responde
+
+`packages/api-client` traduz falha de transporte em `ErroDeRede`, que **nomeia o
+host tentado** — `não foi possível alcançar http://192.168.0.12:8000 (Network
+request failed)`. Sem isso sobra o texto fixo do `fetch` do React Native, que
+não diz com quem o app tentou falar. Erro **com** status HTTP é outra coisa
+(`ErroDaApi`, Problem Details do ADR-0040): esse é conteúdo para o aluno ler, e
+as telas dele são o CARD-027.
 
 ## Regra de fronteira
 
@@ -84,10 +193,21 @@ src/
 
 ## O que o Simulador NÃO prova
 
-- **Permissão negada permanentemente.** O Simulador não reproduz o estado em
-  que o iOS para de mostrar o diálogo. Esse fluxo se aceita **em aparelho
-  físico**, ou você testou outra coisa.
-- **O microfone real** (no Simulador é o do Mac) e a latência de captura.
+Três coisas, e isto é regra (ADR-0054 item 3), não recomendação:
+
+- **O microfone.** Ele não existe. Medido em 2026-09-09: quatro gravações do app
+  saíram com **pico = 0 e RMS = 0** (silêncio digital), e o `log show` do `tccd`
+  e do `SimAudioProcessorService` não registrou evento nenhum — o Simulador não
+  chega a abrir o microfone do Mac. O sintoma no produto é o Whisper transcrever
+  `'You'`, a alucinação clássica dele diante de silêncio.
+- **Qualquer número de latência.** Ele compartilha CPU, rede e disco do Mac
+  (ADR-0048).
+- **Permissão negada permanentemente.** O estado em que o iOS para de mostrar o
+  diálogo não se reproduz lá.
+
+Para os três: `pnpm run ios:device`. Para todo o resto — UI, navegação, estado,
+caminho triste — o Simulador continua sendo o ambiente do dia a dia, e é mais
+rápido.
 
 ## Onde estão as regras
 
