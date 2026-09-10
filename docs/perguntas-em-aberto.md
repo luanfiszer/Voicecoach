@@ -358,6 +358,35 @@ continua faltando, e é por isso que nenhuma está em "Fechadas".
 > fila que não depende de mais uma sessão de trabalho — depende de uma decisão
 > de uma frase.
 
+> **Investigação da qualidade da conversa (2026-09-09): sessão SEM pergunta do
+> ponto da decisão, e o motivo está escrito.** Esta sessão não escreveu código —
+> o produto dela foram cinco ADRs (0055–0059) e nove cards (039–047). A regra do
+> explicador dispara em decisão de implementação ("o agente para **antes de
+> escrever o código**"), e não houve nenhuma. O que houve foram **quatro decisões
+> de PRODUTO**, que a regra manda perguntar e não prever: fala em português
+> (→ entender e tratar pedagogicamente), confiança baixa (→ desfecho explícito),
+> turn abandonado (→ cancelar no servidor, com US$ 0,0027 na mesa) e nível do
+> aluno (→ 045 e 046 entram; 047 fica mapeado). As quatro foram **respondidas**,
+> e cada uma está registrada no ADR que a consumiu, com a alternativa recusada e
+> o motivo.
+>
+> **As perguntas de previsão destes cards nascem no ponto da decisão DELES** —
+> que é onde a regra 5 manda que nasçam. Três já estão identificadas e ficam
+> registradas aqui para a sessão que as tocar:
+>
+> - **CARD-039:** *o `Transcript` ganha três campos; quantos arquivos o `mypy
+>   --strict` vai acusar, e por que a resposta seria diferente se `SpeechToText`
+>   fosse classe base em vez de `Protocol`?*
+> - **CARD-040:** *o `Result` ganha um caso novo na união e você esquece de
+>   tratá-lo num `match`; o que quebra — o teste, o `mypy`, ou nada?*
+> - **CARD-043:** *o worker está no meio da cascata quando o `cancel` chega; se
+>   a verificação estiver no lugar errado, o que sobra no S3?*
+>
+> **Nota sobre a fila antiga:** Q7, Q13 e Q14 seguem abertas e **não** mantêm o
+> item da DoD vermelho (LEARNING-0005, regra 4 do CLAUDE.md). A pendência de topo
+> continua sendo a mesma desde o CARD-009 — decidir se a **regra** muda —, e ela
+> continua dependendo de uma decisão de uma frase, não de mais uma sessão.
+
 ## Fechadas
 
 | # | Pergunta | Fechada em | Como |
