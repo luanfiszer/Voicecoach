@@ -29,6 +29,16 @@ O diagnóstico card a card, a ordem e as decisões estão em
 | [014](CARD-014-usage-event-custo-real.md) | UsageEvent: custo real por Turn *(antecipado)* | 2 | backend | P | 009 | **concluído** — custo medido: US$ 0,002678/turn, ~49% abaixo da estimativa (ADR-0051) |
 | [026](CARD-026-resiliencia-na-fronteira-externa.md) | **Resiliência na fronteira externa: timeout, retry, breaker, bulkhead** | 2 | backend | M | 009, 012 | **concluído** — a requisição crua estava no professor, não no S3: o adapter não traduzia erro do SDK e o provedor fora do ar atravessava o caso de uso sem virar `failed` (ADR-0053) |
 | [038](CARD-038-tunel-e-codigo-de-convite.md) | **Túnel + `INVITE_CODE`**: o backend sai da LAN, e ganha porteiro antes de sair | 2 | backend/infra | M | 037, ADR-0010 | backlog — escolhido **no lugar de deploy** em 2026-09-09: custo zero, mantém o MLX e a latência medida (o servidor Linux cairia para `faster_whisper`) |
+| [039](CARD-039-stt-multilingue-com-idioma-detectado.md) | **O STT ouve qualquer idioma** — modelo multilíngue, idioma detectado, e o `Transcript` para de descartar confiança e segmentos | 2 | backend/IA | M | ADR-0055, ADR-0056 | backlog — **causa medida em 2026-09-09**: o `.en` diante de português alucina (`avg_logprob` −5,9) e a troca por multilíngue custa **zero**; detectar custa **+0,17 s fixo** |
+| [042](CARD-042-regravar-cala-o-professor.md) | **Regravar cala o professor** — o bug do playback que sobrevive ao `limpar()` | 2 | mobile | P | 037, ADR-0047 | backlog — **não é feature faltando, é bug**: `limpar()` já está ligado; hipótese é `remove()` sem `pause()`. **Precisa do aparelho** |
+| [040](CARD-040-nao-entendi-como-desfecho-do-turn.md) | **"Não entendi, pode repetir?"** vira desfecho de turn — e custa zero | 2 | backend/mobile | M | 039, ADR-0057 | backlog — corta antes do professor: turn recusado não gasta LLM nem TTS |
+| [041](CARD-041-o-aluno-falou-portugues-o-professor-trata-isso.md) | **O aluno falou português, e o professor trata isso como professor** (cria o bloco de contexto do prompt) | 2 | backend/IA | M | 039, ADR-0059 | backlog — decisão de produto de 2026-09-09: entender e ensinar, não fingir que ouviu inglês |
+| [044](CARD-044-a-voz-do-professor-escolhida-por-escuta.md) | **A voz do professor, escolhida por escuta comparada** | 2 | backend/IA | P | ADR-0032 | backlog — **medido**: trocar entre vozes `medium` é de graça; `high` custa **6,5x** (p50 iria a ~3,6 s). Amostras geradas; falta a escuta |
+| [043](CARD-043-cancelar-o-turn-no-servidor.md) | **Cancelar o turn no servidor** — o caminho que o V2 vai cobrar caro | 2 | backend/mobile | M | 042, ADR-0058 | backlog — decidido com o número na mesa (US$ 0,0027/turn abandonado): o motivo é o V2, não a economia |
+| [045](CARD-045-nivel-declarado-no-onboarding.md) | **O nível declarado pelo aluno entra na conversa** — fecha o buraco visão × backlog | 3 | backend/mobile | M | 041, ADR-0059 | backlog — a visão dizia MVP, o backlog dizia Fase 7, e **não havia card** |
+| [046](CARD-046-cefr-assessment-estimado-por-desempenho.md) | **`CefrAssessment`: o nível estimado pelo que o aluno de fato faz** | 3 | backend/IA | **G** | 045, ADR-0049, **ADR pendente** | backlog — **quebrar antes de começar**; o ADR não foi escrito de propósito (sem evidência para decidir janela e algoritmo) |
+| [047](CARD-047-mini-teste-inicial-de-nivel.md) | Mini-teste inicial de nível | 7 | mobile/IA | **G** | 045, 046 | **mapeado, sem data prevista** — decisão de 2026-09-09; gatilhos de entrada escritos no card |
+| [048](CARD-048-a-voz-da-professora-escolhida-pelo-aluno.md) | **A voz da professora, escolhida pelo aluno** | 7 | backend/mobile | M | 044 | **catalogado, não bloqueia o V1** (decisão de 2026-09-10) — mas o **044 decide o tamanho dele**: `libritts-high` tem **904 vozes num arquivo só**, e aí a feature é um `speaker_id`; voz de falante único a encarece |
 | [015](CARD-015-quotas-e-kill-switch.md) | Quotas + kill switch *(bloqueante comercial)* | 2 | backend | M | 010, 014 | backlog |
 | [017](CARD-017-retencao-lifecycle-delete.md) | Retenção de áudio: lifecycle assimétrico e delete por prefixo | 2 | backend/infra | P | 008, 010 | backlog |
 | [019](CARD-019-spike-stt-e-tts-no-aparelho.md) | **Spike:** STT e TTS no aparelho (sem compromisso) | 2 | mobile/IA | P | 012 | backlog |
@@ -44,14 +54,21 @@ O diagnóstico card a card, a ordem e as decisões estão em
 | [034](CARD-034-encerramento-automatico-por-inatividade.md) | Encerramento automático da sessão por inatividade (job do arq) | 3 | backend | P | 031, 025 | backlog |
 | [035](CARD-035-controles-do-player-sobre-a-fila-de-trechos.md) | Controles do player sobre a fila: `0.75×`, `repetir`, scrub | 3 | mobile | M | 028, 012 | backlog |
 | [036](CARD-036-traducao-sob-demanda.md) | Tradução sob demanda: o endpoint do botão `traduzir` | 3 | backend | P | 013, 014, 026 | backlog |
-| — | **Contas e auth de verdade** (ADR-0007) | 3 | backend/mobile | — | Fase 2 | a detalhar |
+| [049](CARD-049-cadastro-login-e-o-par-de-tokens.md) | **Cadastro, login e o par de tokens** — a auth que o ADR-0007 desenhou | 3 | backend | M | ADR-0007, **ADR de provedor de e-mail** | backlog — **bloqueante de V1.0 (N3)**. O código de convite do ADR-0010 morre: app público **é** o "beta aberto" do gatilho |
+| [050](CARD-050-a-sessao-autenticada-no-cliente.md) | **A sessão autenticada no cliente** — secure storage, refresh e expiração | 3 | mobile | M | 049, ADR-0007 | backlog — **bloqueante de V1.0 (N3)**. O refresh concorrente é o bug que derruba a família de tokens |
+| [051](CARD-051-delete-de-conta-dentro-do-app.md) | **Delete de conta dentro do app** | V1 | backend/mobile | M | 049, 050, 017, **ADR novo** | backlog — **bloqueante de V1.0 (N4)**: Guideline 5.1.1(v), reprovação direta. O "não apaga nada" do CARD-032 vale para turn, **não** para conta |
+| [052](CARD-052-privacidade-termos-e-rotulos-da-loja.md) | **Política de privacidade, termos e rótulos de privacidade da loja** | V1 | produto/infra | M | 051, 017 | backlog — **bloqueante de V1.0 (N5)**. O risco é invertido: o texto é fácil, o **sistema** é que pode não corresponder |
+| [053](CARD-053-conta-apple-build-de-release-e-a-revisao.md) | **Conta Apple, build de release e o caminho até a revisão** | V1 | mobile/infra | M | 051, 052, ADR-0054 | backlog — **bloqueante de V1.0 (N6)**, com prazo que não depende de você. A URL da API fica gravada no build |
+| [054](CARD-054-cadastro-aberto-sem-virar-conta-de-custo-aberta.md) | **Cadastro aberto sem virar conta de custo aberta** | V1 | backend | M | 049, 015 | backlog — **bloqueante de V1.0 (N7)**. O kill switch não pode derrubar quem paga, e o `fail-closed` é o oposto do reflexo usual |
+| [055](CARD-055-o-backend-sai-do-mac.md) | **O backend sai do Mac** — servidor, domínio, TLS e o primeiro deploy | V1 | infra/backend | M | 024, ADR-0060 | backlog — **bloqueante de V1.0 (N1)** e o de maior incógnita. Achado: **a API não tem `Dockerfile`**, e o compose só tem infra |
+| [056](CARD-056-quando-o-servidor-cair.md) | **Quando o servidor cair** — backup, restore testado e log alcançável | V1 | infra | M | 055, ADR-0060 | backlog — **bloqueante de V1.0 (N1)**. O restore **executado** é o único critério que não se cumpre por configuração |
 | [020](CARD-020-planos-assinatura-e-entitlements-no-dominio.md) | Planos, assinatura e entitlements no domínio | 4 | backend | M | 015, auth | backlog |
-| [021](CARD-021-canal-de-cobranca-e-provedor-de-pagamento.md) | Canal de cobrança e provedor de pagamento | 4 | backend/cliente | G | 020, **ADR pendente** | **bloqueado** |
+| [021](CARD-021-canal-de-cobranca-e-provedor-de-pagamento.md) | Canal de cobrança e provedor de pagamento | 4 | backend/cliente | G | 020, **ADR pendente** | **bloqueado — e agora bloqueante da V1.0 (N2)**. A pesquisa virou o primeiro entregável (2026-09-10). **Correção registrada lá:** o IAP **não** é imposto — vender só na web é permitido, o que não se pode é divulgar isso dentro do app |
 | [022](CARD-022-webhooks-de-pagamento-e-reconciliacao.md) | Webhooks de pagamento: idempotência e reconciliação | 4 | backend | M | 021 | backlog |
 | [023](CARD-023-gate-de-entitlement-no-turn.md) | Gate de entitlement no POST de turn | 4 | backend | P | 015, 020, 022 | backlog |
 | — | Eval harness da IA (executa P5) | 5 | IA | — | Fase 3 | a detalhar |
 | — | Web companion — e possível canal de receita | 6 | web | — | Fases 4–5 | a detalhar |
-| — | Produto pedagógico completo (CEFR, resumo, tradução) | 7 | mobile/IA | — | Fase 5 | a detalhar |
+| — | Produto pedagógico completo (resumo, revisão espaçada) | 7 | mobile/IA | — | Fase 5 | a detalhar — **o CEFR saiu daqui em 2026-09-09**: virou 045/046/047. A tradução já era o 036 |
 
 **Caminho crítico até "roda ponta a ponta em ~1,8 s":**
 `018 → 006 → 007 → 008 → 009 → 010 → 012` (com `011` em paralelo desde já).
@@ -88,3 +105,74 @@ juntos depois do 018; 017 pode correr junto de 014/015.
 > turn e a saída da cascata), e a ordem importa — cota é proteção *contra o
 > cliente*, resiliência é proteção *contra a dependência*. Calibrar limite de
 > uso sobre uma fronteira que ainda pode pendurar 60 s é calibrar sobre areia.
+
+---
+
+## Corte da V1.0 (2026-09-10)
+
+O backlog foi separado em **impeditivo × não impeditivo** para o lançamento, com
+duas premissas confirmadas nesta data: **App Store pública** e **cobrança já na
+V1.0**. O documento é
+[`docs/corte-v1-o-que-bloqueia-o-lancamento.md`](../corte-v1-o-que-bloqueia-o-lancamento.md).
+
+Resumo do que ele achou: **17 cards existentes são bloqueantes, e sete trabalhos
+bloqueantes não têm card nenhum** — deploy do backend (com a queda do `mlx` para
+`faster-whisper` fora do Apple Silicon), IAP obrigatório pela Guideline 3.1.1,
+auth de verdade, delete de conta (Guideline 5.1.1(v)), política de privacidade e
+rótulos, conta Apple e o caminho até a revisão, e proteção de custo no cadastro
+aberto.
+
+O alvo **contradiz três decisões aceitas** (ADR-0010, Parte E da visão, e o
+CARD-038, que fica substituído pelo card de deploy). Elas precisam de ADR que as
+substitua — não de contorno.
+
+---
+
+## A ordem dos cinco pontos da qualidade da conversa (investigação de 2026-09-09)
+
+Origem: [`docs/briefing-qualidade-da-conversa-2026-09-09.md`](../briefing-qualidade-da-conversa-2026-09-09.md),
+executado como sessão de investigação em 2026-09-09. **Critério da ordenação:**
+custo de implementar × impacto na experiência ÷ risco de latência — com desempate
+por *o que estraga a conversa hoje*.
+
+| # | Card | Por que aqui |
+|---|---|---|
+| 1 | **039** | A causa está medida e a correção principal custa **zero latência**. É o que mais estraga a conversa: o professor respondendo ao que não foi dito. Desbloqueia 040 e 041 |
+| 2 | **042** | **Resolve amanhã.** É um bug de cliente, esforço P, e o incômodo é imediato e constante. Só precisa do aparelho |
+| 3 | **040** | Fecha a segunda metade do ponto 3 e é a única mudança do lote que **reduz** custo |
+| 4 | **041** | Paga a decisão pedagógica do ponto 3 e **constrói o mecanismo** que o 045 reusa |
+| 5 | **044** | Esforço P, e a medição já foi feita — falta a escuta, que é decisão do desenvolvedor e não trabalho de engenharia |
+| 6 | **043** | Maior que os anteriores e com recuo escrito (ADR-0058, alternativa A). O motivo é o V2, não a economia |
+| 7 | **045** | Primeiro card do ponto 5. Depende do mecanismo do 041 |
+| 8 | **046** | **G**, e a primeira entrega é um ADR |
+| 9 | **047** | Mapeado, sem data |
+
+**Resolve amanhã:** 042 e 039. **É projeto:** 046.
+
+### O que a investigação recomenda NÃO fazer
+
+Aplicando a Parte F da visão ao próprio lote:
+
+- **O ponto 4 (entonação) não vira card.** Os `start`/`end` por segmento entram
+  de graça no `Transcript` pelo ADR-0056 e ficam **sem consumidor de propósito**.
+  Extrair pitch, energia e taxa de fala (item 1 do briefing) exige biblioteca
+  nova, e a pergunta que o próprio briefing levantou continua sem resposta: *o
+  que o professor **faria** com isso?* Sem ela, o item vira dado que ninguém usa
+  — que é a definição de overengineering neste projeto. **Gatilho de entrada:**
+  uma regra pedagógica escrita que use pausa ou ritmo ("você falou muito
+  rápido"), e aí o dado já estará lá.
+- **Não subir o STT para `medium`.** O ADR-0027 item 7 continua valendo para o
+  porte: não há insumo com voz real de aprendiz que o justifique, e ele custa
+  latência num orçamento já estourado.
+- **Não trocar o motor de TTS.** O ADR-0032 exige as mesmas medições que ele
+  fez, e não há evidência nova — a voz não foi sequer comparada ainda (CARD-044).
+- **Não fazer barge-in.** É V2 (ADR-0003), e o briefing avisa explicitamente
+  para não deixar o CARD-042 virar isso.
+- **Não implementar voz por aluno nem sotaque agora** — mas a premissa mudou em
+  2026-09-10 e a razão registrada aqui em 2026-09-09 estava **errada**: com um
+  modelo multi-falante (`libritts-high`, 904 vozes num arquivo só) a feature
+  **não** quebra o modelo residente do ADR-0025 — trocar de voz é um
+  `speaker_id: int`. Ela saiu de "não fazer" para **catalogada no CARD-048**,
+  fora do V1 por decisão de foco no MVP. O que continua valendo: o **CARD-044
+  decide o custo dela**, e sotaque deixa de merecer mecanismo próprio (vira
+  outra entrada do catálogo).

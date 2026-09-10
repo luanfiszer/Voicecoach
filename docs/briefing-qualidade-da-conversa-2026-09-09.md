@@ -285,3 +285,31 @@ mais exploratório, e o único que pode terminar em "não agora").
   regravar" em barge-in do V2.
 - **Não decide nada de produto.** Sotaque por aluno, o que fazer quando o aluno
   fala português, e como o nível é escolhido são perguntas para o desenvolvedor.
+
+---
+
+## O que a investigação produziu (2026-09-09, mesmo dia)
+
+O prompt acima foi executado. **Status deste documento: consumido** — ele deixa
+de ser pauta e passa a ser o registro de origem.
+
+**O que foi medido, e o que a medição mudou:**
+
+| Ponto | Resultado |
+|---|---|
+| **3** | Hipótese **confirmada** (modelo `.en` + língua fixa), com um achado a mais: o `avg_logprob` separa alucinação (−1,1 a −5,9) de acerto (−0,13 a −0,32). **Derrubado:** o `beam_size=1` não explica nada do observado — ele só existe no adapter `faster-whisper`, e o Mac roda o `mlx`. Trocar por multilíngue custa **zero**; detectar custa **+0,17 s fixo** |
+| **2** | **A premissa do briefing estava errada, e para melhor:** não é feature faltando, é bug. `TelaConversa.tsx:86` já chama `turno.limpar()`, que já aborta e já limpa a fila. Hipótese: `remove()` sem `pause()` |
+| **5** | Confirmado o buraco: visão diz MVP, backlog dizia Fase 7, `student.py:9` diz Fase 6, e não havia card. Agora há três |
+| **1** | Medido: entre vozes `medium` a troca é de graça; `high` custa **6,5x** (RTF 0,177 vs 0,028) e levaria o p50 a ~3,6 s. Amostras geradas para escuta |
+| **4** | Diagnóstico confirmado, e **nenhum card criado** — de propósito. Os `start`/`end` entram de graça no `Transcript` (ADR-0056) e ficam sem consumidor; a pergunta *"o que o professor faria com isso?"* segue sem resposta, e a Parte F decide |
+
+**Entregáveis:** ADRs [0055](adr/0055-o-stt-ouve-qualquer-idioma-modelo-multilingue-e-deteccao.md),
+[0056](adr/0056-o-transcript-ganha-confianca-e-segmentos.md),
+[0057](adr/0057-transcricao-de-baixa-confianca-e-desfecho-esperado.md),
+[0058](adr/0058-o-aluno-cancela-o-turn-e-o-servidor-e-avisado.md) e
+[0059](adr/0059-o-prompt-do-professor-recebe-contexto-do-aluno.md); cards
+**039–047**; a ordem de ataque e o "não fazer" no final de
+[`docs/backlog/README.md`](backlog/README.md).
+
+**Quatro decisões de produto foram tomadas nesta sessão** e estão registradas,
+cada uma, no ADR que a consumiu — com a alternativa recusada e o motivo.

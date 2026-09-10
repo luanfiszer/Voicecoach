@@ -2,7 +2,8 @@
 
 - **ID:** CARD-021 · **Épico:** Fase 4 — Comercial
 - **Plataforma:** backend (+ cliente do canal escolhido) · **Esforço:** G
-- **Status:** **bloqueado — aguarda ADR de canal de cobrança**
+- **Status:** **bloqueado — aguarda ADR de canal de cobrança**, e desde
+  2026-09-10 é **bloqueante da V1.0** (N2 do corte de lançamento)
 - **Dependências:** CARD-020; **ADR pendente** (canal + provedor)
 
 ## Contexto
@@ -68,8 +69,74 @@ bugs de cobrança realmente moram.
 - **Out:** webhooks e reconciliação (CARD-022); enforcement (CARD-023);
   impostos e nota fiscal (fora do horizonte — registrar como pendência real).
 
+## Atualização de 2026-09-10 — o que mudou, e o que a pesquisa precisa responder
+
+Este card foi escrito em 2026-08-19 supondo Fase 4 e loja adiada. **Duas
+decisões de 2026-09-10 o promoveram a bloqueante da V1.0:** App Store pública e
+cobrança já no lançamento. O desenvolvedor escolheu, no mesmo dia, **decidir o
+canal depois da pesquisa** — então a pesquisa deixa de ser pré-requisito informal
+e vira **o primeiro entregável deste card**.
+
+### Uma correção ao que foi dito nesta sessão
+
+Foi afirmado, ao montar o corte da V1.0, que a App Store **impõe** o IAP e
+portanto "resolve o ADR por imposição". **Isso está errado e a correção importa,
+porque muda a decisão:** o que a regra exige é que a compra feita *dentro* do
+app use IAP. **Vender apenas na web continua permitido** — é o padrão de
+"serviços multiplataforma", em que o app apenas *consome* uma assinatura obtida
+fora dele. O preço disso não é legal, é de conversão: não se pode divulgar a
+compra externa dentro do app.
+
+Ou seja: **os 11–26 pontos de margem continuam em jogo**, e a escolha deste card
+continua real.
+
+### Correções de número
+
+- A comissão relevante é **15%**, não 30%: abaixo de US$ 1M/ano vale o programa
+  para pequenos negócios. A conta de ~R$ 3,30/usuário/mês da análise de custo já
+  usava 15% e continua válida.
+
+### As perguntas que a pesquisa tem de fechar
+
+**Aviso sobre a fonte:** esta área mudou bastante nos últimos tempos e **varia
+por jurisdição** (decisões judiciais e regulatórias nos EUA, na União Europeia e
+no Brasil alteraram o que se pode fazer quanto a *link-out* e divulgação). Nada
+aqui deve ser aceito de memória — **a pesquisa confere contra a documentação
+vigente da Apple**, e registra a data da consulta no ADR, porque a resposta tem
+prazo de validade.
+
+1. **O que exatamente se pode dizer dentro do app** sobre uma assinatura vendida
+   fora dele, hoje, para um app distribuído no Brasil. É a pergunta que decide se
+   "só web" é um canal viável ou um beco.
+2. **Se o *link-out* é permitido** para este caso e sob que condições — e com
+   qual comissão, já que em alguns regimes ele não é isento.
+3. **O que muda no fluxo de assinatura** quando ela é vendida fora: como o app
+   descobre que o aluno é assinante (é o CARD-023, o gate de entitlement) sem
+   que a loja considere isso uma compra escondida.
+4. **O que a Apple exige do app mesmo no cenário "só web"** — notadamente
+   restauração de compra e o que mostrar a um usuário não assinante.
+5. **Qual é o caminho mais curto até lançar.** Não é a mesma pergunta que "qual
+   dá mais margem", e o corte da V1.0 diz que os dois canais juntos **dobram** o
+   CARD-022 (duas reconciliações, dois estados de assinatura em sincronia).
+
+### Os três desenhos, agora nomeados
+
+| Canal | Comissão | Custo de construir | Risco |
+|---|---|---|---|
+| **Só IAP** | 15% | menor — um provedor, um webhook | nenhum de regra; é o caminho que a loja quer |
+| **Só web** | ~4% | médio — gateway + o app tendo de descobrir o assinante sem vender | **de conversão**: produto sem marca, compra que o usuário precisa achar sozinho |
+| **Os dois** | mista | **maior** — dobra o CARD-022 | de sincronia: duas fontes achando que são donas do mesmo estado |
+
+**Recomendação técnica, e ela não decide por você:** para a V1.0, **só IAP** é o
+caminho mais curto e o de menor risco de regra — e migrar para web depois é
+aditivo, enquanto o contrário obriga a desfazer. Os 11 pontos de margem são
+reais, mas margem sobre zero assinante é zero.
+
 ## Critérios de aceite
 
+- **Dado** a pesquisa concluída, **então** cada uma das cinco perguntas acima
+  tem resposta escrita **com a fonte e a data da consulta** — resposta sem data
+  não vale, porque a regra muda.
 - **Dado** o ADR aceito, **então** o card sai de bloqueado com canal e provedor
   nomeados e o motivo escrito.
 - **Dado** um checkout no modo de teste do provedor, **então** a `Subscription`
