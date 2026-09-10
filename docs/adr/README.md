@@ -63,7 +63,7 @@ Escreva um ADR sempre que a decisão:
 | [0024](0024-midia-por-trecho-chave-url-assinada-e-retencao-assimetrica.md) | Mídia por trecho: chave, URL assinada junto do evento e retenção assimétrica | aceito (substitui 0006; porta estendida com `get` pelo 0036) |
 | [0025](0025-modelos-residentes-no-worker-e-readiness-que-distingue-pronto.md) | Modelos de IA residentes no worker, e um readiness que distingue "subiu" de "pronto" | aceito (implementado no CARD-009; dívida do item 7 fechada — ver 0038) |
 | [0026](0026-entrega-progressiva-por-sse-com-polling-como-contrato-de-recuo.md) | Entrega progressiva do turn por SSE, com o polling preservado como contrato de recuo | aceito (canal worker→API definido no 0035) |
-| [0027](0027-adapter-duplo-de-stt-com-default-resolvido-pela-plataforma.md) | Adapter duplo de STT (`mlx-whisper` e `faster-whisper`), com default resolvido pela plataforma | aceito (complementado por 0029) |
+| [0027](0027-adapter-duplo-de-stt-com-default-resolvido-pela-plataforma.md) | Adapter duplo de STT (`mlx-whisper` e `faster-whisper`), com default resolvido pela plataforma | aceito (complementado por 0029; o bloqueio do item 7 foi levantado **só para a variante** pelo 0055 — o porte segue bloqueado) |
 | [0028](0028-derivacao-da-etapa-do-turn-mora-no-dominio.md) | A derivação da etapa do Turn mora no domínio, não na borda | aceito (revoga o §4 do 0016) |
 | [0029](0029-o-que-atravessa-a-porta-de-stt-sao-bytes-codificados.md) | O que atravessa a porta de STT são bytes codificados; decodificar é do adapter | aceito (complementa 0027) |
 | [0030](0030-saida-estruturada-em-streaming-por-tool-use-com-deltas-granulares.md) | Saída estruturada em streaming por tool use com deltas granulares | aceito (fecha o risco em aberto do 0022) |
@@ -91,6 +91,12 @@ Escreva um ADR sempre que a decisão:
 | [0052](0052-o-retry-do-arq-e-explicito-e-a-marcacao-de-falha-mora-num-lugar-so.md) | O retry do `arq` é explícito, e a marcação de falha mora num lugar só | aceito (corrige uma premissa do 0005/0025; complementa 0023/0035/0037) |
 | [0053](0053-a-fronteira-externa-tem-teto-e-o-professor-tem-disjuntor.md) | A fronteira externa tem teto, e o professor tem disjuntor | aceito (corrige a conta do 0052; estende 0030/0031/0034) |
 | [0054](0054-o-ambiente-de-execucao-do-ios-e-o-dev-build-local.md) | O ambiente de execução do iOS é o dev build local, e o `apiBaseUrl` perde o default silencioso | aceito (escolhe o substituto que o 0048 deixou em aberto; ajusta o 0002) |
+| [0055](0055-o-stt-ouve-qualquer-idioma-modelo-multilingue-e-deteccao.md) | O STT ouve qualquer idioma: modelo multilíngue e detecção, em vez de língua fixa | aceito (levanta o bloqueio de **variante** do 0027 item 7; o porte segue bloqueado) |
+| [0056](0056-o-transcript-ganha-confianca-e-segmentos.md) | O `Transcript` ganha confiança e segmentos: o que o STT já produz para de ser jogado fora | aceito (estende 0029/0036) |
+| [0057](0057-transcricao-de-baixa-confianca-e-desfecho-esperado.md) | Transcrição de baixa confiança é desfecho esperado, não erro | aceito (segundo consumidor real do 0039; depende de 0055/0056) |
+| [0058](0058-o-aluno-cancela-o-turn-e-o-servidor-e-avisado.md) | O aluno cancela o turn, e o servidor é avisado | aceito (exerce o item 2 do 0003; toca 0028/0037/0041/0051) |
+| [0059](0059-o-prompt-do-professor-recebe-contexto-do-aluno.md) | O prompt do professor deixa de ser estático: ele recebe um bloco de contexto do aluno | aceito (muda a conta do 0021; preserva 0020 e 0022) |
+| [0060](0060-o-backend-sai-do-mac-e-a-latencia-paga-a-conta.md) | O backend sai do Mac para um VPS Linux, e a latência paga a conta | aceito (ajusta a parte de infra do 0010 e a Parte E da visão; **exerce** o 0027 em vez de contrariá-lo; substitui a escolha do CARD-038) |
 
 ## ADRs pendentes de decisão de produto
 
@@ -102,3 +108,4 @@ dependem de escolha do desenvolvedor, não de análise:
 | **Canal de cobrança e provedor de pagamento** (loja vs. web) | 1 e 3 | CARD-021; vale 11–26 pontos de margem |
 | ~~**Unidade da cota** (minutos falados vs. turns)~~ | 2 (afeta o domínio) | **DECIDIDO em 2026-08-27: cobrar e comunicar em minutos, limitar em ambos** — um teto de turns/dia dimensionado para só morder no comportamento patológico. O ADR é escrito na execução do CARD-015; até lá esta linha registra a decisão, não a substitui |
 | **Sucessor do ADR-0010** (política de custo sob receita) | 3 | depende dos dois acima |
+| **`CefrAssessment`: a partir de quê, com que janela, e como apresentar a faixa** | 2 | CARD-046. Identificado na investigação de 2026-09-09; **não escrito de propósito** — não há evidência para decidir janela nem algoritmo, e ADR sem evidência é ficção com número de série |
