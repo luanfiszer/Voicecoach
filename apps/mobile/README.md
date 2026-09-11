@@ -114,8 +114,23 @@ pnpm run gates        # biome check + tsc --noEmit (strict) em todo o workspace
 pnpm run lint:fix     # aplica formatação e correções seguras
 ```
 
-Rodam também no `pre-commit` e no CI (job `mobile`). **Não há gate de teste
-automatizado** — adiado com gatilho escrito no ADR-0043 item 6.
+Rodam também no `pre-commit` e no CI (job `mobile`). Desde o CARD-042 há
+**três** gates: o terceiro é `vitest run`, e o ADR-0061 diz o que ele cobre e o
+que ele **não** cobre.
+
+```bash
+pnpm run test         # vitest run — da raiz
+pnpm run test:watch
+```
+
+A regra que mantém o custo baixo não é sobre o runner, é sobre o código: **o
+que vai a teste é extraído para um módulo sem imports** (o primeiro é
+`src/features/turno/silencio.ts`). Precisou de mock de módulo nativo? A resposta
+quase sempre é *extrair mais*, não *mockar mais*.
+
+> **Teste verde aqui significa "a ordem das chamadas está certa", nunca "o som
+> parou"** (ADR-0061 item 6). O Simulador não prova microfone, latência nem
+> permissão negada permanentemente (ADR-0054 item 3); o Node prova menos ainda.
 
 ## Estrutura
 

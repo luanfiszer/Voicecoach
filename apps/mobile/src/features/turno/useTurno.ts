@@ -163,6 +163,12 @@ export function useTurno(): Turno {
 
       try {
         const turn = await cliente.obterTurn(id);
+        // **A volta da rede é tarde demais para confiar no `id` de antes**
+        // (CARD-042): entre o pedido e a resposta o aluno pode ter tocado em
+        // gravar. `limpar()` zera `turnAtualRef`, e `enviar()` o troca pelo turn
+        // novo — nos dois casos, renovar aqui faria o turn MORTO voltar a tocar.
+        // O `abort()` não alcança isto: este `GET` é outra requisição.
+        if (turnAtualRef.current !== id) return;
         const fresco = (turn.chunks ?? []).find((c) => c.index === index);
         if (fresco) {
           filaRef.current?.renovar(fresco);

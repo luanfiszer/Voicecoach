@@ -83,6 +83,13 @@ export function TelaConversa() {
               });
               return;
             }
+            // **A ordem é invariante, não coincidência de escrita** (CARD-042).
+            // `limpar()` é SÍNCRONO e cala o professor antes de qualquer outra
+            // coisa acontecer; `iniciar()` é assíncrono — pede permissão e troca
+            // a categoria da sessão de áudio do iOS. Invertê-los deixaria o
+            // professor falando durante todo o `await`, e em modo avião ou com
+            // o diálogo de permissão aberto isso é tempo indeterminado.
+            // Silenciar é operação local: nada aqui pode esperar por rede.
             turno.limpar();
             void gravacao.iniciar();
           }}

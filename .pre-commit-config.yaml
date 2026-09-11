@@ -100,3 +100,14 @@ repos:
         language: system
         files: ^(apps|packages)/.*\.(ts|tsx)$
         pass_filenames: false
+
+      - id: vitest
+        name: vitest run (cliente)
+        # O terceiro gate do cliente (ADR-0061). `pass_filenames: false` pelo
+        # mesmo motivo dos dois acima: o teste que a mudança quebra pode estar
+        # em arquivo que não entrou no commit — e a invariante que ele guarda
+        # (`pause()` antes de `remove()`) é invisível para lint e para tipo.
+        entry: bash -c 'pnpm run test'
+        language: system
+        files: ^(apps|packages)/.*\.(ts|tsx)$
+        pass_filenames: false

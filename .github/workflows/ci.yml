@@ -64,7 +64,7 @@ jobs:
         run: uv run coverage report --include="*/domain/*,*/application/*" --fail-under=90
 
   mobile:
-    name: cliente (biome, tsc)
+    name: cliente (biome, tsc, vitest)
     runs-on: ubuntu-latest
 
     steps:
@@ -92,6 +92,11 @@ jobs:
         # app contra eles, ninguém descobre que o app parou de casar com o
         # contrato.
         run: pnpm run typecheck
+
+      - name: vitest (a invariante que lint e tipo não pegam)
+        # ADR-0061: a ordem `pause()` antes de `remove()` não quebra build nem
+        # tela — só o ouvido de quem usa o app. Este é o único gate que a vê.
+        run: pnpm run test
 
   openapi:
     name: contrato OpenAPI e tipos TypeScript
