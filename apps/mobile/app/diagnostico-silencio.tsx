@@ -20,12 +20,21 @@
  *
  * | Variante | O que faz em T0 |
  * |---|---|
- * | `a` | `remove()` só — o código de hoje |
- * | `b` | `pause()` e depois `remove()` — a correção proposta |
+ * | `a` | `remove()` só — o código de ANTES do CARD-042 |
+ * | `b` | `pause()` e depois `remove()` — a correção que entrou |
+ *
+ * **Resultado no Simulador (CARD-042):** `a` → 2008–2300 ms de avanço (o resto
+ * inteiro do arquivo); `b` → 1–2 ms. O número no aparelho é dívida do card.
  *
  * ```
  * xcrun simctl openurl booted "voicecoach://diagnostico-silencio?variante=a"
  * ```
+ *
+ * **Armadilha medida:** vindo de fora do app, o deep link abre um diálogo
+ * *"Open in Voicecoach?"* que exige um toque, e nesta máquina o `osascript` não
+ * tem acesso assistivo para tocá-lo (CARD-011). No Simulador, sem mão na tela,
+ * a saída é montar a rota temporariamente em `app/index.tsx`. **No iPhone o
+ * problema não existe:** os botões `a` e `b` estão na própria tela.
  */
 
 import { Asset } from 'expo-asset';
