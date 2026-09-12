@@ -3,7 +3,7 @@
 - **ID:** CARD-042
 - **Épico:** Qualidade da conversa (briefing 2026-09-09, ponto 2 — lado do cliente)
 - **Esforço:** P
-- **Status:** parcial (2026-09-11) — causa confirmada e corrigida; a medição no aparelho é dívida
+- **Status:** concluído (2026-09-12) — causa lida no Swift e medida no iPhone; o link "regravar" também não calava, e foi corrigido
 - **Dependências:** CARD-037 (o app tem de estar no aparelho), ADR-0047
 
 ## Contexto
@@ -276,3 +276,110 @@ depois de ler o Swift e **antes** de rodar o experimento:
 | **Modo avião verificado de fato** | idem | mesma sessão |
 | **O cenário "turn interrompido, grava de novo" executado ponta a ponta** | exige backend de pé + aparelho | mesma sessão |
 | Ordenar `setAudioModeAsync` depois do silêncio (hipótese 2 do card) | **não foi preciso**: a hipótese 1 explicou 100% do avanço medido. A hipótese 2 não foi testada nem descartada | se o som ainda escapar no aparelho depois desta correção |
+
+---
+
+## Execução — parte 2: o iPhone na mão (2026-09-12)
+
+As três dívidas da parte 1 dependiam do aparelho, e esta parte as fecha. O
+aparelho também cobrou o que o card não tinha visto: **o gesto do título
+("regravar") era outro controle**.
+
+### 1. O ambiente, e o que custou
+
+Nada disto é código do produto; tudo foi medido. Viraram tabela em
+`apps/mobile/README.md`.
+
+| Obstáculo | Evidência | Saída |
+|---|---|---|
+| O app não abria | `devicectl`: *"invalid code signature … has not been explicitly trusted by the user"*. O perfil **não** tinha vencido: `ExpirationDate 2026-09-16T18:57:25Z`, decodificado do `.mobileprovision` | confiança restaurada nos Ajustes, **sem recompilar** |
+| Mac no hotspot do iPhone, rede só IPv6 com CLAT, VPN Fortinet em túnel completo | `scutil --nwi`: `en0 192.0.0.2 (CLAT46)`, rota padrão por `utun6` | VPN desligada; API reiniciada com `--host ::`. O `0.0.0.0` escutava **só IPv4**; o `lsof` mostrou Metro e MinIO já em `*` IPv6 |
+| O build grava o IPv4 do Mac em `ip.txt`, e aqui seria o `192.0.0.2`, inalcançável | `react-native-xcode.sh:18` | **nenhum build**: `devicectl … -- -RCT_jsLocation MacBook-Air-de-Luan.local:8081`. O console do app mostrou o `GET …virtual-metro-entry.bundle` |
+| O canal de logs do app com o Metro não volta depois de oscilação de rede | 5 turns completos no Postgres entre 18:21 e 18:22, **zero** linhas no Metro | reabrir o app |
+
+### 2. Etapa A — a rota de diagnóstico no iPhone físico (automática)
+
+Seis rodadas alternadas, cada uma aberta por `devicectl --payload-url`:
+
+```
+variante=a · t(T0)=0.318s · AVANÇO DEPOIS DO REMOVE = 1982ms · último avanço em +1990ms · 41 amostras · 40 com playing=true
+variante=b · t(T0)=0.321s · AVANÇO DEPOIS DO REMOVE =    1ms · último avanço em   +51ms ·  1 amostra  ·  0 com playing=true
+variante=a · t(T0)=0.317s · AVANÇO DEPOIS DO REMOVE = 1983ms · último avanço em +1984ms · 42 amostras · 41 com playing=true
+variante=b · t(T0)=0.308s · AVANÇO DEPOIS DO REMOVE =    2ms · último avanço em   +42ms ·  1 amostra  ·  0 com playing=true
+variante=a · t(T0)=0.310s · AVANÇO DEPOIS DO REMOVE = 1990ms · último avanço em +1991ms · 42 amostras · 41 com playing=true
+variante=b · t(T0)=0.314s · AVANÇO DEPOIS DO REMOVE =    1ms · último avanço em   +37ms ·  1 amostra  ·  0 com playing=true
+```
+
+O aparelho repete o Simulador. A variante `b` para dentro de um tick do
+relógio: o "último sinal de vida" entre +37 e +51 ms tem como teto o
+`updateInterval` de 50 ms, não o player.
+
+### 3. Etapa B — o fluxo real, com o desenvolvedor falando
+
+Instrumentos temporários em `soltarTudo`, **fora do commit** (o diff removido
+tinha só as linhas marcadas `TEMPORÁRIO`).
+
+- **Teste 1 (interromper):** 7 interrupções no log — `geração 3 · 1 player(s)
+  calado(s)` e seis `2 player(s) calado(s)` (gerações 5 a 15). Ouvido:
+  *"interrompeu com o botão de gravar"*.
+- **Teste 2 (reenviar):** *"nada da anterior tocou"*.
+- **O achado:** *"apenas quando eu clico no regravar ele libera o botão mas não
+  para o turno"*. O link chamava só `gravacao.descartar`. **Decisão do
+  desenvolvedor: regravar cala também** — `turno.limpar()` antes de
+  `gravacao.descartar()`, em `TelaConversa.tsx`. Ver
+  [LEARNING-0007](../learnings/0007-o-relato-dizia-recomecar-e-a-investigacao-mapeou-um-gesto-so.md).
+- **Teste 3 (modo avião), 1ª tentativa: inválida.** O relato foi "continuou
+  depois do toque", mas o teste saiu contaminado. Com o Mac no hotspot do próprio
+  iPhone, o modo avião cortou a internet do Mac (turn das 18:20:14 `failed`:
+  *provedor indisponível: o professor não atendeu*) e derrubou o canal de logs,
+  levando junto a linha do toque. Uma leitura intermediária do agente — "o
+  contador de geração contínuo prova que o toque não chegou ao silêncio" —
+  **estava errada**: um salto no contador só aparece num log posterior, e não
+  havia nenhum. Sem evidência a favor nem contra, o teste foi refeito.
+- **Instrumento que sobrevive ao modo avião:** no toque, anota o `currentTime`
+  de cada player calado, relê 300 ms depois e mostra o avanço num `Alert`, que
+  não depende de rede nem do Metro.
+- **Teste A (regravar, rede ligada):** calou. `geração 3 · 1 calado(s) ·
+  avanço +300ms: [1] ms` (no alerta e no Metro).
+- **Teste B (modo avião, refeito):** *"calou na hora"*, alerta ~0 ms.
+
+Linha do tempo no Postgres (horário local): 12 turns `completed` entre 18:05 e
+18:16; `18:20:14 failed` (provedor indisponível) e `18:21:29 failed` (varredura)
+durante a queda do hotspot; `18:34:20 completed` (teste A); `18:38:06 processing`
+(teste B — a cascata ficou sem o Claude no meio do caminho).
+
+### 4. Critérios de aceite — fechamento
+
+| Critério | Desfecho | Evidência |
+|---|---|---|
+| o som para em < 200 ms **no iPhone** | ✅ | `b`: avanço de **1–2 ms**, último sinal de vida em **≤ +51 ms** (teto: relógio de 50 ms); `a`: 1982–1990 ms. No fluxo real, 7 interrupções com os players calados no toque, e o ouvido confirmou. **Método declarado:** é o número do player (`currentTime`), confirmado pelo ouvido — não é medição acústica com cronômetro |
+| `pause()` antes de `remove()`, com dublê | ✅ | `silencio.test.ts`, 5 testes (parte 1) |
+| modo avião: o som para igual | ✅ | 1ª tentativa inválida (acima); refeita com instrumento offline: alerta ~0 ms + *"calou na hora"* |
+| nenhum trecho do turn anterior toca | ✅ | teste 2 no aparelho: *"nada da anterior tocou"* |
+| `learnings/` com a regra | ✅ | [LEARNING-0006](../learnings/0006-remove-nao-e-dispose-e-o-gate-que-faltava-era-o-teste.md) (mecanismo) e [LEARNING-0007](../learnings/0007-o-relato-dizia-recomecar-e-a-investigacao-mapeou-um-gesto-so.md) (gesto) |
+
+### 5. Item de ADR — critério citado
+
+**Nada da parte 2 gera ADR.** O "regravar" é correção de bug sem mudança de
+design (`docs/adr/README.md`, §"Quando NÃO escrever ADR"). Os procedimentos de
+ambiente são documentação: conferidos os critérios 1–6 um a um, nenhum se aplica
+— sem dependência nova, sem fronteira, sem custo, sem segurança, reversíveis,
+sem convenção contrariada. A decisão que exigiu ADR nesta execução continua
+sendo a do runner de teste ([ADR-0061](../adr/0061-o-primeiro-teste-do-cliente-vitest-sobre-logica-extraida.md), parte 1).
+
+### 6. Regra do explicador — parte 2
+
+**Nenhuma pergunta de previsão, e o motivo está escrito.** A parte 2 não teve
+decisão de **implementação** não-óbvia: teve ambiente e duas decisões **do
+desenvolvedor**, que a regra manda perguntar e não prever. Ambas foram
+**respondidas**: o comportamento do "regravar" (→ calar também) e o registro do
+achado (→ LEARNING-0007 com regra). A pergunta da parte 1 segue fechada.
+
+### 7. O que fica, e para quem
+
+| Observação | Dono |
+|---|---|
+| Turn preso em `processing` quando o Mac perde a internet no meio da cascata (18:38:06) | varredura do ADR-0052; cancelar no servidor é o CARD-043 |
+| Hipótese 2 do card (`setAudioModeAsync`) | **encerrada sem teste**: a hipótese 1 explicou 100% do avanço medido, e com a correção o silêncio fechou em todos os gestos no aparelho. Reabre só se aparecer sobra audível **com** `pause()` presente |
+
+**Dívidas do card: nenhuma.**

@@ -418,6 +418,15 @@ continua faltando, e é por isso que nenhuma está em "Fechadas".
 > desde o CARD-009 — decidir se a **regra** muda —, e segue dependendo de uma
 > decisão de uma frase.
 
+> **CARD-042, parte 2 — o iPhone (2026-09-12): sem pergunta de previsão, e o
+> motivo está escrito.** Esta parte fechou os três critérios que dependiam do
+> aparelho e não teve decisão de **implementação** não-óbvia: teve ambiente
+> (hotspot só IPv6, VPN, confiança do certificado, `-RCT_jsLocation` sem
+> recompilar) e duas decisões **do desenvolvedor**, que a regra manda perguntar e
+> não prever — o "regravar" passa a calar, e o achado vira LEARNING-0007 com
+> regra. Ambas **respondidas**. A pergunta da parte 1 segue fechada. A Q7 não foi
+> reapresentada: é o mesmo card da parte 1, onde ela já tinha sido.
+
 ## Fechadas
 
 | # | Pergunta | Fechada em | Como |

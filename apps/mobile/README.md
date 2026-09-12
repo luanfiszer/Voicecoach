@@ -62,6 +62,32 @@ você não souber o sintoma:
 | `no member named 'executeSync'` ao compilar `expo-modules-core` | peer de `react-native-worklets` fora da faixa — **nunca compilado no Simulador** | `pnpm exec expo install --fix` |
 | `No script URL provided`, tela preta | o dev build grava o endereço do bundler **em tempo de compilação**, e o IP do Mac mudou | recompile (`pnpm run ios:device`, incremental) |
 
+### Mudou de rede? Não recompile (CARD-042, medidos)
+
+O dev build grava o IPv4 do Mac em `ip.txt` na hora de compilar
+(`react-native-xcode.sh`). Numa rede nova o app abre e não acha o Metro. O host
+pode ser passado **na abertura**, sem build:
+
+```bash
+xcrun devicectl device process launch --device <id> --terminate-existing \
+  com.luanfiszer.voicecoach -- -RCT_jsLocation <seu-mac>.local:8081
+```
+
+**O `--` é obrigatório.** Sem ele, o `devicectl` lê `-RCT_jsLocation` como flags
+dele (`Missing value for '-t <seconds>'`) e nem abre o app. Funciona porque o
+`RCTBundleURLProvider` lê `RCT_jsLocation` de `NSUserDefaults`, que aceita
+argumento de lançamento. Para abrir direto numa rota, sem o diálogo que o
+Simulador mostra: `--payload-url "voicecoach://<rota>"`.
+
+| Sintoma | O que é | Cura |
+|---|---|---|
+| `invalid code signature … has not been explicitly trusted by the user`, com o perfil ainda válido | o iPhone **perdeu a confiança** no certificado — não venceu (conferido no `.mobileprovision`) | *Ajustes → Geral → VPN e Gerenciamento de Dispositivo → Confiar* |
+| Mac no hotspot do iPhone: o Safari do iPhone abre o Metro, mas não a API | hotspot só IPv6 com CLAT: o `192.0.0.2` do Mac é inalcançável, e `uvicorn --host 0.0.0.0` escuta **só IPv4** | `uv run uvicorn … --host ::` (no macOS, `::` aceita IPv6 e IPv4). Metro e MinIO já escutam nos dois |
+| VPN corporativa ligada: nada do iPhone chega ao Mac | túnel completo, a rota padrão sai por `utun` | desligar a VPN durante o teste |
+| Turns completam, mas nenhum `console.info` chega ao Metro | depois de uma oscilação de rede, o canal de logs do app com o Metro **não se reconecta sozinho** | reabrir o app (comando acima) |
+| `devicectl … --console` mostra só logs nativos | os `console.*` do JavaScript vão para o Metro, não para a saída padrão | para medir offline, mostre o número na tela (um `Alert` temporário) |
+| Modo avião no iPhone derruba o backend junto | com o Mac no hotspot do próprio iPhone, o modo avião corta a internet do Mac: o worker não alcança o Claude (`provedor indisponível`) | esperado nesse arranjo; um teste de silêncio só precisa de uma resposta **já tocando** |
+
 ### O áudio da resposta precisa de um host que o iPhone alcance
 
 A mídia é servida por URL assinada, e **o host entra na assinatura SigV4** — não

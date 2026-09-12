@@ -23,8 +23,9 @@
  * | `a` | `remove()` só — o código de ANTES do CARD-042 |
  * | `b` | `pause()` e depois `remove()` — a correção que entrou |
  *
- * **Resultado no Simulador (CARD-042):** `a` → 2008–2300 ms de avanço (o resto
- * inteiro do arquivo); `b` → 1–2 ms. O número no aparelho é dívida do card.
+ * **Resultado (CARD-042).** Simulador: `a` 2008–2300 ms, `b` 1–2 ms. **iPhone
+ * físico:** `a` 1982–1990 ms (o resto inteiro do arquivo), `b` 1–2 ms, com o
+ * último sinal de vida entre +37 e +51 ms — o teto é o `updateInterval` de 50 ms.
  *
  * ```
  * xcrun simctl openurl booted "voicecoach://diagnostico-silencio?variante=a"
@@ -34,7 +35,9 @@
  * *"Open in Voicecoach?"* que exige um toque, e nesta máquina o `osascript` não
  * tem acesso assistivo para tocá-lo (CARD-011). No Simulador, sem mão na tela,
  * a saída é montar a rota temporariamente em `app/index.tsx`. **No iPhone o
- * problema não existe:** os botões `a` e `b` estão na própria tela.
+ * problema não existe:** os botões `a` e `b` estão na própria tela, e
+ * `devicectl … --payload-url` abre a rota direto, sem diálogo — foi assim que a
+ * bateria de 6 rodadas rodou no aparelho (`apps/mobile/README.md`).
  */
 
 import { Asset } from 'expo-asset';

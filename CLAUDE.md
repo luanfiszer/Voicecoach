@@ -153,6 +153,12 @@ O que ainda é TBD está marcado como tal, com o card que resolve.
   dependem — em especial **o que é permanente vs. andaime** no sistema atual —
   e as confirma com o desenvolvedor antes de produzir o artefato. Premissa não
   confirmada é anotada como tal no próprio artefato.
+- **Bug relatado por uso se reproduz pelo gesto, não pelo código** (origem:
+  [LEARNING-0007]): antes de mapear o caminho de código de um relato ("ao tentar
+  recomeçar…"), liste **todo controle da tela que as palavras do relato podem
+  nomear** e reproduza cada um no ambiente onde o relato aconteceu. Reproduzir a
+  hipótese não é reproduzir o relato: um plano que começa numa linha de código já
+  escolheu o caminho.
 - **A skill de arquitetura é de consulta obrigatória** (CARD-004): antes de
   criar um módulo novo no `backend/`, decidir em que camada algo mora ou julgar
   se uma dependência pode entrar numa camada, carregue a skill
