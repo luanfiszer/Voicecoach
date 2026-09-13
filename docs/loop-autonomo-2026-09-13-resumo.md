@@ -323,3 +323,68 @@ Depois dele (ou em paralelo, se o desenvolvedor preferir), **CARD-060**
 (login social) tem o ADR pendente e depende do CARD-049 (concluído) — pode
 ser o próximo card de backend caso o CARD-050 fique para uma sessão de
 cliente específica.
+
+## 13. Quarta leva — CARD-050, a pedido explícito de continuar
+
+O desenvolvedor autorizou continuar ("Continue, se necessario me pergunte as
+pendencias") depois de revisar o CARD-049. Esta leva mergeou o CARD-050
+sozinho.
+
+### O que foi mergeado
+
+| Card | PR | O que entregou |
+|---|---|---|
+| CARD-050 | [#57](https://github.com/luanfiszer/Voicecoach/pull/57) | A sessão autenticada no cliente mobile: `expo-secure-store` para o refresh token; `sessaoAutenticada.ts` (núcleo puro, sem React/nativo) com a promessa de renovação compartilhada — o objetivo de aprendizado do card; `fetchAutenticado` injetando `Authorization` e renovando uma única vez em `401`; cinco telas (entrada, cadastro, confirme-seu-e-mail, esqueci-minha-senha, redefinir-senha) roteadas por `useState` local, fora do `expo-router`; `useTurno`/`useHistorico` migrados para `fetchAutenticado`, herdando renovação automática sem código próprio; oito métodos novos em `packages/api-client` (`registrar`, `login`, `renovarTokens`, `sair`, `confirmarEmail`, `reenviarConfirmacao`, `pedirRedefinicaoDeSenha`, `redefinirSenha`) |
+
+Nenhum outro card foi tocado nesta leva. `pnpm run gates` verde (80 testes,
+24 novos) antes do merge; nenhum `--no-verify`, nenhum gate contornado.
+
+### O teste que prova o critério de aceite mais caro do card
+
+Duas chamadas de `fetchAutenticado` disparadas com `Promise.all`, ambas
+recebendo `401` de um `fetch` fake, contra um `renovarTokens` fake com atraso
+artificial de 5ms — a asserção é `chamadasDeRenovacao === 1`. Sem a promessa
+compartilhada guardada em variável de closure, seriam duas chamadas e a
+segunda revogaria a família de tokens que a primeira acabou de emitir
+(CARD-049, item 3). Ver `apps/mobile/src/features/auth/sessaoAutenticada.test.ts`.
+
+### Decisão autônoma registrada — pendente de revisão humana
+
+**Recuperação de senha sem deep link**: o aluno cola o código do e-mail à
+mão em `TelaRedefinirSenha`, em vez de um link que abre o app direto. Motivo
+registrado no próprio card: o e-mail do CARD-049 aponta para um `POST` no
+servidor — um clique comum não coleta a senha nova nem dispara o `POST` de
+qualquer forma, então o mecanismo funciona ponta a ponta sem deep link, só
+sem o toque único. Configurar `expo-linking` com associação de domínio é
+infraestrutura que nenhum critério de aceite pede. **PENDENTE DE REVISÃO
+HUMANA**: se a fricção de colar o código for grande na prática, virar deep
+link é o próximo passo natural. Detalhe completo em
+`docs/backlog/CARD-050-a-sessao-autenticada-no-cliente.md`.
+
+### O que não foi verificado (dívida declarada)
+
+- **Nada rodou em aparelho físico ou Simulador.** `expo-secure-store` é
+  módulo nativo novo e exige `expo prebuild`/`expo run:ios`; nenhum aparelho
+  estava pareado nesta leva (mesma limitação do CARD-035 em §10). Toda a
+  lógica está testada em Node (ADR-0061); o que só o aparelho prova (Keychain
+  de verdade, app reaberto depois de fechado) fica para a próxima sessão com
+  aparelho.
+- **SSE reconectando com token renovado no meio do stream**: coberto por
+  composição (o `useTurno` já usa `fetchAutenticado`), mas sem teste
+  dedicado — `useTurno.ts` já não tinha teste próprio antes deste card.
+
+### ADR
+
+Nenhum novo. `expo-secure-store` já estava decidido no ADR-0007; a forma do
+client (sem estado, sem dedup) já estava decidida no ADR-0046.
+
+### Como retomar
+
+Sem pausa pedida pelo desenvolvedor desta vez. Candidatos seguintes, ambos
+dependentes do CARD-049/050 (concluídos):
+
+- **CARD-051** (delete de conta) — bloqueante de V1.0, N4 do corte, exige um
+  ADR próprio (retenção vs. anonimização de `UsageEvent`) antes de fechar,
+  por critério 4 do `adr/README.md`.
+- **CARD-060** (login social Google+Apple) — tem ADR pendente, revisando o
+  ADR-0007.
