@@ -85,6 +85,22 @@ describe('listarSessoes', () => {
     await expect(cliente.listarSessoes()).rejects.toBeInstanceOf(ErroDaApi);
   });
 
+  it('a URN do Problem Details vira `tipo` — a chave que o CARD-027 compara', async () => {
+    const { fetch } = fetchQueDevolve(
+      {
+        type: 'urn:voicecoach:problem:daily-quota-exceeded',
+        title: 'Cota diária esgotada',
+        detail: 'renova à meia-noite',
+      },
+      { status: 429 },
+    );
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch });
+
+    await expect(cliente.listarSessoes()).rejects.toMatchObject({
+      tipo: 'urn:voicecoach:problem:daily-quota-exceeded',
+    });
+  });
+
   it('falha de transporte vira ErroDeRede nomeando o host', async () => {
     const semRede: typeof fetch = async () => {
       throw new TypeError('fetch failed');
@@ -94,6 +110,42 @@ describe('listarSessoes', () => {
     await expect(cliente.listarSessoes()).rejects.toBeInstanceOf(ErroDeRede);
     await expect(cliente.listarSessoes()).rejects.toMatchObject({
       host: 'http://api.local',
+    });
+  });
+});
+
+describe('descartarTurn', () => {
+  it('faz POST em /turns/{id}/discard e não tenta ler corpo em 204', async () => {
+    const urls: string[] = [];
+    const metodos: (string | undefined)[] = [];
+    const fake: typeof fetch = async (url, init) => {
+      urls.push(String(url));
+      metodos.push(init?.method);
+      return new Response(null, { status: 204 });
+    };
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch: fake });
+
+    await cliente.descartarTurn('11111111-1111-1111-1111-111111111111');
+
+    expect(urls).toEqual([
+      'http://api.local/v1/turns/11111111-1111-1111-1111-111111111111/discard',
+    ]);
+    expect(metodos).toEqual(['POST']);
+  });
+
+  it('turn já concluído (409) vira ErroDaApi com a URN certa', async () => {
+    const { fetch } = fetchQueDevolve(
+      {
+        type: 'urn:voicecoach:problem:turn-already-completed',
+        title: 'Turno já concluído',
+      },
+      { status: 409 },
+    );
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch });
+
+    await expect(cliente.descartarTurn('id')).rejects.toMatchObject({
+      status: 409,
+      tipo: 'urn:voicecoach:problem:turn-already-completed',
     });
   });
 });
