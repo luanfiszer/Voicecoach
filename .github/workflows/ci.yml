@@ -120,12 +120,14 @@ jobs:
         working-directory: backend
 
       - name: Gera o schema OpenAPI
-        # A chave é um valor descartável só para o boot passar: `create_app()`
-        # recusa subir sem ANTHROPIC_API_KEY (ADR-0013), e gerar o schema exige
-        # instanciar a aplicação. Nenhuma chamada de rede acontece aqui —
-        # nenhum segredo de verdade é necessário no CI.
+        # As duas chaves são valores descartáveis só para o boot passar:
+        # `create_app()` recusa subir sem ANTHROPIC_API_KEY (ADR-0013) nem
+        # JWT_SECRET (ADR-0007, CARD-049), e gerar o schema exige instanciar
+        # a aplicação. Nenhuma chamada de rede acontece aqui, nenhum token é
+        # assinado de verdade — nenhum segredo real é necessário no CI.
         env:
           ANTHROPIC_API_KEY: ci-nao-e-uma-chave-real
+          JWT_SECRET: ci-nao-e-um-segredo-real-0123456789ab
         working-directory: backend
         run: |
           uv run python -c "
