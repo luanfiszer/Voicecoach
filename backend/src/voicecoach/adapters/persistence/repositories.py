@@ -24,6 +24,7 @@ from voicecoach.adapters.persistence.models import (
     CorrectionRow,
     SessionRow,
     StudentRow,
+    TranslationRow,
     TurnRow,
     UsageEventRow,
 )
@@ -40,6 +41,7 @@ if TYPE_CHECKING:
 
     from voicecoach.domain.session import Session
     from voicecoach.domain.student import Student
+    from voicecoach.domain.translation import Translation, TranslationTarget
     from voicecoach.domain.turn import Turn
     from voicecoach.domain.usage import UsageEvent
 
@@ -376,3 +378,25 @@ class SqlAlchemyUsageEventRepository:
             cost_usd=Decimal(custo),
             unpriced_turns=sem_preco,
         )
+
+
+class SqlAlchemyTranslationRepository:
+    """Implementa ``application.ports.repositories.TranslationRepository``.
+
+    Duas operações e nenhum ``update``: tradução não se corrige (ver o
+    docstring da porta). O ``add`` não trata colisão — quem traduz a violação
+    da chave primária em ``ConflictingWriteError`` é a unidade de trabalho, no
+    ``commit``, exatamente como no índice único de ``idempotency_key``.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get(
+        self, turn_id: UUID, target: TranslationTarget, index: int
+    ) -> Translation | None:
+        row = await self._session.get(TranslationRow, (turn_id, target, index))
+        return None if row is None else mappers.translation_from_row(row)
+
+    async def add(self, translation: Translation) -> None:
+        self._session.add(mappers.translation_to_row(translation))

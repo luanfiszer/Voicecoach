@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
     from voicecoach.domain.session import Session, SessionSummary
     from voicecoach.domain.student import Student
+    from voicecoach.domain.translation import Translation, TranslationTarget
     from voicecoach.domain.turn import Turn
     from voicecoach.domain.usage import StudentUsageTotals, UsageEvent
 
@@ -268,5 +269,44 @@ class UsageEventRepository(Protocol):
         "não gastou nada" é uma resposta, e obrigar o chamador a tratar ausência
         para dizer zero moveria a decisão de cota para dentro de um ``if`` de
         borda.
+        """
+        ...
+
+
+class TranslationRepository(Protocol):
+    """Acesso às traduções já feitas (CARD-036).
+
+    **Porta própria, e não um método em ``TurnRepository``**, pela mesma razão
+    que pôs a entidade fora do agregado: traduzir não é etapa do ciclo de vida
+    do turn, e todo consumidor de ``TurnRepository`` (worker, varredura, SSE)
+    passaria a carregar um método que nunca chama.
+
+    Não há ``update``: tradução não se corrige — a mesma disciplina do
+    ``UsageEventRepository`` (ADR-0051). Traduzir de novo o mesmo texto
+    devolveria outra redação, não uma correção da anterior; e reescrever a
+    linha faria o aluno ver um texto diferente do que leu ontem, sem que nada
+    de origem tivesse mudado.
+    """
+
+    async def get(
+        self, turn_id: UUID, target: TranslationTarget, index: int
+    ) -> Translation | None:
+        """A tradução daquele texto, ou ``None`` se ninguém pediu ainda.
+
+        ``None`` é o caminho normal da primeira vez, não erro — é ele que o
+        caso de uso lê para decidir entre devolver o que existe (de graça) e
+        pagar uma chamada nova (RF4).
+        """
+        ...
+
+    async def add(self, translation: Translation) -> None:
+        """Registra a tradução. A chave composta recusa a segunda (RF4).
+
+        Duas requisições simultâneas para o mesmo texto passam as duas pela
+        consulta do ``get`` e as duas tentam gravar; quem impede a segunda é a
+        **chave primária** ``(turn_id, target, index)``, traduzida em
+        ``ConflictingWriteError`` pela unidade de trabalho. É o mesmo desenho
+        do índice único de ``idempotency_key`` (ADR-0042), e pelo mesmo motivo:
+        a consulta é uma foto, a restrição é a lei.
         """
         ...

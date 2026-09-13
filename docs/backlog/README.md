@@ -53,7 +53,7 @@ O diagnóstico card a card, a ordem e as decisões estão em
 | [033](CARD-033-saldo-de-cota-e-estado-do-servico.md) | Backend do saldo de cota e do serviço pausado (leitura) | 3 | backend | P | 015 | **concluído** |
 | [034](CARD-034-encerramento-automatico-por-inatividade.md) | Encerramento automático da sessão por inatividade (job do arq) | 3 | backend | P | 031, 025 | backlog |
 | [035](CARD-035-controles-do-player-sobre-a-fila-de-trechos.md) | Controles do player sobre a fila: `0.75×`, `repetir`, scrub | 3 | mobile | M | 028, 012 | backlog |
-| [036](CARD-036-traducao-sob-demanda.md) | Tradução sob demanda: o endpoint do botão `traduzir` | 3 | backend | P | 013, 014, 026 | backlog |
+| [036](CARD-036-traducao-sob-demanda.md) | Tradução sob demanda: o endpoint do botão `traduzir` | 3 | backend | P | 013, 014, 026 | **concluído** |
 | [049](CARD-049-cadastro-login-e-o-par-de-tokens.md) | **Cadastro, login e o par de tokens** — a auth que o ADR-0007 desenhou | 3 | backend | M | ADR-0007, **ADR de provedor de e-mail** | backlog — **bloqueante de V1.0 (N3)**. O código de convite do ADR-0010 morre: app público **é** o "beta aberto" do gatilho |
 | [050](CARD-050-a-sessao-autenticada-no-cliente.md) | **A sessão autenticada no cliente** — secure storage, refresh e expiração | 3 | mobile | M | 049, ADR-0007 | backlog — **bloqueante de V1.0 (N3)**. O refresh concorrente é o bug que derruba a família de tokens |
 | [051](CARD-051-delete-de-conta-dentro-do-app.md) | **Delete de conta dentro do app** | V1 | backend/mobile | M | 049, 050, 017, **ADR novo** | backlog — **bloqueante de V1.0 (N4)**: Guideline 5.1.1(v), reprovação direta. O "não apaga nada" do CARD-032 vale para turn, **não** para conta |

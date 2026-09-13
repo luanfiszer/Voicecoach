@@ -38,14 +38,20 @@ from uuid import UUID
 from voicecoach.application.ports.audio_encoder import EncodedAudio
 from voicecoach.application.ports.media_storage import MediaStorageError
 from voicecoach.application.ports.speech_to_text import AudioInput, Segment, Transcript
-from voicecoach.application.ports.teacher_llm import TeacherEvent, Utterance
+from voicecoach.application.ports.teacher_llm import (
+    TeacherEvent,
+    TokenUsage,
+    Utterance,
+)
 from voicecoach.application.ports.text_to_speech import (
     BYTES_PER_SAMPLE,
     SynthesizedAudio,
 )
+from voicecoach.application.ports.translator import Translated, TranslatorError
 from voicecoach.application.ports.turn_events import TurnEvent
 from voicecoach.domain.correction import CorrectionType
 from voicecoach.domain.session import Session, SessionSummary
+from voicecoach.domain.translation import Translation, TranslationTarget
 from voicecoach.domain.turn import Turn
 from voicecoach.domain.usage import StudentUsageTotals, UsageEvent
 
@@ -505,3 +511,69 @@ class FakeTurnEvents:
     def eventos(self) -> list[TurnEvent]:
         """Só os eventos, para a comparação de lista inteira com um `==` só."""
         return [p.event for p in self.publicados]
+
+
+class FakeTranslationRepository:
+    """Guarda traduções em memória, pela chave composta (CARD-036).
+
+    A escrita duplicada **levanta**, como no `FakeUsageEventRepository`: é a
+    chave primária do Postgres reproduzida em memória, para que o teste do RF4
+    possa afirmar "uma tradução, uma linha" sem precisar de banco.
+    """
+
+    def __init__(self, *translations: Translation) -> None:
+        self.translations: dict[tuple[UUID, TranslationTarget, int], Translation] = {
+            (t.turn_id, t.target, t.index): t for t in translations
+        }
+
+    async def get(
+        self, turn_id: UUID, target: TranslationTarget, index: int
+    ) -> Translation | None:
+        return self.translations.get((turn_id, target, index))
+
+    async def add(self, translation: Translation) -> None:
+        chave = (translation.turn_id, translation.target, translation.index)
+        if chave in self.translations:
+            message = f"tradução {chave} já existe."
+            raise RuntimeError(message)
+        self.translations[chave] = translation
+
+
+class FakeTranslator:
+    """Devolve um texto fixo e conta as chamadas — é a contagem que prova o RF4.
+
+    ``chamadas`` é o instrumento central dos testes deste card: "não pagou duas
+    vezes" só é verificável olhando quantas vezes o provedor foi chamado.
+    """
+
+    def __init__(
+        self,
+        *,
+        texto: str = "Qual praia você foi?",
+        erro: Exception | None = None,
+        model: str = "claude-haiku-4-5-20251001",
+    ) -> None:
+        self.texto = texto
+        self.model = model
+        self._erro = erro
+        self.chamadas: list[str] = []
+
+    async def to_portuguese(self, text: str) -> Translated:
+        self.chamadas.append(text)
+        if self._erro is not None:
+            raise self._erro
+        return Translated(
+            text=self.texto,
+            usage=TokenUsage(
+                model=self.model,
+                input_tokens=120,
+                cache_creation_input_tokens=0,
+                cache_read_input_tokens=0,
+                output_tokens=40,
+            ),
+        )
+
+
+def tradutor_fora_do_ar() -> FakeTranslator:
+    """O provedor caído — o caminho do RF6."""
+    return FakeTranslator(erro=TranslatorError("o tradutor não atendeu"))

@@ -34,6 +34,7 @@ from voicecoach.adapters.health import (
 )
 from voicecoach.adapters.persistence.repositories import (
     SqlAlchemySessionRepository,
+    SqlAlchemyTranslationRepository,
     SqlAlchemyTurnRepository,
     SqlAlchemyUsageEventRepository,
 )
@@ -48,11 +49,13 @@ from voicecoach.application.ports.media_storage import MediaStorage
 from voicecoach.application.ports.rate_limiter import RateLimiter
 from voicecoach.application.ports.repositories import (
     SessionRepository,
+    TranslationRepository,
     TurnRepository,
     UnitOfWork,
     UsageEventRepository,
 )
 from voicecoach.application.ports.service_budget import ServiceBudget
+from voicecoach.application.ports.translator import Translator
 from voicecoach.application.ports.turn_events import TurnEvents
 from voicecoach.application.ports.turn_queue import TurnQueue
 from voicecoach.application.use_cases.discard_turn import DiscardTurnHandler
@@ -64,7 +67,8 @@ from voicecoach.application.use_cases.start_turn import StartTurnHandler
 from voicecoach.application.use_cases.stream_turn_events import (
     StreamTurnEventsHandler,
 )
-from voicecoach.config import Settings
+from voicecoach.application.use_cases.translate_text import TranslateTextHandler
+from voicecoach.config import Settings, preco_do_modelo
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -145,6 +149,10 @@ def usage_event_repository(session: Sessao) -> UsageEventRepository:
     return SqlAlchemyUsageEventRepository(session)
 
 
+def translation_repository(session: Sessao) -> TranslationRepository:
+    return SqlAlchemyTranslationRepository(session)
+
+
 def unit_of_work(session: Sessao) -> UnitOfWork:
     return SqlAlchemyUnitOfWork(session)
 
@@ -160,6 +168,12 @@ def turn_queue(request: Request) -> TurnQueue:
 
 def turn_events(request: Request) -> TurnEvents:
     return RedisTurnEvents(request.app.state.redis)
+
+
+def translator(request: Request) -> Translator:
+    """O tradutor do processo, construído no `lifespan` (CARD-036)."""
+    adapter: Translator = request.app.state.translator
+    return adapter
 
 
 def rate_limiter(request: Request) -> RateLimiter:
@@ -316,6 +330,73 @@ def requesting_student_id() -> UUID:
     linha do handler ou da rota precisa mudar junto.
     """
     return DEV_STUDENT_ID
+
+
+async def enforce_translation_rate_limit(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings_from_app)],
+    limiter: Annotated[RateLimiter, Depends(rate_limiter)],
+    student_id: Annotated[UUID, Depends(requesting_student_id)],
+) -> None:
+    """Limite próprio da tradução (CARD-036, RNF2).
+
+    **Duas chaves, aluno e IP**, como no limite de turns e pela mesma razão:
+    hoje o `student_id` é sempre `DEV_STUDENT_ID` (não há autenticação), então
+    a chave por aluno é na prática um teto global — é a chave por IP que
+    separa um cliente em loop dos demais. Quando a auth (CARD-049) chegar, a
+    primeira passa a valer por conta sem que esta função mude.
+
+    O teto por minuto é mais apertado que o de turns porque traduzir é um gesto
+    de leitura: quem lê uma resposta pede uma tradução, não dez.
+    """
+    ip = request.client.host if request.client else "sem-ip"
+    dentro_do_aluno = await limiter.hit(
+        f"translate:student:{student_id}",
+        window=settings.turn_rate_limit_window,
+        limit=settings.translation_rate_limit_per_student,
+    )
+    dentro_do_ip = await limiter.hit(
+        f"translate:ip:{ip}",
+        window=settings.turn_rate_limit_window,
+        limit=settings.turn_rate_limit_per_ip,
+    )
+    if not (dentro_do_aluno and dentro_do_ip):
+        raise ProblemError(
+            type_=TYPE_RATE_LIMITED,
+            title="Muitas requisições",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Limite de traduções por minuto excedido. "
+            "Tente novamente em instantes.",
+            retry_after_seconds=int(settings.turn_rate_limit_window.total_seconds()),
+        )
+
+
+def translate_text_handler(
+    turns: Annotated[TurnRepository, Depends(turn_repository)],
+    sessions: Annotated[SessionRepository, Depends(session_repository)],
+    translations: Annotated[TranslationRepository, Depends(translation_repository)],
+    adapter: Annotated[Translator, Depends(translator)],
+    budget: Annotated[ServiceBudget, Depends(service_budget)],
+    uow: Annotated[UnitOfWork, Depends(unit_of_work)],
+    clock: Annotated[datetime, Depends(agora)],
+) -> TranslateTextHandler:
+    """Monta o handler da tradução.
+
+    `llm_price` entra como **função**, não como tabela: é a composition root
+    quem conhece `config` (ADR-0013), e o caso de uso recebe a capacidade de
+    perguntar o preço sem saber de onde ele vem — a mesma costura que o
+    `ProcessTurnHandler` já usa.
+    """
+    return TranslateTextHandler(
+        turns=turns,
+        sessions=sessions,
+        translations=translations,
+        translator=adapter,
+        service_budget=budget,
+        unit_of_work=uow,
+        clock=lambda: clock,
+        llm_price=preco_do_modelo,
+    )
 
 
 def stream_handler(

@@ -32,21 +32,28 @@ from voicecoach.adapters.events.redis_turn_events import wire_name
 from voicecoach.api.audio_intake import extensao_para, medir
 from voicecoach.api.dependencies import (
     discard_turn_handler,
+    enforce_translation_rate_limit,
     enforce_turn_rate_limit,
     get_settings_from_app,
     media_storage,
     requesting_student_id,
     start_turn_handler,
     stream_handler,
+    translate_text_handler,
     turn_repository,
 )
 from voicecoach.api.errors import ProblemError
 from voicecoach.api.schemas.problem import (
     TYPE_DAILY_QUOTA_EXCEEDED,
+    TYPE_NOTHING_TO_TRANSLATE,
     TYPE_SERVICE_BUDGET_EXCEEDED,
     TYPE_SESSION_ENDED,
     TYPE_SESSION_NOT_FOUND,
     TYPE_TURN_ALREADY_COMPLETED,
+)
+from voicecoach.api.schemas.translations import (
+    TranslationRequest,
+    TranslationResponse,
 )
 from voicecoach.api.schemas.turns import (
     ChunkPayload,
@@ -89,6 +96,18 @@ from voicecoach.application.use_cases.stream_turn_events import (
     Delivery,
     StreamTurnEventsHandler,
     posicao,
+)
+from voicecoach.application.use_cases.translate_text import (
+    NothingToTranslate,
+    TranslateText,
+    TranslateTextHandler,
+    TranslationReady,
+)
+from voicecoach.application.use_cases.translate_text import (
+    ServiceBudgetExceeded as TranslationBudgetExceeded,
+)
+from voicecoach.application.use_cases.translate_text import (
+    TurnNotFound as TurnNaoEncontradoParaTraduzir,
 )
 
 # Ver a nota em `api/dependencies.py`: o FastAPI resolve as anotações em runtime,
@@ -285,6 +304,59 @@ async def descartar_turn(
                         detail="Este turno já entregou a resposta; não é "
                         "possível descartar uma resposta já entregue.",
                         turn_id=str(turn_id),
+                    )
+                case _:  # pragma: no cover - inalcançável enquanto o mypy passar
+                    assert_never(erro)
+
+
+@router.post(
+    "/turns/{turn_id}/translations",
+    summary="Traduz para português um texto do turno (CARD-036)",
+    dependencies=[Depends(enforce_translation_rate_limit)],
+)
+async def traduzir_texto_do_turn(
+    turn_id: UUID,
+    pedido: TranslationRequest,
+    handler: Annotated[TranslateTextHandler, Depends(translate_text_handler)],
+    student_id: Annotated[UUID, Depends(requesting_student_id)],
+) -> TranslationResponse:
+    """O aluno pediu a tradução de um texto que o produto já produziu.
+
+    **O corpo diz QUAL texto, nunca o texto** (RF1). Traduzir de novo o mesmo
+    texto não cobra de novo (RF4) e responde `cached: true`.
+    """
+    resultado = await handler.handle(
+        TranslateText(
+            turn_id=turn_id,
+            target=pedido.target,
+            index=pedido.index,
+            student_id=student_id,
+        )
+    )
+    match resultado:
+        case Ok(value=TranslationReady(text=texto, cached=reaproveitada)):
+            return TranslationResponse(text=texto, cached=reaproveitada)
+        case Err(error=erro):
+            match erro:
+                case TurnNaoEncontradoParaTraduzir():
+                    raise TurnNotFoundError(f"Turn {turn_id} não existe.")
+                case NothingToTranslate():
+                    raise ProblemError(
+                        type_=TYPE_NOTHING_TO_TRANSLATE,
+                        title="Nada a traduzir",
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Este texto ainda não existe neste turno — "
+                        "a resposta pode não ter chegado, ou a correção "
+                        "pedida não existe.",
+                        turn_id=str(turn_id),
+                    )
+                case TranslationBudgetExceeded():
+                    raise ProblemError(
+                        type_=TYPE_SERVICE_BUDGET_EXCEEDED,
+                        title="Serviço pausado temporariamente",
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="O serviço atingiu o limite de uso do período. "
+                        "O texto original continua disponível.",
                     )
                 case _:  # pragma: no cover - inalcançável enquanto o mypy passar
                     assert_never(erro)

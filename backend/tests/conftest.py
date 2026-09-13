@@ -69,6 +69,8 @@ def app(settings: Settings, fakes: Fakes) -> Iterator[FastAPI]:
             deps.usage_event_repository: lambda: fakes.usage_events,
             deps.service_budget: lambda: fakes.budget,
             deps.rate_limiter: lambda: fakes.rate_limiter,
+            deps.translation_repository: lambda: fakes.translations,
+            deps.translator: lambda: fakes.translator,
         }
     )
     yield aplicacao

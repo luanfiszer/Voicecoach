@@ -33,6 +33,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from voicecoach.domain.correction import CorrectionType, Severity
+from voicecoach.domain.translation import TranslationTarget
 from voicecoach.domain.turn import TurnStatus
 
 
@@ -66,6 +67,15 @@ _TurnStatusType = Enum(
 _CorrectionTypeType = Enum(
     CorrectionType,
     name="correction_type",
+    values_callable=lambda enum: [member.value for member in enum],
+)
+
+# Mesma regra dos dois acima (CARD-036): o Postgres guarda "reply", não
+# "REPLY" — o valor que trafega no JSON do contrato é o mesmo que está na
+# coluna, e é o que um `SELECT` na mão devolve.
+_TranslationTargetType = Enum(
+    TranslationTarget,
+    name="translation_target",
     values_callable=lambda enum: [member.value for member in enum],
 )
 
@@ -358,6 +368,52 @@ class UsageEventRow(Base):
     # **Nulável, e o nulo tem significado:** "não sabemos precificar este
     # modelo", diferente de `0`, que é o custo verdadeiro do STT e do TTS
     # locais. É a mesma distinção que o card faz sobre `cache_read = 0`.
+    estimated_cost_usd: Mapped[Decimal | None] = mapped_column(
+        Numeric(precision=12, scale=8), default=None
+    )
+
+
+class TranslationRow(Base):
+    """A tradução sob demanda de um texto do produto (CARD-036).
+
+    **Chave primária composta ``(turn_id, target, index)``** — a identidade
+    natural, como no trecho de áudio (ADR-0023) e na correção (ADR-0049). É
+    ela que implementa o RF4 ("não pagar duas vezes") do lado do banco: duas
+    requisições simultâneas para o mesmo texto passam as duas pela consulta e
+    só uma grava; a outra recebe ``ConflictingWriteError`` e relê.
+
+    ``index`` é sempre ``0`` para ``target = reply`` (há uma resposta por turn)
+    e o índice da correção para ``target = correction``. Um inteiro sempre
+    presente em vez de uma coluna nulável porque **NULL não participa de chave
+    primária** no Postgres — e uma PK parcial exigiria índice único filtrado
+    mais uma coluna sentinela, complexidade a mais para dizer a mesma coisa.
+
+    ``ondelete="CASCADE"`` pela mesma razão das outras duas filhas: o delete de
+    conta do CARD-017 não deve precisar saber que esta tabela existe.
+
+    O que **não** está aqui: nenhuma coluna com o texto de origem. Ele já está
+    em ``turns.reply_text`` ou em ``turn_corrections.explanation``, é imutável,
+    e copiá-lo seria a mesma verdade gravada duas vezes (ADR-0016).
+    """
+
+    __tablename__ = "turn_translations"
+
+    turn_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("turns.id", ondelete="CASCADE"), primary_key=True
+    )
+    target: Mapped[TranslationTarget] = mapped_column(
+        _TranslationTargetType, primary_key=True
+    )
+    index: Mapped[int] = mapped_column(Integer, primary_key=True)
+    text: Mapped[str] = mapped_column(Text)
+    # O modelo que **respondeu** (o id datado), não o alias pedido na config —
+    # a mesma nota do `UsageEvent`: contagem sem modelo não tem preço, e o
+    # histórico precisa saber quem produziu aquele texto.
+    model: Mapped[str] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(_Timestamp)
+    # `Numeric` e nunca `Float` (ADR-0013), com a mesma precisão e escala do
+    # `UsageEvent` — e nulável com o mesmo significado: "não sabemos precificar
+    # este modelo", nunca "grátis".
     estimated_cost_usd: Mapped[Decimal | None] = mapped_column(
         Numeric(precision=12, scale=8), default=None
     )

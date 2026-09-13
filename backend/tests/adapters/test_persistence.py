@@ -35,6 +35,7 @@ from voicecoach.adapters.persistence.repositories import (
     RowNotFoundError,
     SqlAlchemySessionRepository,
     SqlAlchemyStudentRepository,
+    SqlAlchemyTranslationRepository,
     SqlAlchemyTurnRepository,
     SqlAlchemyUsageEventRepository,
 )
@@ -47,6 +48,7 @@ from voicecoach.application.ports.repositories import (
     ConflictingWriteError,
     SessionRepository,
     StudentRepository,
+    TranslationRepository,
     TurnRepository,
     UnitOfWork,
     UsageEventRepository,
@@ -54,6 +56,7 @@ from voicecoach.application.ports.repositories import (
 from voicecoach.domain.correction import Correction, CorrectionType, Severity
 from voicecoach.domain.session import Session
 from voicecoach.domain.student import Student
+from voicecoach.domain.translation import Translation, TranslationTarget
 from voicecoach.domain.turn import Turn, TurnStatus
 from voicecoach.domain.usage import UsageEvent
 
@@ -1309,3 +1312,138 @@ async def _turn_parado(
     turn.start_processing(quando)
     await repository.add(turn)
     return turn
+
+
+# --- traduções sob demanda (CARD-036) ---------------------------------------
+
+
+def _traducao(turn_id: UUID, *, target: TranslationTarget, index: int) -> Translation:
+    return Translation(
+        turn_id=turn_id,
+        target=target,
+        index=index,
+        text="Qual praia você foi?",
+        model="claude-haiku-4-5-20251001",
+        created_at=NOW,
+        estimated_cost_usd=Decimal("0.00016000"),
+    )
+
+
+async def test_traducao_faz_roundtrip_preservando_decimal_e_enum(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """O que só o Postgres pode quebrar: NUMERIC virando float e enum pelo nome."""
+    turns: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    repository: TranslationRepository = SqlAlchemyTranslationRepository(db_session)
+    turn = await _turn_em_processamento(turns, sessao_persistida)
+    await db_session.commit()
+
+    original = _traducao(turn.id, target=TranslationTarget.REPLY, index=0)
+    await repository.add(original)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    recarregada = await repository.get(turn.id, TranslationTarget.REPLY, 0)
+
+    # Igualdade por valor do `frozen=True`: cobre os sete campos de uma vez.
+    assert recarregada == original
+    assert recarregada is not None
+    assert isinstance(recarregada.estimated_cost_usd, Decimal)
+    assert recarregada.created_at.tzinfo is not None  # TIMESTAMPTZ, não ingênuo
+
+
+async def test_o_enum_do_alvo_e_gravado_com_o_valor_e_nao_com_o_nome(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """`values_callable`: o banco guarda 'correction', não 'CORRECTION'."""
+    turns: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    repository: TranslationRepository = SqlAlchemyTranslationRepository(db_session)
+    turn = await _turn_em_processamento(turns, sessao_persistida)
+    await db_session.commit()
+
+    await repository.add(
+        _traducao(turn.id, target=TranslationTarget.CORRECTION, index=2)
+    )
+    await db_session.commit()
+
+    gravado = await db_session.execute(
+        text("SELECT target::text FROM turn_translations WHERE turn_id = :id"),
+        {"id": turn.id},
+    )
+    assert gravado.scalar_one() == "correction"
+
+
+async def test_a_chave_composta_recusa_a_mesma_traducao_duas_vezes(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """**A garantia que a consulta sozinha não dá** (RF4, mesmo desenho do ADR-0042).
+
+    Duas requisições simultâneas passam as duas pelo `get` que devolve `None` e
+    as duas tentam gravar. Quem impede a segunda é a chave primária — e é por
+    isso que ela existe além do `SELECT`.
+    """
+    turns: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    repository: TranslationRepository = SqlAlchemyTranslationRepository(db_session)
+    uow: UnitOfWork = SqlAlchemyUnitOfWork(db_session)
+    turn = await _turn_em_processamento(turns, sessao_persistida)
+    await db_session.commit()
+
+    for _ in range(2):
+        await repository.add(
+            _traducao(turn.id, target=TranslationTarget.REPLY, index=0)
+        )
+
+    with pytest.raises(ConflictingWriteError):
+        await uow.commit()
+
+
+async def test_resposta_e_correcao_do_mesmo_turn_convivem(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """A chave é `(turn_id, target, index)`: alvos diferentes não colidem."""
+    turns: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    repository: TranslationRepository = SqlAlchemyTranslationRepository(db_session)
+    turn = await _turn_em_processamento(turns, sessao_persistida)
+    await db_session.commit()
+
+    await repository.add(_traducao(turn.id, target=TranslationTarget.REPLY, index=0))
+    await repository.add(
+        _traducao(turn.id, target=TranslationTarget.CORRECTION, index=0)
+    )
+    await db_session.commit()  # não levanta
+
+    assert await repository.get(turn.id, TranslationTarget.REPLY, 0) is not None
+    assert await repository.get(turn.id, TranslationTarget.CORRECTION, 0) is not None
+
+
+async def test_traducao_inexistente_devolve_none(
+    db_session: AsyncSession,
+) -> None:
+    repository: TranslationRepository = SqlAlchemyTranslationRepository(db_session)
+
+    assert await repository.get(uuid4(), TranslationTarget.REPLY, 0) is None
+
+
+async def test_o_delete_do_turn_leva_as_traducoes_junto(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """`ondelete=CASCADE` no banco: o delete de conta do CARD-017 ignora esta tabela."""
+    turns: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    repository: TranslationRepository = SqlAlchemyTranslationRepository(db_session)
+    turn = await _turn_em_processamento(turns, sessao_persistida)
+    # Commit ANTES da tradução: não há `relationship` entre `TurnRow` e
+    # `TranslationRow` (a FK existe, o relacionamento não), então o SQLAlchemy
+    # não conhece a dependência e pode ordenar o INSERT da tradução primeiro —
+    # a mesma armadilha anotada na fixture `aluno_isolado`.
+    await db_session.commit()
+    await repository.add(_traducao(turn.id, target=TranslationTarget.REPLY, index=0))
+    await db_session.commit()
+
+    await db_session.execute(text("DELETE FROM turns WHERE id = :id"), {"id": turn.id})
+    await db_session.commit()
+
+    restantes = await db_session.execute(
+        text("SELECT count(*) FROM turn_translations WHERE turn_id = :id"),
+        {"id": turn.id},
+    )
+    assert restantes.scalar_one() == 0

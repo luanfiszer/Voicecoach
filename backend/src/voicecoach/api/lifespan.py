@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING
 import redis.asyncio as redis
 from arq.connections import RedisSettings, create_pool
 
+from voicecoach.adapters.llm.factory import create_translator
 from voicecoach.adapters.persistence.engine import (
     create_engine,
     create_session_factory,
@@ -86,6 +87,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     app.state.storage = create_media_storage(settings)
+
+    # O tradutor (CARD-036) é do PROCESSO, como o storage: o cliente HTTP do
+    # SDK tem pool próprio, e construí-lo por request abriria um pool novo a
+    # cada tradução. Não tem `close()` a chamar no fim — o `AsyncAnthropic`
+    # fecha o transporte quando é coletado, e não há thread pool próprio como
+    # no storage.
+    app.state.translator = create_translator(settings)
 
     try:
         yield
