@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from voicecoach.domain.correction import Correction
+from voicecoach.domain.turn import RejectionReason
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -98,6 +99,19 @@ class Completed:
 
 
 @dataclass(frozen=True, slots=True)
+class Rejected:
+    """O turn terminou sem chamar o professor (ADR-0057, CARD-040).
+
+    Não é ``Failed``: ninguém tem bug, nenhuma infraestrutura caiu — é
+    desfecho esperado de negócio, e por isso tem evento próprio em vez de
+    reaproveitar o de falha (a mesma distinção que fez o `Result` existir,
+    ADR-0039).
+    """
+
+    reason: RejectionReason
+
+
+@dataclass(frozen=True, slots=True)
 class Failed:
     """O turn falhou. Vira o evento ``failed``.
 
@@ -113,7 +127,9 @@ class Failed:
 # União FECHADA, como o `TeacherEvent` do ADR-0031. Quem consome faz `match` e
 # termina com `assert_never`: sem isso, acrescentar um evento novo passa VERDE
 # no mypy e some em runtime.
-type TurnEvent = Transcribed | ChunkReady | FeedbackAvailable | Completed | Failed
+type TurnEvent = (
+    Transcribed | ChunkReady | FeedbackAvailable | Completed | Rejected | Failed
+)
 
 
 class TurnEvents(Protocol):

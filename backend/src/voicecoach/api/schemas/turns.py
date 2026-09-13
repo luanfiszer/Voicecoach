@@ -39,7 +39,13 @@ from voicecoach.domain.correction import (
     Severity,
     legacy_summary,
 )
-from voicecoach.domain.turn import Turn, TurnAudioChunk, TurnStage, TurnStatus
+from voicecoach.domain.turn import (
+    RejectionReason,
+    Turn,
+    TurnAudioChunk,
+    TurnStage,
+    TurnStatus,
+)
 
 
 class ChunkPayload(BaseModel):
@@ -123,6 +129,11 @@ class TurnResponse(BaseModel):
         description="Falhou DEPOIS de o aluno já ter ouvido algo (ADR-0023)."
     )
     failure_reason: str | None = None
+    rejection_reason: RejectionReason | None = Field(
+        default=None,
+        description="Não nulo quando o turn terminou sem chamar o professor "
+        "(ADR-0057). Campo ADITIVO (ADR-0008).",
+    )
     chunks: list[ChunkPayload] = Field(
         default_factory=list, description="Campo ADITIVO (ADR-0008)."
     )
@@ -158,6 +169,7 @@ class TurnResponse(BaseModel):
             reply_audio_url=reply_audio_url,
             delivered_partially=turn.delivered_partially,
             failure_reason=turn.failure_reason,
+            rejection_reason=turn.rejection_reason,
             chunks=[
                 ChunkPayload.de_chunk(chunk, url)
                 for chunk, url in zip(turn.audio_chunks, chunk_urls, strict=True)
@@ -255,6 +267,12 @@ class FailedPayload(BaseModel):
     delivered_partially: bool
 
 
+class RejectedPayload(BaseModel):
+    """Evento ``rejected`` (ADR-0057, CARD-040) — o turn terminou sem professor."""
+
+    reason: RejectionReason
+
+
 class TurnEventPayloads(BaseModel):
     """**Não é resposta de rota nenhuma.** Existe para o OpenAPI enxergar o SSE.
 
@@ -265,16 +283,18 @@ class TurnEventPayloads(BaseModel):
     ``ChunkPayload`` escapava, por carona em ``TurnResponse.chunks``.
 
     Descoberto no CARD-012, ao escrever o primeiro consumidor. Este envelope é a
-    correção mínima: declarado no ``responses`` da rota, ele arrasta os cinco para
+    correção mínima: declarado no ``responses`` da rota, ele arrasta os seis para
     ``components.schemas``. Um campo renomeado em qualquer evento passa a virar
     ``error TS2339`` no app, que é o ponto inteiro do ADR-0008.
 
-    Os nomes dos campos são os cinco nomes de evento do ADR-0026 — de propósito:
-    quem ler o tipo gerado descobre o mapa ``event: → payload`` sem sair dele.
+    Os nomes dos campos são os seis nomes de evento do ADR-0026/CARD-040 — de
+    propósito: quem ler o tipo gerado descobre o mapa ``event: → payload`` sem
+    sair dele.
     """
 
     transcribed: TranscribedPayload
     chunk: ChunkPayload
     feedback: FeedbackPayload
     completed: CompletedPayload
+    rejected: RejectedPayload
     failed: FailedPayload

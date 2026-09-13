@@ -17,7 +17,7 @@ from voicecoach.domain.errors import (
     InvalidStateTransitionError,
     OutOfOrderAudioChunkError,
 )
-from voicecoach.domain.turn import Turn, TurnStage, TurnStatus
+from voicecoach.domain.turn import RejectionReason, Turn, TurnStage, TurnStatus
 
 NOW = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
 
@@ -356,3 +356,52 @@ def test_dois_turns_nao_compartilham_a_lista_de_trechos() -> None:
     fala(um, 0)
 
     assert outro.audio_chunks == []
+
+
+# -- desfecho "não entendi" (ADR-0057, CARD-040) -----------------------------
+
+
+def test_reject_termina_em_completed_nao_em_failed() -> None:
+    """A régua do ADR-0039: ninguém tem bug, então não é `failed`."""
+    turn = make_processing_turn()
+
+    turn.reject(RejectionReason.LOW_CONFIDENCE, NOW)
+
+    assert turn.status is TurnStatus.COMPLETED
+    assert turn.rejection_reason is RejectionReason.LOW_CONFIDENCE
+    assert turn.completed_at == NOW
+
+
+def test_reject_so_em_processing() -> None:
+    turn = make_turn()
+
+    with pytest.raises(InvalidStateTransitionError):
+        turn.reject(RejectionReason.NO_SPEECH, NOW)
+
+
+def test_reject_recusa_turn_com_trecho_ja_entregue() -> None:
+    """O corte é ANTES do professor (ADR-0057) — com trecho, já é tarde demais."""
+    turn = make_processing_turn()
+    fala(turn, 0)
+
+    with pytest.raises(InvalidStateTransitionError):
+        turn.reject(RejectionReason.LOW_CONFIDENCE, NOW)
+
+
+def test_etapa_e_not_understood_quando_recusado() -> None:
+    """A etapa checa `rejection_reason` ANTES de tudo (ADR-0023, item 4)."""
+    turn = make_processing_turn()
+    turn.attach_transcript("", NOW)
+
+    turn.reject(RejectionReason.NO_SPEECH, NOW)
+
+    assert turn.stage is TurnStage.NOT_UNDERSTOOD
+
+
+def test_turn_recusado_nao_e_entrega_parcial() -> None:
+    """`delivered_partially` fala de `failed`; recusa é outro desfecho."""
+    turn = make_processing_turn()
+
+    turn.reject(RejectionReason.NO_SPEECH, NOW)
+
+    assert not turn.delivered_partially

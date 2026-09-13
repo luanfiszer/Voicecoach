@@ -206,6 +206,8 @@ async def process_turn(ctx: dict[str, Any], turn_id: str) -> None:
             llm_price=preco_do_modelo,
             stt_provider=ctx["stt_provider"],
             tts_provider=ctx["settings"].tts_provider.value,
+            stt_min_confidence=ctx["settings"].stt_min_confidence,
+            stt_max_no_speech=ctx["settings"].stt_max_no_speech,
         )
         try:
             await handler.handle(

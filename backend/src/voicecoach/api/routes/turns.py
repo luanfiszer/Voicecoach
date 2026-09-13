@@ -44,6 +44,7 @@ from voicecoach.api.schemas.turns import (
     CompletedPayload,
     FailedPayload,
     FeedbackPayload,
+    RejectedPayload,
     TranscribedPayload,
     TurnAcceptedResponse,
     TurnEventPayloads,
@@ -56,6 +57,7 @@ from voicecoach.application.ports.turn_events import (
     Completed,
     Failed,
     FeedbackAvailable,
+    Rejected,
     Transcribed,
 )
 from voicecoach.application.result import Err, Ok
@@ -308,6 +310,8 @@ async def _payload(entrega: Delivery, *, storage: MediaStorage, ttl: timedelta) 
             return CompletedPayload(
                 reply_audio_url=await storage.presigned_get_url(chave, ttl)
             ).model_dump_json()
+        case Rejected(reason=motivo):
+            return RejectedPayload(reason=motivo).model_dump_json()
         case Failed() as falha:
             return FailedPayload(
                 reason=falha.reason,

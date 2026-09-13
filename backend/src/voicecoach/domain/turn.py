@@ -71,12 +71,39 @@ class TurnStage(StrEnum):
     artefatos aparecem. ``queued`` não está aqui de propósito: nenhuma tela
     distingue "na fila" de "transcrevendo", e expor isso vazaria mecânica de
     infraestrutura no contrato.
+
+    ``NOT_UNDERSTOOD`` chegou no CARD-040 (ADR-0057): um turn pode terminar
+    sem resposta do professor, por decisão de produto — "não deduzir" custa
+    mais barato que responder errado. É um valor NOVO na enum, o que a
+    própria enum permite por ser derivada (ADR-0028) — ao contrário de
+    ``TurnStatus``, que não pode crescer.
     """
 
     TRANSCRIBING = "transcribing"
     THINKING = "thinking"
     SPEAKING = "speaking"
     COMPLETED = "completed"
+    NOT_UNDERSTOOD = "not_understood"
+
+
+class RejectionReason(StrEnum):
+    """Por que um turn terminou sem resposta (ADR-0057, CARD-040).
+
+    Três valores, não um só: "não ouvi nada", "você não falou inglês" e "não
+    entendi o que você disse" são três mensagens diferentes ao aluno, mesmo
+    os três encerrando o turn do mesmo jeito (sem chamar o professor).
+
+    ``NOT_ENGLISH`` chegou depois dos outros dois, numa decisão de produto
+    revisada na própria sessão do CARD-040: o STT com o idioma FIXO em inglês
+    "traduz" silenciosamente uma fala inteira em português com confiança
+    ALTA (medido: -0,33, quase idêntico a uma fala boa) — só a detecção real
+    de idioma revela que o aluno não falou inglês, e é por isso que a
+    detecção permanece ligada (ADR-0055) mesmo depois deste card.
+    """
+
+    NO_SPEECH = "no_speech"
+    NOT_ENGLISH = "not_english"
+    LOW_CONFIDENCE = "low_confidence"
 
 
 @dataclass(frozen=True)
@@ -187,6 +214,12 @@ class Turn:
     started_processing_at: datetime | None = None
     completed_at: datetime | None = None
 
+    # Não nulo significa "o turn terminou sem chamar o professor, de propósito"
+    # (ADR-0057, CARD-040). É o que separa este desfecho de `failed`: aqui
+    # ninguém tem bug e nenhuma infraestrutura caiu — o STT funcionou e disse
+    # "não tenho confiança nisto".
+    rejection_reason: RejectionReason | None = None
+
     def __post_init__(self) -> None:
         """Valida o que precisa valer desde o instante zero.
 
@@ -215,7 +248,15 @@ class Turn:
         parou, que é o que a tela de erro precisa dizer ("falhou enquanto o
         professor pensava"). É o ADR-0016 §6 preservado — o motivo e o ponto da
         falha saem de graça da tabela, sem campo extra.
+
+        ``rejection_reason`` é verificado **primeiro**: um turn recusado nunca
+        tem trecho nem ``reply_audio_ref`` (o corte acontece antes do
+        professor, ADR-0057), então cairia em ``transcribing`` se checado por
+        último — a mesma classe de bug que a ordem desta tabela já existe
+        para evitar (ADR-0023, item 4).
         """
+        if self.rejection_reason is not None:
+            return TurnStage.NOT_UNDERSTOOD
         if self.reply_audio_ref is not None:
             return TurnStage.COMPLETED
         if self.audio_chunks:
@@ -339,6 +380,32 @@ class Turn:
         self._require(TurnStatus.PROCESSING, action="attach_reply_audio")
         self.reply_audio_ref = reply_audio_ref
         self.synthesized_at = now
+
+    def reject(self, reason: RejectionReason, now: datetime) -> None:
+        """Encerra o Turn sem resposta do professor (ADR-0057, CARD-040).
+
+        Termina em ``COMPLETED``, não em ``FAILED``: ninguém tem bug e
+        nenhuma infraestrutura caiu — o STT funcionou e produziu um
+        resultado em que o próprio produto decidiu não confiar. É a mesma
+        régua do ADR-0039 (*"quem chamou tem um bug?"*), aplicada ao
+        domínio: aqui a resposta é não.
+
+        O corte acontece **antes** do professor (decisão de produto do
+        ADR-0057, item 3) — por isso a exigência abaixo: um turn com trecho
+        de áudio já entregue não pode mais ser "não entendido", porque o
+        aluno já está ouvindo uma resposta. Chamar `reject` nesse ponto é
+        bug de orquestração, não desfecho de negócio, e por isso levanta.
+        """
+        self._require(TurnStatus.PROCESSING, action="reject")
+        if self.audio_chunks:
+            raise InvalidStateTransitionError(
+                entity="Turn",
+                action="reject",
+                state="processing (já existe trecho de áudio entregue)",
+            )
+        self.status = TurnStatus.COMPLETED
+        self.rejection_reason = reason
+        self.completed_at = now
 
     def complete(self, now: datetime) -> None:
         """Fecha o Turn: tudo que o app precisa mostrar já existe.

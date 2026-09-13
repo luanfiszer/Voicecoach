@@ -117,3 +117,61 @@ ruído.
 - **Equivalente mental .NET:** é a diferença entre `throw new ValidationException`
   e devolver um `Result.Fail("não entendi")` — com a distinção que o CLAUDE.md
   já fixou: exceção é para quem chamou ter um bug, e aqui ninguém tem.
+
+## Revisão (2026-09-13, CARD-040) — a forma do estado e um terceiro motivo
+
+Este ADR deixou "a forma exata do estado" para o card que o executasse. Duas
+decisões tomadas na execução, registradas aqui porque tocam fronteira
+(critério 2 do `docs/adr/README.md`) e porque a segunda **contraria o teste
+inicial** que o próprio card fez com `stt_language=en` fixo.
+
+**1. A forma do estado — sem violar duas regras já fixadas.** `TurnStatus` não
+pode ganhar valor (ADR-0008), e a granularidade fina mora em `TurnStage`, que
+é derivado e pode crescer (ADR-0028). A decisão:
+
+- `Turn` ganha `rejection_reason: RejectionReason | None`, e um método novo
+  `Turn.reject(reason, now)` — irmão de `complete()`/`fail()`, também exigindo
+  `PROCESSING`. Status final: `TurnStatus.COMPLETED` (o job terminou sem erro
+  de infra — é a régua do ADR-0039: "quem chamou tem um bug?" não tem).
+- `TurnStage` ganha `NOT_UNDERSTOOD`, avaliado **primeiro** na tabela do
+  ADR-0023 (um turn recusado nunca tem trecho nem `reply_audio_ref`, então
+  cairia em `TRANSCRIBING` se checado por último).
+- `TurnEvent` (SSE) ganha `Rejected(reason)`, no mesmo padrão dos outros
+  cinco. A decisão "aceitar ou recusar" vive como `Result[str, RejectionReason]`
+  local dentro do caso de uso (`avaliar_transcricao`) — não como retorno de
+  `handle()`, que continua orquestração de job sem HTTP síncrono esperando.
+
+**2. Um terceiro motivo, `NOT_ENGLISH` — e a razão é uma medição que contraria
+a intuição.** Durante a execução, o desenvolvedor pediu voltar o STT para
+inglês fixo (`stt_language=en`) e recusar quando o aluno falar outro idioma,
+em vez de "entender e tratar pedagogicamente" (a decisão original do
+ADR-0055). Medido antes de implementar: com `en` fixo, uma fala **inteiramente
+em português** não produz confidence baixa — o motor **traduz** silenciosamente
+para um inglês fluente e fica confiante nisso:
+
+| Insumo (com `en` fixo) | `confidence` |
+|---|---|
+| Fala boa em inglês (referência) | -0,12 a -0,32 |
+| Só português, traduzido silenciosamente | **-0,33** — quase idêntica à boa |
+| Code-switching confuso (pt+en na mesma frase) | -0,79 |
+
+Ou seja: **um limiar de `confidence` sozinho não detecta "o aluno não falou
+inglês"** quando o idioma está fixo — ele só pega o code-switching confuso.
+Decisão final, com o desenvolvedor: a detecção de idioma **permanece ligada**
+(`stt_language=None`, a config do ADR-0055 não muda), e a checagem
+`language != "en"` entra **antes** do limiar de confiança na função de
+decisão — a ordem importa e está documentada no docstring de
+`avaliar_transcricao`. `RejectionReason` passa a ter três valores:
+`NO_SPEECH`, `NOT_ENGLISH`, `LOW_CONFIDENCE`.
+
+**3. Achado à parte, sem mudança de decisão:** `segments` vazio (silêncio
+puro) dá `confidence == 0.0` e `no_speech == 0.0` — que sozinhos passariam
+pelos dois limiares como se fosse fala perfeita. `avaliar_transcricao` checa
+`segments` vazio **antes** de qualquer número.
+
+**4. `UsageEvent` de um turn recusado** — decisão tomada com o desenvolvedor:
+`llm_model`/tokens são colunas `NOT NULL` sem um "não chamado" natural.
+Sentinela `SEM_CHAMADA_AO_PROFESSOR = "none"` e zero nos campos de LLM/TTS,
+`estimated_cost_usd = Decimal(0)` (custo real e **conhecido**, diferente do
+`None` de "não sabemos precificar") — em vez de uma migration tornando as
+colunas nullable.

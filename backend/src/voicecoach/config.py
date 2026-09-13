@@ -333,6 +333,25 @@ class Settings(BaseSettings):
     # silenciosamente. Recuo barato sem deploy: `stt_language=en` no `.env`.
     stt_language: str | None = None
 
+    # --- Recusa de transcrição de baixa confiança (ADR-0057, CARD-040) -------
+    # Dois limiares, não um: "não entendi o que você disse" (confidence baixa)
+    # e "não ouvi nada" (no_speech alto) merecem mensagens diferentes ao aluno.
+    #
+    # `-1.0` é uma ESTIMATIVA, não um número definitivo: medido no ADR-0057
+    # (modelo antigo, fala sintética) transcrição correta ficava entre -0,13 e
+    # -0,32, alucinação entre -1,12 e -5,94 — o limiar fica entre os dois
+    # grupos, com folga dos dois lados. Recalibrar exige a distribuição real,
+    # que o UsageEvent deste card começa a coletar (`confidence`/`no_speech`
+    # gravados em todo turn, inclusive os aceitos).
+    stt_min_confidence: float = -1.0
+
+    # Medido no CARD-039/040: silêncio puro não produz segmento nenhum, e por
+    # isso `no_speech` sai `0.0` (não há a que atribuir a probabilidade) — o
+    # caso de uso verifica `segments` vazio ANTES deste limiar, porque `0.0`
+    # sozinho não distingue "silêncio" de "fala perfeita". Este limiar cobre o
+    # caso intermediário: fala presente mas majoritariamente ruído/hesitação.
+    stt_max_no_speech: float = 0.6
+
     # --- TTS (ADR-0011, e o ADR de troca do CARD-008) ------------------------
     # Piper por default: 10x mais rápido para carregar, 4x menor RTF e ZERO
     # dependência de sistema (medição §9). A troca é configuração porque a porta

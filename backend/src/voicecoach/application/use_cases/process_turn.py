@@ -48,11 +48,16 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import TYPE_CHECKING, assert_never
 
 from voicecoach.application.ports.audio_encoder import AudioEncodingError
 from voicecoach.application.ports.media_storage import MediaStorageError
-from voicecoach.application.ports.speech_to_text import AudioInput, SttError
+from voicecoach.application.ports.speech_to_text import (
+    AudioInput,
+    SttError,
+    Transcript,
+)
 from voicecoach.application.ports.teacher_llm import (
     FeedbackReady,
     LlmError,
@@ -67,11 +72,13 @@ from voicecoach.application.ports.turn_events import (
     ChunkReady,
     Completed,
     FeedbackAvailable,
+    Rejected,
     Transcribed,
 )
+from voicecoach.application.result import Err, Ok, Result
 from voicecoach.application.use_cases.fail_turn import FailTurn, publicar_tolerante
 from voicecoach.domain.media_keys import reply_chunk_key, reply_full_key
-from voicecoach.domain.turn import TurnStatus
+from voicecoach.domain.turn import RejectionReason, TurnStatus
 from voicecoach.domain.usage import UsageEvent, estimate_llm_cost
 
 if TYPE_CHECKING:
@@ -135,6 +142,46 @@ REPROCESSAMENTO_APOS_ENTREGA = (
 # portanto quem sabe de quantos casos ela precisa. Gatilho: o segundo motivo que
 # o app precisar distinguir.
 PROVEDOR_INDISPONIVEL = "provedor indisponível: o professor não atendeu"
+
+# O sentinela do `UsageEvent` de um turn recusado (ADR-0057, CARD-040):
+# `llm_model` é `NOT NULL` no banco e não existe "modelo chamado" quando o
+# corte acontece antes do professor. Decisão tomada com o desenvolvedor: um
+# valor de dado, não uma migration tornando a coluna nullable — o custo real
+# aqui é zero e CONHECIDO, ao contrário do `None` de "não sabemos precificar".
+SEM_CHAMADA_AO_PROFESSOR = "none"
+
+
+def avaliar_transcricao(
+    transcript: Transcript, *, min_confidence: float, max_no_speech: float
+) -> Result[str, RejectionReason]:
+    """Decide se o turn segue para o professor (ADR-0057, CARD-040).
+
+    **A ordem das três checagens é o contrato**, e cada uma existe por um
+    motivo medido, não por precaução genérica:
+
+    1. ``segments`` vazio primeiro — silêncio puro não produz segmento
+       nenhum, e por isso ``confidence``/``no_speech`` saem ``0.0`` (nada a
+       medir). Um limiar numérico sozinho leria isso como "fala perfeita"
+       (medido no CARD-039/040): o caso mais óbvio de recusa escaparia dos
+       dois limiares abaixo se checado depois deles.
+    2. ``language != "en"`` antes de ``confidence`` — medido que o STT, com
+       detecção ligada, **traduz** silenciosamente uma fala inteira em
+       português com confiança ALTA (-0,33, quase idêntica a uma fala boa).
+       Só o idioma detectado revela que o aluno não falou inglês; o número de
+       confiança sozinho mentiria.
+    3. ``confidence`` por último — o que sobra depois dos dois casos acima é
+       a alucinação "de insumo ruim" que todo Whisper tem (ruído, fala
+       truncada), que é o que o ADR-0057 mediu originalmente.
+    """
+    if not transcript.segments:
+        return Err(RejectionReason.NO_SPEECH)
+    if transcript.no_speech > max_no_speech:
+        return Err(RejectionReason.NO_SPEECH)
+    if transcript.language != "en":
+        return Err(RejectionReason.NOT_ENGLISH)
+    if transcript.confidence < min_confidence:
+        return Err(RejectionReason.LOW_CONFIDENCE)
+    return Ok(transcript.text)
 
 
 class RetryableTurnFailureError(RuntimeError):
@@ -246,6 +293,8 @@ class ProcessTurnHandler:
         llm_price: Callable[[str], LlmPrice | None],
         stt_provider: str,
         tts_provider: str,
+        stt_min_confidence: float,
+        stt_max_no_speech: float,
     ) -> None:
         self._turns = turns
         self._sessions = sessions
@@ -282,6 +331,11 @@ class ProcessTurnHandler:
         # é o nome de motor nenhum.
         self._stt_provider = stt_provider
         self._tts_provider = tts_provider
+        # ADR-0057/CARD-040: os dois limiares de recusa. Vêm de `config.py`,
+        # que `application` não pode importar (ADR-0013) — a composition root
+        # lê `Settings` e passa os dois números.
+        self._stt_min_confidence = stt_min_confidence
+        self._stt_max_no_speech = stt_max_no_speech
 
     async def handle(self, command: ProcessTurn) -> None:
         turn = await self._turns.get(command.turn_id)
@@ -324,7 +378,26 @@ class ProcessTurnHandler:
         student_id = session.student_id
 
         transcript = await self._transcrever(turn)
-        history = await self._montar_historico(turn, transcript)
+
+        # O corte acontece AQUI, antes de qualquer chamada ao professor
+        # (ADR-0057, item 3) — é o que faz recusar custar zero de LLM/TTS.
+        # `match` + `assert_never`: acrescentar um caso à união sem tratá-lo
+        # aqui quebra no mypy, não em produção (ADR-0039).
+        avaliacao = avaliar_transcricao(
+            transcript,
+            min_confidence=self._stt_min_confidence,
+            max_no_speech=self._stt_max_no_speech,
+        )
+        match avaliacao:
+            case Err(error=motivo):
+                await self._rejeitar(turn, student_id, transcript, motivo)
+                return
+            case Ok(value=fala):
+                pass
+            case _:  # pragma: no cover - o mypy prova que é inalcançável
+                assert_never(avaliacao)
+
+        history = await self._montar_historico(turn, fala)
 
         cascata = await self._cascata(turn, student_id, history)
         feedback = cascata.feedback
@@ -355,7 +428,9 @@ class ProcessTurnHandler:
         # alternativa (gravar no fechamento) perderia exatamente o custo dos
         # turns que falham depois do LLM — que é o custo mais fácil de perder de
         # vista e o mais caro de não enxergar.
-        await self._registrar_uso(turn, student_id, feedback.usage, cascata.tts_chars)
+        await self._registrar_uso(
+            turn, student_id, transcript, feedback.usage, cascata.tts_chars
+        )
         await self._gravar(turn)
         await self._publicar(
             turn.id,
@@ -364,13 +439,60 @@ class ProcessTurnHandler:
 
         await self._fechar(turn, student_id, cascata.audios)
 
-    async def _transcrever(self, turn: Turn) -> str:
+    async def _transcrever(self, turn: Turn) -> Transcript:
+        """Devolve o `Transcript` inteiro, não só o texto.
+
+        Antes do CARD-040 só o texto importava daqui para fora. `confidence`,
+        `no_speech` e `language` (ADR-0056) agora alimentam a decisão de
+        recusar (`avaliar_transcricao`) — devolvê-los junto evita transcrever
+        de novo ou espalhar os dois campos por parâmetros separados.
+        """
         bytes_do_aluno = await self._storage.get(turn.input_audio_ref)
         transcript = await self._stt.transcribe(AudioInput(data=bytes_do_aluno))
         turn.attach_transcript(transcript.text, self._clock())
         await self._gravar(turn)
         await self._publicar(turn.id, Transcribed(transcript=transcript.text))
-        return transcript.text
+        return transcript
+
+    async def _rejeitar(
+        self,
+        turn: Turn,
+        student_id: UUID,
+        transcript: Transcript,
+        reason: RejectionReason,
+    ) -> None:
+        """O corte antes do professor (ADR-0057) — LLM e TTS nunca são chamados.
+
+        O `UsageEvent` é gravado mesmo assim: `confidence`/`no_speech` de TODO
+        turn, aceito ou recusado, é o instrumento que recalibra os limiares
+        com a distribuição real (item 5 do card). Os campos de LLM/TTS levam
+        o sentinela `SEM_CHAMADA_AO_PROFESSOR` e zero — decisão tomada com o
+        desenvolvedor: são colunas `NOT NULL` sem valor "não chamado" natural,
+        e o custo real aqui é zero e CONHECIDO (não é o `None` de "não
+        sabemos precificar").
+        """
+        turn.reject(reason, self._clock())
+        await self._usage.add(
+            UsageEvent(
+                turn_id=turn.id,
+                student_id=student_id,
+                occurred_at=self._clock(),
+                llm_model=SEM_CHAMADA_AO_PROFESSOR,
+                llm_input_tokens=0,
+                llm_cache_creation_tokens=0,
+                llm_cache_read_tokens=0,
+                llm_output_tokens=0,
+                stt_audio_duration=turn.audio_duration,
+                stt_provider=self._stt_provider,
+                stt_confidence=transcript.confidence,
+                stt_no_speech=transcript.no_speech,
+                tts_chars=0,
+                tts_provider=self._tts_provider,
+                estimated_cost_usd=Decimal(0),
+            )
+        )
+        await self._gravar(turn)
+        await self._publicar(turn.id, Rejected(reason=reason))
 
     async def _montar_historico(self, turn: Turn, fala_atual: str) -> list[Utterance]:
         """As trocas anteriores da sessão, mais a fala nova do aluno no fim.
@@ -491,6 +613,7 @@ class ProcessTurnHandler:
         self,
         turn: Turn,
         student_id: UUID,
+        transcript: Transcript,
         usage: TokenUsage,
         tts_chars: int,
     ) -> None:
@@ -546,6 +669,8 @@ class ProcessTurnHandler:
                 # divergência de unidade que o CARD-015 teria de resolver.
                 stt_audio_duration=turn.audio_duration,
                 stt_provider=self._stt_provider,
+                stt_confidence=transcript.confidence,
+                stt_no_speech=transcript.no_speech,
                 tts_chars=tts_chars,
                 tts_provider=self._tts_provider,
                 estimated_cost_usd=custo,

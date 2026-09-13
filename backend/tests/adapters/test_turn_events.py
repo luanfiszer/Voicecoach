@@ -26,12 +26,14 @@ from voicecoach.application.ports.turn_events import (
     Completed,
     Failed,
     FeedbackAvailable,
+    Rejected,
     Transcribed,
     TurnEvent,
     TurnEvents,
     TurnEventsError,
 )
 from voicecoach.domain.correction import Correction, CorrectionType, Severity
+from voicecoach.domain.turn import RejectionReason
 
 
 class FakeRedis:
@@ -69,6 +71,7 @@ def test_o_adapter_satisfaz_a_porta() -> None:
             "feedback",
         ),
         (Completed(reply_audio_key="k"), "completed"),
+        (Rejected(reason=RejectionReason.LOW_CONFIDENCE), "rejected"),
         (Failed(reason="x", delivered_partially=True), "failed"),
     ],
 )
@@ -138,6 +141,7 @@ TODOS_OS_EVENTOS: list[TurnEvent] = [
         )
     ),
     Completed(reply_audio_key="a/b/c/reply/full.aac"),
+    Rejected(reason=RejectionReason.LOW_CONFIDENCE),
     Failed(reason="o TTS caiu", delivered_partially=True),
 ]
 

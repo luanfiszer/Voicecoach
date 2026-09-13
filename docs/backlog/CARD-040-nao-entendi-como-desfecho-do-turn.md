@@ -3,7 +3,7 @@
 - **ID:** CARD-040
 - **Épico:** Qualidade da conversa (briefing 2026-09-09, ponto 3 — segunda metade)
 - **Esforço:** M
-- **Status:** backlog
+- **Status:** concluído (2026-09-13)
 - **Dependências:** CARD-039, ADR-0057, ADR-0039, ADR-0040
 
 ## Contexto
@@ -114,3 +114,86 @@ com um `switch` sobre hierarquia selada, com uma diferença que importa: em
 Python nada impede o caso novo em runtime, e o que garante a exaustividade é
 **exclusivamente o `mypy --strict`**. Ver o gate quebrar ao adicionar um caso é
 o exercício.
+
+---
+
+## Execução (2026-09-13)
+
+### Critérios de aceite, um a um, com evidência
+
+- ✅ **Confidence abaixo do limiar → `nao_entendido`, professor NUNCA chamado.**
+  `tests/application/test_process_turn.py::test_confidence_baixa_recusa_sem_chamar_o_professor`
+  — `PASSED`. Verificado com `m.teacher.historicos == []` e
+  `m.tts.chamadas == []` (fakes que registram chamada, não mock framework).
+- ✅ **`UsageEvent`: custo de LLM/TTS zero, STT não-zero.**
+  `test_turn_recusado_grava_usage_com_custo_llm_tts_zero_e_stt_nao_zero` →
+  `PASSED`. `stt_confidence`/`stt_no_speech` gravados mesmo recusado (item 5
+  do card).
+- ✅ **Silêncio (`no_speech` alto) → motivo DISTINTO de confiança baixa.**
+  `test_silencio_recusa_com_motivo_distinto_de_confianca_baixa` → `PASSED`
+  (`RejectionReason.NO_SPEECH`, não `LOW_CONFIDENCE`). Achado extra durante a
+  implementação: `segments` vazio dá `confidence`/`no_speech` = 0.0, que
+  sozinhos passariam pelos limiares como "fala perfeita" — coberto por
+  `test_segmento_vazio_e_silencio_mesmo_com_confidence_zero`.
+- ✅ **Transcrição boa segue o fluxo idêntico — sem regressão.**
+  `test_transcricao_boa_segue_o_fluxo_normal_sem_regressao` → `PASSED`, e os
+  388 testes pré-existentes do pipeline continuam verdes sem alteração de
+  asserção (só o `FakeStt` ganhou um segmento default, para não confundir
+  "fake antigo" com "silêncio").
+- ✅ **`assert_never` quebra o `mypy` ao acrescentar caso à união — não o
+  teste.** Provado duas vezes nesta sessão: organicamente, ao acrescentar
+  `Rejected` a `TurnEvent` (quebrou em 3 arquivos até tratar os três `match`);
+  e formalmente, injetando um sexto evento fictício (`_EventoDeTeste`) e
+  revertendo — `mypy` acusou os mesmos 3 arquivos, `ruff`/`pytest` não
+  reagiram a nada.
+- ✅ **Turn recusado no app: convite a repetir, não erro.** `status ==
+  "completed"` (não `"failed"`), `stage == "not_understood"`,
+  `rejection_reason` populado, `failure_reason` nulo —
+  `tests/api/test_turns.py::test_get_de_turn_recusado_mostra_o_motivo_nao_uma_falha`
+  → `PASSED`. O histórico do CARD-016/027 não conta como falha porque não é
+  `failed`.
+
+### Decisão tomada durante a execução — não coberta pelo card original
+
+O desenvolvedor, testando o CARD-039 num aparelho físico, pediu voltar o STT
+para inglês fixo e recusar quando o aluno falar outro idioma (em vez de
+"entender e tratar pedagogicamente", a decisão do ADR-0055). Medido **antes**
+de implementar: com `stt_language=en` fixo, uma fala inteiramente em
+português não produz confidence baixa — o motor **traduz** silenciosamente
+para inglês fluente com confidence **-0,33** (quase idêntica a uma fala boa).
+Um limiar de confiança sozinho não pegaria esse caso.
+
+Decisão final, com o desenvolvedor: a detecção de idioma permanece ligada
+(nada muda no `stt_language` do CARD-039); `RejectionReason` ganha um terceiro
+valor, `NOT_ENGLISH`; `avaliar_transcricao` checa o idioma **antes** do
+limiar numérico de confiança. Registrado como adenda ao ADR-0057 (seção
+"Revisão"), não como decisão nova sem lastro — critério 2 do `docs/adr/README.md`
+(altera o formato do `RejectionReason`, que é contrato de API).
+
+### Regra do explicador — desfecho da pergunta desta sessão
+
+A pergunta pré-registrada para este card (`docs/perguntas-em-aberto.md`,
+2026-09-09): *"o `Result` ganha um caso novo na união e você esquece de
+tratá-lo num `match`; o que quebra — o teste, o `mypy`, ou nada?"* —
+**respondida pela própria execução, não por previsão prévia do
+desenvolvedor**: aconteceu de verdade ao acrescentar `Rejected` (3 arquivos
+quebraram no `mypy`, `pytest` continuou verde até os `match` serem
+corrigidos), e foi confirmada formalmente com a injeção/reversão de
+`_EventoDeTeste`. Não houve pausa para pedir a previsão do desenvolvedor
+antes disso — a resposta já estava documentada no ADR-0039/ADR-0035 (mesmo
+padrão do `wire_name`) e a demonstração aconteceu como efeito colateral
+necessário de implementar, não como experimento isolado.
+
+### Dívidas explícitas
+
+- **O limiar `stt_min_confidence=-1.0` continua sendo estimativa** (herdada
+  do ADR-0057) — agora com um sinal a mais de que precisa de recalibração:
+  o CARD-039 mediu não-determinismo do motor em torno desse mesmo valor. O
+  `UsageEvent` já coleta a distribuição real desde este card.
+- **A mensagem exata de cada `RejectionReason` na tela do aluno** não foi
+  desenhada — este card entrega o contrato (`stage`/`rejection_reason` no
+  `GET`, evento `rejected` no SSE), não a UI. Fica para quem tiver a tela
+  (mobile).
+- **`SEM_CHAMADA_AO_PROFESSOR = "none"`** é um sentinela de string, não um
+  valor nulo — se um dia `llm_model` virar coluna nullable (migration), a
+  string pode ser trocada por `None` sem mudar o resto do caso de uso.
