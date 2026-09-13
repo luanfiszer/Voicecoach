@@ -103,6 +103,7 @@ Escreva um ADR sempre que a decisão:
 | [0064](0064-leitura-de-cota-e-estado-do-servico-get-students-me-quota.md) | A leitura de cota vira `GET /v1/students/me/quota`, sem cache, com o motivo do bloqueio explícito | aceito |
 | [0065](0065-descartar-turn-marca-sem-apagar-e-sobrevive-a-conclusao-concorrente.md) | "Descartar" marca um campo aditivo e sobrevive à conclusão concorrente do worker | aceito |
 | [0066](0066-traducao-e-porta-propria-persistida-por-referencia-a-recurso.md) | Tradução é porta própria, persistida, e endereçada por referência a recurso | aceito |
+| [0067](0067-listagem-de-sessoes-e-o-significado-de-midia-expirada.md) | `GET /v1/sessions`, sem cache, e "mídia expirada" significa "não conte com ele" | aceito |
 
 ## ADRs pendentes de decisão de produto
 

@@ -121,3 +121,34 @@ class SessionSummary:
     spoken: timedelta
     turns: int
     corrections_by_type: Mapping[CorrectionType, int]
+
+
+@dataclass(frozen=True, slots=True)
+class SessionDigest:
+    """Uma linha da listagem de sessões (CARD-030, artboard 10).
+
+    **A duração falada é a MESMA definição do ``SessionSummary``** (RF6): soma
+    dos ``audio_duration`` dos turns da sessão. Duas definições de "quanto o
+    aluno falou" — uma para o resumo pós-sessão e outra para o histórico —
+    divergiriam no primeiro arredondamento, e a tela mostraria "6 min" num
+    lugar e "5 min" no outro para a mesma conversa.
+
+    ``last_turn_at`` não é enfeite de telemetria: é o insumo da regra de
+    disponibilidade de mídia (RF3). Quem decide se o áudio expirou é a
+    **aplicação**, comparando este instante com a retenção vigente — não o
+    cliente pela data, e não o domínio, que não lê configuração (ADR-0013).
+    Nulo quando a sessão não teve turn nenhum, e aí não há mídia sobre a qual
+    responder.
+
+    Zeros são dado, não ausência (RF4): sessão aberta e abandonada aparece na
+    listagem com ``turns=0``, ``spoken=timedelta(0)`` e ``corrections=0`` — a
+    mesma régua do ADR-0051 para custo.
+    """
+
+    id: UUID
+    started_at: datetime
+    ended_at: datetime | None
+    spoken: timedelta
+    turns: int
+    corrections: int
+    last_turn_at: datetime | None

@@ -16,6 +16,13 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+# **Em runtime, não sob `TYPE_CHECKING`**: `dict[UUID, int](...)` e
+# `dict[CorrectionType, int](...)` SUBSCREVEM o genérico, e subscrever avalia
+# o nome de verdade — `from __future__ import annotations` adia anotações,
+# não expressões. Um nome só para o type checker aqui vira `NameError` na
+# primeira chamada real, invisível para mypy e para qualquer teste com fake.
+from uuid import UUID
+
 from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import selectinload
 
@@ -29,17 +36,17 @@ from voicecoach.adapters.persistence.models import (
     UsageEventRow,
 )
 from voicecoach.domain.correction import CorrectionType
+from voicecoach.domain.session import SessionDigest as _SessionDigest
 from voicecoach.domain.session import SessionSummary
 from voicecoach.domain.turn import TurnStatus
 from voicecoach.domain.usage import StudentUsageTotals
 
 if TYPE_CHECKING:
     from datetime import datetime
-    from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from voicecoach.domain.session import Session
+    from voicecoach.domain.session import Session, SessionDigest
     from voicecoach.domain.student import Student
     from voicecoach.domain.translation import Translation, TranslationTarget
     from voicecoach.domain.turn import Turn
@@ -112,6 +119,64 @@ class SqlAlchemySessionRepository:
             raise RowNotFoundError(message)
         ended_at: datetime = resultado[0]
         return ended_at
+
+    async def list_for_student(
+        self, student_id: UUID, *, since: datetime
+    ) -> list[SessionDigest]:
+        """DUAS queries agregadas, não uma por sessão (RNF1) — e não UMA só.
+
+        **Por que duas e não um `JOIN` triplo.** `Correction` pende de `Turn`,
+        que pende de `Session`: juntar as três numa query só multiplicaria cada
+        turn pelo número de correções dele, e `SUM(audio_duration)` passaria a
+        contar o mesmo áudio N vezes. É o *fan-out* clássico, e ele não dá
+        erro — dá um número maior, em silêncio. Duas agregações separadas, cada
+        uma com o seu `GROUP BY`, custam uma query a mais e não têm esse modo
+        de falha. O que o RNF1 exige é que o número **não cresça com o número
+        de sessões**, e duas é constante.
+
+        **`outerjoin` e não `join`** (o objetivo de aprendizado do card): com
+        `join` interno, a sessão que o aluno abriu e abandonou simplesmente
+        some da listagem — e o RF4 pede que ela apareça com zeros.
+        """
+        agregado = (
+            select(
+                SessionRow.id,
+                SessionRow.started_at,
+                SessionRow.ended_at,
+                func.count(TurnRow.id),
+                func.coalesce(func.sum(TurnRow.audio_duration), timedelta(0)),
+                func.max(TurnRow.created_at),
+            )
+            .select_from(SessionRow)
+            .outerjoin(TurnRow, TurnRow.session_id == SessionRow.id)
+            .where(SessionRow.student_id == student_id, SessionRow.started_at >= since)
+            .group_by(SessionRow.id, SessionRow.started_at, SessionRow.ended_at)
+            .order_by(SessionRow.started_at.desc())
+        )
+        linhas = (await self._session.execute(agregado)).all()
+
+        correcoes = await self._session.execute(
+            select(TurnRow.session_id, func.count())
+            .select_from(CorrectionRow)
+            .join(TurnRow, TurnRow.id == CorrectionRow.turn_id)
+            .join(SessionRow, SessionRow.id == TurnRow.session_id)
+            .where(SessionRow.student_id == student_id, SessionRow.started_at >= since)
+            .group_by(TurnRow.session_id)
+        )
+        por_sessao = dict[UUID, int](correcoes.tuples().all())
+
+        return [
+            _SessionDigest(
+                id=session_id,
+                started_at=comecou,
+                ended_at=terminou,
+                spoken=falado,
+                turns=quantos,
+                corrections=por_sessao.get(session_id, 0),
+                last_turn_at=ultimo,
+            )
+            for session_id, comecou, terminou, quantos, falado, ultimo in linhas
+        ]
 
     async def summary_for(self, session_id: UUID) -> SessionSummary:
         """Duas queries agregadas — nunca uma por turn (mesma disciplina do

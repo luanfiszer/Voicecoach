@@ -2,7 +2,7 @@
 
 - **ID:** CARD-035
 - **Épico:** Fase 3 — Domínio pedagógico (artboard 06)
-- **Plataforma:** mobile · **Esforço:** M · **Status:** backlog
+- **Plataforma:** mobile · **Esforço:** M · **Status:** **bloqueado** (2026-09-13) — exige simulador e escuta
 - **Dependências:** CARD-028 (os estados fechados), CARD-012 (concluído); ADR-0047
 
 ## Contexto
@@ -112,3 +112,50 @@ Controle de posição sobre uma sequência de áudios em RN — e por que "posi�
 global" é uma abstração que **você** constrói, não algo que o player oferece. O
 paralelo mental em .NET é a diferença entre uma `Stream` concatenada e uma lista
 de `Stream`s: só a primeira sabe onde está o byte 40.000.
+
+## Bloqueio (2026-09-13, loop autônomo)
+
+**Motivo: todos os critérios de aceite deste card são audíveis ou medidos em
+execução real, e o loop roda sem simulador, sem aparelho e sem ouvidos.**
+
+Não é "difícil de testar" — é **impossível de verificar** aqui. Os seis
+critérios, um a um:
+
+| Critério | Por que não fecha no loop |
+|---|---|
+| `0.75×` valendo para trechos futuros | verificável só ouvindo os trechos 3–5 |
+| `repetir` sem recarregar da rede | exige observar o tráfego real do app rodando |
+| barra não exibe total fixo durante a cascata | precisa da cascata acontecendo na tela |
+| scrub ponta a ponta **sem silêncio audível** | é literalmente uma asserção de escuta |
+| **o p50 depois não piora** | exige rodar a rota de medição com áudio real |
+| nenhum player continua tocando ao sair da tela | é o [LEARNING-0006], que só foi descoberto **medindo** (2,0–2,3 s de áudio depois do `remove()`) |
+
+O último é o que fecha a questão. O `CLAUDE.md` registra, como regra vinda
+daquele post-mortem: *"quando o comportamento de uma dependência nativa
+importar, **leia o código dela em `node_modules` antes de supor**"* — e o
+RNF3 chama o vazamento de player de "o bug mais audível possível". Escrever
+~300 linhas de orquestração de players nativos que ninguém pode ouvir, para
+um card cujo modo de falha principal é silencioso para lint, tipo e tela, é
+exatamente o palpite que o protocolo deste loop manda não dar.
+
+**Por que não entregar só a "fatia pura" (o mapeamento posição global ↔
+trecho) com Vitest, no padrão do ADR-0061.** Porque ela seria especulativa em
+duas frentes que o próprio card deixa em aberto: o comportamento do **RF5**
+(esperar × limitar o arrasto) e **qual das duas definições de duração total**
+vale (soma das durações declaradas × soma do que os players reportam — o card
+as lista como divergentes por arredondamento e diz que escolher é requisito).
+As duas se decidem olhando o player real se comportar. Uma função pura que
+nada consome, construída sobre duas escolhas não validadas, é implementação
+pela metade — e o custo de refazê-la depois é maior que o de escrevê-la
+depois.
+
+**O corte que o próprio card já indica, para a sessão que o retomar:** o
+Risco nº 1 diz que *"scrub é o card inteiro disfarçado de barra"* e que
+`0.75×`, `repetir` e play/pause entregam valor sozinhos. A ordem sugerida,
+com o simulador aberto, é: (1) os três controles simples, medindo o p50 antes
+e depois; (2) decidir RF5 e a definição de duração **observando** o player;
+(3) scrub, ou promovê-lo a card próprio se estourar.
+
+**Desbloqueia com:** um ambiente onde o app rode (Simulador iOS basta para
+cinco dos seis critérios) e alguém que ouça. O sexto (aparelho físico) já
+está bloqueado à parte pelo ADR-0048 e pelo CARD-019.

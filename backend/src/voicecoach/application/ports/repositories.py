@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
-    from voicecoach.domain.session import Session, SessionSummary
+    from voicecoach.domain.session import Session, SessionDigest, SessionSummary
     from voicecoach.domain.student import Student
     from voicecoach.domain.translation import Translation, TranslationTarget
     from voicecoach.domain.turn import Turn
@@ -106,6 +106,28 @@ class SessionRepository(Protocol):
 
         Levanta se a sessão não existir — chamar isto sem antes confirmar a
         existência é bug de orquestração, não desfecho esperado.
+        """
+        ...
+
+    async def list_for_student(
+        self, student_id: UUID, *, since: datetime
+    ) -> list[SessionDigest]:
+        """As sessões do aluno desde ``since``, da mais recente para a mais antiga.
+
+        **O número de queries não cresce com o número de sessões** (RNF1 do
+        CARD-030): as contagens saem de agregações no banco, não de um laço que
+        chama este repositório por linha. O `lazy="raise_on_sql"` dos modelos
+        protege contra tocar coleção sem querer; ele **não** protege contra o
+        N+1 escrito à mão, e por isso a exigência está aqui, no contrato, e tem
+        teste que conta queries.
+
+        Sessão sem turn nenhum **aparece** na lista, com zeros (RF4) — é
+        `outer join`, e a diferença não dá erro: dá uma linha a menos, em
+        silêncio.
+
+        ``since`` é obrigatório e nomeado pela mesma razão do
+        ``totals_for_student``: uma listagem sem janela é a vida inteira do
+        aluno, que nunca é a pergunta da tela.
         """
         ...
 

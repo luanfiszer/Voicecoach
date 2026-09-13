@@ -2,7 +2,7 @@
 
 - **ID:** CARD-030
 - **Épico:** Fase 3 — Domínio pedagógico (backend do artboard 10)
-- **Plataforma:** backend · **Esforço:** M · **Status:** backlog
+- **Plataforma:** backend · **Esforço:** M · **Status:** concluído (2026-09-13)
 - **Dependências:** CARD-013 (concluído), CARD-017; ADR-0008, ADR-0024, ADR-0051
 
 ## Contexto
@@ -117,3 +117,81 @@ com `group_by` e `outerjoin`, e por que o `outer` importa aqui (sessão sem turn
 some com o join interno). O equivalente mental é a diferença entre `GroupJoin` e
 `Join` no LINQ, com a armadilha de que aqui o "some da lista" não dá erro: dá
 uma linha a menos, em silêncio.
+
+## Execução (2026-09-13, loop autônomo)
+
+**RF1/RF2** — `GET /v1/sessions?days=30` (`api/routes/sessions.py`), servido
+por `ListSessionsHandler` novo. Envelope `{sessions, window_days}` e não lista
+nua: array no topo é contrato que não cresce (ADR-0008). Ordenação da mais
+recente para a mais antiga vem do banco, não de `sort` em Python.
+
+**RF3 (a decisão que o card pediu por escrito)** — `reply_media_available` é
+uma **previsão conservadora**, significando **"não conte com ele"**, não uma
+leitura do bucket. O lifecycle do S3 apaga "em até 24h depois", então depois de
+`last_turn_at + retenção` o objeto *pode* existir; o campo diz `false` mesmo
+assim. A direção do erro é deliberada — prometer áudio que sumiu deixa o aluno
+ouvindo silêncio; escondê-lo cedo demais custa uma reprodução. Registrado no
+ADR-0067.
+
+**RF4** — `outerjoin`, e há teste contra Postgres real provando que a sessão
+sem turn nenhum **aparece** com zeros. Com `join` interno ela sumiria, e sumir
+não dá erro: dá uma linha a menos.
+
+**RF5** — lista vazia com `200`.
+
+**RF6** — a duração falada é a soma dos `audio_duration`, **a mesma definição**
+do `SessionSummary` do CARD-031. Uma definição, um lugar — as duas telas dizem
+o mesmo "6 min" para a mesma conversa.
+
+**RNF1 (o critério de aceite mais específico do card)** — duas queries
+agregadas, e **não uma**: `Correction` pende de `Turn` que pende de `Session`,
+e um `JOIN` triplo multiplicaria cada turn pelo número de correções, contando
+o mesmo áudio N vezes. Fan-out não dá erro — dá um número maior, em silêncio.
+Provado por `test_o_numero_de_queries_nao_cresce_com_o_numero_de_sessoes`, que
+conta as instruções via `before_cursor_execute` com 1 e com 6 sessões, e afirma
+**as duas coisas**: que a lista cresceu (senão o teste não exercitou nada) e
+que a contagem não mudou. E `test_listagem_ordena_da_mais_recente_e_agrega_no_banco`
+verifica o fan-out diretamente: 2 turns × 2 correções = 4 correções e **60 s**,
+nunca 120 s.
+
+**RNF2** — índice composto `(student_id, started_at)` (migration
+`ac3c1b827704`): igualdade antes de faixa, a mesma ordem do índice de
+`usage_events`.
+
+**RNF3** — puramente aditivo: nenhum campo removido, nenhum enum com valor
+novo.
+
+**RNF4 (cache)** — decidido em ADR-0067: **sem cache**. O gatilho de
+invalidação seria "qualquer turn novo", ou seja, a mesma frequência em que a
+tela é aberta — e cachear criaria uma terceira fonte para divergir do que o
+`POST /turns` acabou de escrever.
+
+**RNF5** — leitura pura: nenhum toque em cota ou orçamento, e há teste de que
+responde `200` com a cota estourada.
+
+**RNF6** — nenhuma URL assinada na listagem.
+
+**Bug encontrado durante a implementação (o MESMO trap do CARD-031, agora com
+outro nome):** `SqlAlchemyTurnRepository`/`SessionRepository` usava
+`dict[UUID, int](...)` com `UUID` importado só sob `TYPE_CHECKING` —
+`NameError` na primeira chamada real. **Subscrever um genérico avalia o nome**;
+`from __future__ import annotations` adia anotações, não expressões. Corrigido
+movendo o import para runtime, com um comentário no topo do arquivo explicando
+a regra — porque esta é a segunda vez que ela morde no mesmo arquivo, e o mypy
+não pega nenhuma das duas. Achado pelo teste contra Postgres real; nenhum teste
+com fake pegaria.
+
+**Testes:** `tests/application/test_list_sessions.py` (8, a regra),
+`tests/adapters/test_persistence.py` (5 novos contra Postgres real, incluindo a
+contagem de queries e o fan-out), `tests/api/test_turns.py` (6 novos, a rota).
+
+**Contrato:** `openapi.json` e `packages/api-client/src/schema.d.ts`
+regenerados.
+
+**ADR novo:** [0067](../adr/0067-listagem-de-sessoes-e-o-significado-de-midia-expirada.md)
+— critérios 2 (recurso novo no contrato) e 5 (o significado de
+`reply_media_available` é uma afirmação que a tela faz ao aluno).
+
+**Regra do explicador:** nenhuma pergunta de previsão coube — a única decisão
+de produto em aberto (o significado de "mídia expirada") tinha uma direção
+claramente mais conservadora, e ela foi tomada e registrada em vez de perguntada.

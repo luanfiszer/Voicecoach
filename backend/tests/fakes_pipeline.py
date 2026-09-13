@@ -50,7 +50,7 @@ from voicecoach.application.ports.text_to_speech import (
 from voicecoach.application.ports.translator import Translated, TranslatorError
 from voicecoach.application.ports.turn_events import TurnEvent
 from voicecoach.domain.correction import CorrectionType
-from voicecoach.domain.session import Session, SessionSummary
+from voicecoach.domain.session import Session, SessionDigest, SessionSummary
 from voicecoach.domain.translation import Translation, TranslationTarget
 from voicecoach.domain.turn import Turn
 from voicecoach.domain.usage import StudentUsageTotals, UsageEvent
@@ -263,6 +263,34 @@ class FakeSessionRepository:
         if sessao.ended_at is None:
             sessao.ended_at = now
         return sessao.ended_at
+
+    async def list_for_student(
+        self, student_id: UUID, *, since: datetime
+    ) -> list[SessionDigest]:
+        """Reproduz o `outer join` do adapter: sessão sem turn ENTRA, com zeros."""
+        na_janela = [
+            s
+            for s in self.sessions.values()
+            if s.student_id == student_id and s.started_at >= since
+        ]
+        na_janela.sort(key=lambda s: s.started_at, reverse=True)
+        digests = []
+        for sessao in na_janela:
+            turnos = [
+                t for t in self._turns.turns.values() if t.session_id == sessao.id
+            ]
+            digests.append(
+                SessionDigest(
+                    id=sessao.id,
+                    started_at=sessao.started_at,
+                    ended_at=sessao.ended_at,
+                    spoken=sum((t.audio_duration for t in turnos), timedelta(0)),
+                    turns=len(turnos),
+                    corrections=sum(len(t.corrections) for t in turnos),
+                    last_turn_at=max((t.created_at for t in turnos), default=None),
+                )
+            )
+        return digests
 
     async def summary_for(self, session_id: UUID) -> SessionSummary:
         turnos = [t for t in self._turns.turns.values() if t.session_id == session_id]

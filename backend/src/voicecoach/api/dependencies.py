@@ -60,6 +60,7 @@ from voicecoach.application.ports.turn_events import TurnEvents
 from voicecoach.application.ports.turn_queue import TurnQueue
 from voicecoach.application.use_cases.discard_turn import DiscardTurnHandler
 from voicecoach.application.use_cases.end_session import EndSessionHandler
+from voicecoach.application.use_cases.list_sessions import ListSessionsHandler
 from voicecoach.application.use_cases.read_quota_status import (
     ReadQuotaStatusHandler,
 )
@@ -289,6 +290,24 @@ def end_session_handler(
         sessions=sessions,
         unit_of_work=uow,
         clock=lambda: clock,
+    )
+
+
+def list_sessions_handler(
+    sessions: Annotated[SessionRepository, Depends(session_repository)],
+    settings: Annotated[Settings, Depends(get_settings_from_app)],
+    clock: Annotated[datetime, Depends(agora)],
+) -> ListSessionsHandler:
+    """Monta o handler da listagem (CARD-030).
+
+    A retenção entra como `timedelta` cru: é `retention_reply_chunk`, o prazo
+    do TRECHO (o mais curto dos três, 1 dia) — e é ele que decide se a tela
+    pode oferecer o play, porque é o trecho que a conversa reproduz.
+    """
+    return ListSessionsHandler(
+        sessions=sessions,
+        clock=lambda: clock,
+        reply_media_retention=settings.retention_reply_chunk,
     )
 
 

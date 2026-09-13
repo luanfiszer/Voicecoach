@@ -51,7 +51,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * As sessões do aluno, da mais recente para a mais antiga
+         * @description Leitura pura: não gasta cota e responde `200` mesmo com a cota estourada.
+         *
+         *     Aluno sem sessão nenhuma recebe `sessions: []` (RF5) — ausência de sessões
+         *     é uma resposta, não um recurso que não existe.
+         */
+        get: operations["listar_sessoes_v1_sessions_get"];
         put?: never;
         /** Abre uma sessão de conversa */
         post: operations["criar_sessao_v1_sessions_post"];
@@ -494,6 +501,59 @@ export interface components {
          */
         RejectionReason: "no_speech" | "not_english" | "low_confidence";
         /**
+         * SessionListEntry
+         * @description Uma sessão na listagem do histórico.
+         */
+        SessionListEntry: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * Ended At
+             * @description Nulo significa em andamento (ADR-0016).
+             */
+            ended_at?: string | null;
+            /**
+             * Spoken Seconds
+             * @description Soma de audio_duration dos turns — a MESMA definição do resumo pós-sessão (CARD-031). Uma definição, um lugar.
+             */
+            spoken_seconds: number;
+            /** Turns */
+            turns: number;
+            /** Corrections */
+            corrections: number;
+            /**
+             * Reply Media Available
+             * @description `false` significa **não conte com o áudio** — é uma previsão conservadora sobre a retenção vigente (ADR-0024), não uma leitura do bucket. Nunca calcule isto no cliente pela data: a política é configuração e muda sem avisar o app.
+             */
+            reply_media_available: boolean;
+        };
+        /**
+         * SessionListResponse
+         * @description ``GET /v1/sessions`` — envelope, e não uma lista nua.
+         *
+         *     Uma lista JSON no topo da resposta é contrato que não cresce: acrescentar
+         *     "quantas ficaram fora da janela" ou paginação depois exigiria mudar o tipo
+         *     raiz, que é justamente o que o ADR-0008 proíbe dentro de `/v1`. O envelope
+         *     custa uma linha hoje e mantém a evolução aditiva possível.
+         */
+        SessionListResponse: {
+            /** Sessions */
+            sessions: components["schemas"]["SessionListEntry"][];
+            /**
+             * Window Days
+             * @description A janela efetivamente aplicada — o cliente não precisa lembrar o default que pediu.
+             */
+            window_days: number;
+        };
+        /**
          * SessionResponse
          * @description ``POST /v1/sessions`` — o mínimo para o cliente ter onde falar.
          */
@@ -808,6 +868,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReadinessResponse"];
+                };
+            };
+        };
+    };
+    listar_sessoes_v1_sessions_get: {
+        parameters: {
+            query?: {
+                /** @description Janela em dias. O que ficou fora dela não é erro, é ausência — a tela promete que o histórico longo vive na web. */
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
