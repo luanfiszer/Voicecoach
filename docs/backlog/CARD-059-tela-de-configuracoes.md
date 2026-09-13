@@ -2,7 +2,7 @@
 
 - **ID:** CARD-059
 - **Épico:** Fase 3 — Domínio pedagógico / experiência do app
-- **Plataforma:** mobile · **Esforço:** P · **Status:** backlog
+- **Plataforma:** mobile · **Esforço:** P · **Status:** concluído com escopo reduzido (2026-09-13) — seção 1 adiada
 - **Dependências:** CARD-029 (as abas já existem — `expo-router` `Tabs`). O item
   "preferências de reprodução" do escopo depende também do **CARD-035**
   (velocidade não existe antes dele); os outros dois itens não dependem de
@@ -110,3 +110,38 @@ local, offline de gravação no CARD-027, foi cortada de escopo). Diferença que
 importa: aqui o dado é pequeno, não crítico (perder uma preferência é
 recuperável, o aluno só escolhe de novo) — o oposto do padrão de cautela que o
 CARD-027 aplicou ao áudio de uma gravação perdida.
+
+## Execução (2026-09-13, loop autônomo)
+
+**Escopo reduzido de propósito, pela regra que o próprio card escreve em
+"Riscos":** o CARD-035 não rodou nesta sessão (aparelho físico indisponível —
+ver `docs/loop-autonomo-2026-09-13-resumo.md`), então a seção 1
+(preferências de reprodução) não tem o que controlar ainda — implementá-la
+seria o botão morto que o card já recusa para si mesmo. **Implementadas as
+seções 2 e 3.**
+
+- **Rota:** `app/(tabs)/configuracoes.tsx`, quarta `Tabs.Screen` em
+  `_layout.tsx` (mesmo padrão do CARD-029: rota fina delegando para
+  `TelaConfiguracoes`, `tabBarIcon: () => null` pelo mesmo motivo — nenhum
+  artboard desenhou glifo, sem biblioteca de ícones no projeto).
+- **Seção "Limite de gravação"**: lê `config.limiteGravacaoSegundos`
+  (a mesma fonte que `useGravacao.ts` já usa para parar a gravação sozinha),
+  formatado por extenso (`rotuloDoLimiteDeGravacao`, extraído e testado —
+  ADR-0061). **Sem controle de edição**, como o escopo exige.
+- **Seção "Sobre"**: `Constants.expoConfig?.version` (hoje `0.0.0`,
+  `app.json > expo.version`) — não passa por `config.ts` porque não é
+  `expo.extra` (o arquivo é só para isso, por design, ver seu próprio
+  docstring); é uma leitura direta, de baixo risco.
+- **Nenhuma dependência nova**: com a seção 1 fora, não há preferência para
+  persistir ainda — `AsyncStorage` não entrou nesta sessão. O objetivo de
+  aprendizado do card (persistência local) fica para quando o CARD-035
+  entregar o valor a persistir.
+- **Gates** (`pnpm run gates`): verdes, 52 testes.
+- **ADR:** nenhum critério de `docs/adr/README.md` se aplica.
+- **Regra do explicador (modo autônomo):** nenhuma decisão de produto nova —
+  o corte de escopo já estava escrito no próprio card ("esta seção só entra
+  quando o CARD-035 existir").
+
+**Pendência para quem fechar a seção 1:** ela entra quando o CARD-035
+existir, com `AsyncStorage` para persistir a velocidade padrão — é aí que o
+objetivo de aprendizado deste card se cumpre de fato.

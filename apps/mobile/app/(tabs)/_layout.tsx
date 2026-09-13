@@ -1,5 +1,7 @@
 /**
- * A barra de abas do artboard 10 — `Falar · Histórico · Perfil` (CARD-029).
+ * A barra de abas do artboard 10 — `Falar · Histórico · Perfil` (CARD-029) —
+ * mais `Configurações` (CARD-059, sem artboard: preferência de aparelho, não
+ * de conta, e por isso não depende da autenticação que Perfil espera).
  *
  * **O grupo `(tabs)` é o que separa navegação de produto de rota de
  * ferramenta.** `medicao` e `diagnostico-silencio` ficam FORA deste diretório,
@@ -38,6 +40,7 @@ export default function LayoutDeAbas() {
       <Tabs.Screen name="index" options={{ title: 'Falar' }} />
       <Tabs.Screen name="historico" options={{ title: 'Histórico' }} />
       <Tabs.Screen name="perfil" options={{ title: 'Perfil' }} />
+      <Tabs.Screen name="configuracoes" options={{ title: 'Configurações' }} />
     </Tabs>
   );
 }
