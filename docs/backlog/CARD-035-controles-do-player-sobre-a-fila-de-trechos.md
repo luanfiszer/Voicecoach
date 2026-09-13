@@ -2,7 +2,7 @@
 
 - **ID:** CARD-035
 - **Épico:** Fase 3 — Domínio pedagógico (artboard 06)
-- **Plataforma:** mobile · **Esforço:** M · **Status:** **bloqueado** (2026-09-13) — exige simulador e escuta
+- **Plataforma:** mobile · **Esforço:** M · **Status:** **desbloqueado** (2026-09-13) — ver "Desbloqueio" no fim do card
 - **Dependências:** CARD-028 (os estados fechados), CARD-012 (concluído); ADR-0047
 
 ## Contexto
@@ -159,3 +159,29 @@ e depois; (2) decidir RF5 e a definição de duração **observando** o player;
 **Desbloqueia com:** um ambiente onde o app rode (Simulador iOS basta para
 cinco dos seis critérios) e alguém que ouça. O sexto (aparelho físico) já
 está bloqueado à parte pelo ADR-0048 e pelo CARD-019.
+
+## Desbloqueio (2026-09-13)
+
+A circunstância que bloqueava mudou: o desenvolvedor testou o app no iPhone
+físico nesta mesma data (dev build via `pnpm run ios:device`, ADR-0054), com
+microfone e alto-falante reais — exatamente o "alguém que ouça" e o "aparelho
+físico" que faltavam. O sexto critério (que o ADR-0048/CARD-019 tratavam como
+bloqueado à parte) também deixa de ser obstáculo: o aparelho já está
+acessível para este tipo de verificação.
+
+Na mesma sessão de teste em aparelho, apareceu um bug real de áudio —
+**não deste card**, mas do mesmo território (`expo-audio`, players e sessão de
+gravação): a partir da segunda gravação da sessão, o microfone era cortado
+~100ms depois de começar, porque `pause()` num player **já parado** (sobra da
+fila do turn anterior) agenda uma desativação da `AVAudioSession` inteira
+100ms depois — e essa desativação atingia a gravação nova em andamento.
+Corrigido em `silencio.ts` (`silenciarELiberar` só pausa quem `playing`).
+**Relevante para este card:** o RNF3 ("sem vazar player") e o risco do
+[LEARNING-0006] já esperavam bug de ciclo de vida de player nesta área — este
+é mais um exemplo do mesmo padrão, e vale reler `silencio.ts`/`silencio.test.ts`
+atualizados antes de implementar `repetir`, já que ele também cria e descarta
+players fora do fluxo normal de chegada de trechos.
+
+**Não reexecutado neste momento** — o desbloqueio é administrativo (mudança de
+circunstância registrada), a implementação em si fica para quando este card
+for pego na fila.
