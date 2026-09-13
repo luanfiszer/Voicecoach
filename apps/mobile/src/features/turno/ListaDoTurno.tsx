@@ -15,6 +15,7 @@
  */
 
 import { StyleSheet, Text, View } from 'react-native';
+import { rotuloDaSeveridade, rotuloDoTipo } from '@/features/turno/rotulosDeCorrecao';
 import type { Turno } from '@/features/turno/useTurno';
 import { espaco, texto, useCores } from '@/theme/tokens';
 
@@ -57,33 +58,38 @@ export function ListaDoTurno({ turno }: { turno: Turno }) {
         </View>
       ) : null}
 
-      {/* 3. A correção, por último — o `feedback` fecha depois do áudio. */}
-      {turno.correcao ? (
+      {/* 3. As correções, por último — o `feedback` fecha depois do áudio.
+          Regra de produto preservada do protótipo (CARD-016, diagnóstico
+          §5): sem correção, sem card — nenhuma, nem uma de afirmação
+          positiva. Resposta só em áudio é o desfecho natural e mais comum. */}
+      {turno.correcoes.map((correcao) => (
         <View
+          key={correcao.index}
           style={[
             estilos.bolha,
             estilos.correcao,
             { backgroundColor: cores.superficie, borderLeftColor: cores.acento },
           ]}
         >
-          <Text style={[texto.rotulo, { color: cores.acento }]}>
-            {turno.correcao.has_mistakes ? 'CORREÇÃO' : 'SEM ERROS'}
+          <View style={estilos.badges}>
+            <Text style={[texto.rotulo, { color: cores.acento }]}>
+              {rotuloDoTipo(correcao.tipo).toUpperCase()}
+            </Text>
+            <Text style={[texto.rotulo, { color: cores.secundario }]}>
+              {rotuloDaSeveridade(correcao.severidade).toUpperCase()}
+            </Text>
+          </View>
+          <Text style={[texto.apoio, estilos.riscado, { color: cores.secundario }]}>
+            {correcao.original}
           </Text>
-          {turno.correcao.has_mistakes ? (
-            <>
-              <Text style={[texto.apoio, estilos.riscado, { color: cores.secundario }]}>
-                {turno.correcao.original}
-              </Text>
-              <Text style={[texto.correcao, { color: cores.tinta }]}>
-                {turno.correcao.corrected}
-              </Text>
-            </>
-          ) : null}
+          <Text style={[texto.correcao, { color: cores.tinta }]}>
+            {correcao.corrigido}
+          </Text>
           <Text style={[texto.apoio, { color: cores.secundario }]}>
-            {turno.correcao.tip}
+            {correcao.explicacao}
           </Text>
         </View>
-      ) : null}
+      ))}
 
       {/* 3b. Áudio indisponível — texto preservado, NUNCA erro fatal
           (ADR-0024 item 5). A URL do trecho é assinada e de vida curta; se ela
@@ -125,6 +131,10 @@ const estilos = StyleSheet.create({
     borderRadius: 14,
     padding: espaco.md,
     gap: espaco.xs,
+  },
+  badges: {
+    flexDirection: 'row',
+    gap: espaco.sm,
   },
   correcao: {
     borderLeftWidth: 3,
