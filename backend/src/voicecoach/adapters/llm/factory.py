@@ -17,6 +17,7 @@ from voicecoach.adapters.resilience import CircuitBreaker
 
 if TYPE_CHECKING:
     from voicecoach.application.ports.teacher_llm import TeacherLlm
+    from voicecoach.application.ports.translator import Translator
     from voicecoach.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -106,4 +107,46 @@ def create_teacher_llm(settings: Settings) -> TeacherLlm:
             clock=_agora,
             name="professor (Anthropic)",
         ),
+    )
+
+
+def create_translator(settings: Settings) -> Translator:
+    """Constrói o adapter de tradução (CARD-036).
+
+    **Cliente próprio, e não o mesmo do professor**, apesar de falarem com a
+    mesma API: os dois têm `max_retries` diferentes (o do professor corre por
+    baixo do retry do `arq`; este roda dentro de um request e não tem camada
+    embaixo). Compartilhar o cliente amarraria os dois números a um só.
+
+    **Sem breaker, e é decisão registrada** (ADR-0066): o breaker do ADR-0053
+    protege contra repetição em série num worker com `MAX_JOBS = 1` — um aluno
+    depois do outro pagando 30 s para descobrir a mesma coisa. Traduzir é
+    iniciado pelo aluno, limitado por rate limit próprio (RNF2) e falha em 15 s
+    com um 503 que a tela explica. **Gatilho para acrescentá-lo:** a tradução
+    passar a ser chamada de dentro do worker, ou o log mostrar rajadas de
+    `TranslatorError` em série.
+    """
+    from anthropic import AsyncAnthropic
+
+    from voicecoach.adapters.llm.anthropic_translator import AnthropicTranslator
+
+    logger.info(
+        "LLM: tradutor '%s', max_tokens=%d, timeout=%.1fs, max_retries=%d",
+        settings.assistant_model,
+        settings.translation_max_tokens,
+        settings.translation_timeout_seconds,
+        settings.translation_max_retries,
+    )
+    # `type: ignore[arg-type]` pela mesma razão da fábrica do professor: o
+    # `_Client` declara o mínimo consumido, e o `AsyncAnthropic` real não casa
+    # estruturalmente porque `create()` é uma pilha de overloads com TypedDicts
+    # do SDK.
+    return AnthropicTranslator(
+        AsyncAnthropic(  # type: ignore[arg-type]
+            api_key=settings.anthropic_api_key,
+            max_retries=settings.translation_max_retries,
+        ),
+        model=settings.assistant_model,
+        max_tokens=settings.translation_max_tokens,
+        timeout_seconds=settings.translation_timeout_seconds,
     )

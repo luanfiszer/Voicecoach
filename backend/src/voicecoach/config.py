@@ -227,6 +227,37 @@ class Settings(BaseSettings):
     # provedor ter voltado.
     teacher_breaker_recovery: timedelta = timedelta(seconds=30)
 
+    # --- Tradução sob demanda (CARD-036, ADR-0066) ---------------------------
+    #
+    # O modelo é o `assistant_model` (o barato do ADR-0009) — traduzir não é
+    # pedagogia (RF5), e este card é o primeiro consumidor daquele campo, que
+    # até aqui existia sem ninguém que o lesse.
+    #
+    # **Teto de saída pequeno de propósito.** A tradução de uma resposta do
+    # professor (teto de 700 tokens) ou de uma explicação de correção cabe
+    # folgadamente em 500: português rende ~20% mais tokens que inglês, e o
+    # teto existe para limitar o custo de um modelo que decidiu divagar, não
+    # para caber no caso normal.
+    translation_max_tokens: int = Field(default=500, gt=0)
+
+    # Metade do prazo do professor: aqui não há stream, não há tool e o texto é
+    # curto — 15 s é folga generosa sobre a chamada real, e é o aluno olhando
+    # um spinner que paga a diferença (RNF5 libera latência, não abandono).
+    translation_timeout_seconds: float = Field(default=15.0, gt=0)
+
+    # Uma retentativa, como no professor, e aqui SEM a camada do `arq` embaixo:
+    # a tradução roda no request, não numa job. Se falhar as duas, o desfecho é
+    # o 503 do RF6 e o aluno decide se tenta de novo — o que é honesto, porque
+    # ele está olhando a tela.
+    translation_max_retries: int = Field(default=1, ge=0)
+
+    # **Rate limit próprio** (RNF2): endpoint autenticado que gasta dinheiro
+    # também abusa. Mais apertado que o de turns (20/min) porque traduzir é um
+    # gesto de leitura — um aluno lendo uma resposta pede uma tradução, não
+    # dez. A janela é a mesma do outro limite, para que os dois tenham a mesma
+    # unidade mental ("por minuto").
+    translation_rate_limit_per_student: int = Field(default=10, gt=0)
+
     # --- Timeouts do storage (CARD-026, ADR-0053) ----------------------------
     #
     # **Os três andam juntos ou não andam** (§4.1 do prompt do card): timeout

@@ -30,6 +30,8 @@ from fakes_pipeline import (
     FakeMediaStorage,
     FakeServiceBudget,
     FakeSessionRepository,
+    FakeTranslationRepository,
+    FakeTranslator,
     FakeTurnEvents,
     FakeTurnRepository,
     FakeUnitOfWork,
@@ -90,6 +92,10 @@ class Fakes:
         self.usage_events = FakeUsageEventRepository()
         self.budget = FakeServiceBudget()
         self.rate_limiter = FakeRateLimiter()
+        # CARD-036: tradutor permissivo e tabela vazia — os testes que são
+        # sobre tradução ajustam os dois pelo `fakes`.
+        self.translations = FakeTranslationRepository()
+        self.translator = FakeTranslator()
 
     async def enqueue(self, turn_id: UUID) -> None:
         self.enfileirados.append(turn_id)

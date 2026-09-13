@@ -182,6 +182,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/turns/{turn_id}/translations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Traduz para português um texto do turno (CARD-036)
+         * @description O aluno pediu a tradução de um texto que o produto já produziu.
+         *
+         *     **O corpo diz QUAL texto, nunca o texto** (RF1). Traduzir de novo o mesmo
+         *     texto não cobra de novo (RF4) e responde `cached: true`.
+         */
+        post: operations["traduzir_texto_do_turn_v1_turns__turn_id__translations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/turns/{turn_id}/events": {
         parameters: {
             query?: never;
@@ -538,6 +561,47 @@ export interface components {
             /** Transcript */
             transcript: string;
         };
+        /**
+         * TranslationRequest
+         * @description Qual texto do turn traduzir.
+         */
+        TranslationRequest: {
+            /** @description `reply` é a resposta do professor; `correction` é a explicação de uma correção. */
+            target: components["schemas"]["TranslationTarget"];
+            /**
+             * Index
+             * @description Ignorado para `reply` (há uma resposta por turn); para `correction`, é o índice 0-based na lista de correções do turn.
+             * @default 0
+             */
+            index: number;
+        };
+        /**
+         * TranslationResponse
+         * @description O texto em português.
+         */
+        TranslationResponse: {
+            /** Text */
+            text: string;
+            /**
+             * Cached
+             * @description `true` quando a tradução já existia e nada foi cobrado. O corpo é o mesmo nos dois casos — o campo torna o 'não paga duas vezes' observável de fora.
+             */
+            cached: boolean;
+        };
+        /**
+         * TranslationTarget
+         * @description Qual texto **do produto** foi traduzido (RF1).
+         *
+         *     Enum fechado, e é ele que implementa a decisão de segurança do RF1: o
+         *     cliente escolhe entre alvos conhecidos, nunca manda o texto. Um endpoint
+         *     que traduzisse texto livre seria um proxy de LLM aberto pago por nós — o
+         *     risco que o card nomeia primeiro.
+         *
+         *     Acrescentar membro é aditivo e permitido (ADR-0008); renomear invalida
+         *     linha gravada, como em todo enum persistido deste projeto (ADR-0049).
+         * @enum {string}
+         */
+        TranslationTarget: "reply" | "correction";
         /**
          * TurnAcceptedResponse
          * @description ``202`` do ``POST`` — o turn está aceito e a caminho.
@@ -905,6 +969,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    traduzir_texto_do_turn_v1_turns__turn_id__translations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                turn_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TranslationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranslationResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

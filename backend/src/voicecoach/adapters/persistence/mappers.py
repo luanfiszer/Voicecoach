@@ -16,6 +16,7 @@ from voicecoach.adapters.persistence.models import (
     CorrectionRow,
     SessionRow,
     StudentRow,
+    TranslationRow,
     TurnAudioChunkRow,
     TurnRow,
     UsageEventRow,
@@ -23,6 +24,7 @@ from voicecoach.adapters.persistence.models import (
 from voicecoach.domain.correction import Correction
 from voicecoach.domain.session import Session
 from voicecoach.domain.student import Student
+from voicecoach.domain.translation import Translation
 from voicecoach.domain.turn import Turn, TurnAudioChunk
 from voicecoach.domain.usage import UsageEvent
 
@@ -300,5 +302,29 @@ def usage_event_from_row(row: UsageEventRow) -> UsageEvent:
         stt_no_speech=row.stt_no_speech,
         tts_chars=row.tts_chars,
         tts_provider=row.tts_provider,
+        estimated_cost_usd=row.estimated_cost_usd,
+    )
+
+
+def translation_to_row(translation: Translation) -> TranslationRow:
+    return TranslationRow(
+        turn_id=translation.turn_id,
+        target=translation.target,
+        index=translation.index,
+        text=translation.text,
+        model=translation.model,
+        created_at=translation.created_at,
+        estimated_cost_usd=translation.estimated_cost_usd,
+    )
+
+
+def translation_from_row(row: TranslationRow) -> Translation:
+    return Translation(
+        turn_id=row.turn_id,
+        target=row.target,
+        index=row.index,
+        text=row.text,
+        model=row.model,
+        created_at=row.created_at,
         estimated_cost_usd=row.estimated_cost_usd,
     )

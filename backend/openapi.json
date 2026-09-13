@@ -294,6 +294,60 @@
         }
       }
     },
+    "/v1/turns/{turn_id}/translations": {
+      "post": {
+        "tags": [
+          "turns"
+        ],
+        "summary": "Traduz para portugu\u00eas um texto do turno (CARD-036)",
+        "description": "O aluno pediu a tradu\u00e7\u00e3o de um texto que o produto j\u00e1 produziu.\n\n**O corpo diz QUAL texto, nunca o texto** (RF1). Traduzir de novo o mesmo\ntexto n\u00e3o cobra de novo (RF4) e responde `cached: true`.",
+        "operationId": "traduzir_texto_do_turn_v1_turns__turn_id__translations_post",
+        "parameters": [
+          {
+            "name": "turn_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Turn Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TranslationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranslationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/turns/{turn_id}/events": {
       "get": {
         "tags": [
@@ -781,6 +835,56 @@
         ],
         "title": "TranscribedPayload",
         "description": "Evento ``transcribed``."
+      },
+      "TranslationRequest": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/TranslationTarget",
+            "description": "`reply` \u00e9 a resposta do professor; `correction` \u00e9 a explica\u00e7\u00e3o de uma corre\u00e7\u00e3o."
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Index",
+            "description": "Ignorado para `reply` (h\u00e1 uma resposta por turn); para `correction`, \u00e9 o \u00edndice 0-based na lista de corre\u00e7\u00f5es do turn.",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "target"
+        ],
+        "title": "TranslationRequest",
+        "description": "Qual texto do turn traduzir."
+      },
+      "TranslationResponse": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "cached": {
+            "type": "boolean",
+            "title": "Cached",
+            "description": "`true` quando a tradu\u00e7\u00e3o j\u00e1 existia e nada foi cobrado. O corpo \u00e9 o mesmo nos dois casos \u2014 o campo torna o 'n\u00e3o paga duas vezes' observ\u00e1vel de fora."
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "cached"
+        ],
+        "title": "TranslationResponse",
+        "description": "O texto em portugu\u00eas."
+      },
+      "TranslationTarget": {
+        "type": "string",
+        "enum": [
+          "reply",
+          "correction"
+        ],
+        "title": "TranslationTarget",
+        "description": "Qual texto **do produto** foi traduzido (RF1).\n\nEnum fechado, e \u00e9 ele que implementa a decis\u00e3o de seguran\u00e7a do RF1: o\ncliente escolhe entre alvos conhecidos, nunca manda o texto. Um endpoint\nque traduzisse texto livre seria um proxy de LLM aberto pago por n\u00f3s \u2014 o\nrisco que o card nomeia primeiro.\n\nAcrescentar membro \u00e9 aditivo e permitido (ADR-0008); renomear invalida\nlinha gravada, como em todo enum persistido deste projeto (ADR-0049)."
       },
       "TurnAcceptedResponse": {
         "properties": {

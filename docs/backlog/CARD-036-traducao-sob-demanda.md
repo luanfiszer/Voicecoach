@@ -2,7 +2,7 @@
 
 - **ID:** CARD-036
 - **Épico:** Fase 3 — Domínio pedagógico (backend do `traduzir` do artboard 06)
-- **Plataforma:** backend · **Esforço:** P · **Status:** backlog
+- **Plataforma:** backend · **Esforço:** P · **Status:** concluído (2026-09-13)
 - **Dependências:** CARD-013 (concluído), CARD-014 (concluído — é o instrumento de custo), CARD-026; ADR-0009, ADR-0010, ADR-0051
 
 ## Contexto
@@ -116,3 +116,92 @@ Como uma porta nova entra num sistema que já tem cinco (`SpeechToText`,
 tradução é uma **porta própria** ou mais um uso da porta do LLM. A pergunta é a
 mesma do ADR-0036 ("o primeiro consumidor revela o que faltava nas portas") e a
 resposta define se o adapter da Anthropic passa a ter dois papéis.
+
+## Execução (2026-09-13, loop autônomo)
+
+**A pergunta do objetivo de aprendizado, respondida: porta própria.**
+`Translator` (`application/ports/translator.py`) com adapter próprio
+(`adapters/llm/anthropic_translator.py`). O critério foi o do projeto — *nome
+de porta é a capacidade* — e as duas divergem em quatro eixos (forma, latência,
+modelo, estado), tabelados no docstring da porta. O argumento decisivo é de
+teste: um método a mais em `TeacherLlm` obrigaria **todo dublê** daquela porta
+a implementar tradução para continuar satisfazendo o `Protocol`. O adapter da
+Anthropic passa a ter dois **arquivos**, não dois papéis.
+
+**RF1 (referência a recurso, nunca texto)** — o corpo do POST é
+`{target, index}`; não existe campo `text` no schema. O idioma de destino está
+no nome do método da porta (`to_portuguese`), não em parâmetro, pela mesma
+razão. Testado por `test_o_endpoint_recusa_texto_arbitrario_do_cliente`, cuja
+asserção que importa é a última: o provedor nunca viu o texto do cliente.
+
+**RF2** — nenhum `Turn` criado, nenhum `UsageEvent` escrito, cota de minutos
+intocada (`test_traduzir_nao_cria_turn_nem_mexe_na_cota`).
+
+**RF3 + RNF1 (as duas decisões caras)** — tabela `turn_translations`
+(migration `842710677a72`) com PK composta `(turn_id, target, index)`, custo
+congelado na escrita em `NUMERIC(12,8)` e nulo com o mesmo significado do
+`UsageEvent` ("não sabemos precificar", nunca "grátis"). **Persistência e não
+cache** porque nada invalida: o texto de origem é imutável, então qualquer TTL
+seria uma data arbitrária para o produto voltar a pagar pela mesma tradução.
+
+**Decisão autônoma (loop sem desenvolvedor, 2026-09-13):** o RF3 nomeia
+`UsageEvent`, mas a PK daquela tabela é o `turn_id` — "um turn, um evento",
+invariante que o CARD-014 protege com teste — e um turn traduzido já tem o
+evento da conversa. → **O custo foi congelado na própria linha da tradução e
+somado ao `ServiceBudget`** (que é o mecanismo que faz o RNF3 valer de fato).
+→ **Porquê:** é a alternativa que registra o consumo sem quebrar uma
+invariante existente, e é reversível — uma migration de consolidação folda as
+linhas num livro-razão único no dia em que houver um. A alternativa cara
+(quebrar a PK de `usage_events` com um discriminador de tipo) é decisão de
+modelagem financeira, não de implementação. → **PENDENTE DE REVISÃO HUMANA**
+(registrada também no ADR-0066, consequências).
+
+**RF4** — a consulta vem antes de tudo; a chave composta é quem garante sob
+concorrência (`ConflictingWriteError` → relê → devolve a vencedora, mesmo
+desenho do ADR-0042). A prova nos testes é a **contagem de chamadas ao
+provedor**, não o texto: `test_a_mesma_traducao_nao_e_paga_duas_vezes` afirma
+uma chamada, uma linha, um lançamento no orçamento.
+
+**RF5** — `assistant_model` (o barato do ADR-0009). Este card é o **primeiro
+consumidor** daquele campo, que existia em `config.py` sem ninguém que o lesse.
+
+**RF6** — `TranslatorError` entrou em `FALHAS_DE_INFRAESTRUTURA`: provedor fora
+do ar vira `503 dependency-unavailable`, nunca 500
+(`test_provedor_fora_do_ar_e_503_de_dependencia_e_nao_500`).
+
+**RNF2** — rate limit próprio: 10/min por aluno (mais apertado que os 20 de
+turns, porque traduzir é gesto de leitura) mais o teto por IP. Hoje o
+`student_id` é constante, então é a chave por IP que separa clientes — anotado
+na dependência.
+
+**RNF3** — `ServiceBudget.add_cost` depois do commit: somar ao teto um gasto
+cuja linha não foi gravada faria o orçamento morder por um custo que ninguém
+consegue auditar.
+
+**RNF4 — sem breaker, e é decisão registrada.** O breaker do ADR-0053 protege
+contra repetição **em série** num worker `MAX_JOBS = 1`; traduzir é iniciado
+pelo aluno, tem rate limit próprio e falha em 15 s. **Gatilho para
+acrescentá-lo:** tradução chamada de dentro do worker, ou rajadas de
+`TranslatorError` no log.
+
+**RNF5/RNF6** — síncrono, sem stream e sem tool use (economiza os tokens de
+schema em toda chamada); nenhuma tradução preventiva.
+
+**Testes:** `tests/application/test_translate_text.py` (14, incluindo a corrida
+e o modelo sem preço), `tests/api/test_turns.py` (10 novos, pela rota),
+`tests/adapters/test_persistence.py` (6 novos contra Postgres real — roundtrip
+do `Decimal`, enum pelo valor, a PK composta recusando a segunda, e o
+`CASCADE`), `tests/domain/test_translation.py` (5, as invariantes).
+
+**Contrato:** `openapi.json` e `packages/api-client/src/schema.d.ts`
+regenerados.
+
+**ADR novo:** [0066](../adr/0066-traducao-e-porta-propria-persistida-por-referencia-a-recurso.md)
+— critérios 1 (dependência/porta nova), 2 (endpoint, tabela e enum novos) e 3
+(afeta custo recorrente).
+
+**Regra do explicador:** nenhuma pergunta de previsão coube nesta sessão — o
+card já trazia as três decisões caras enunciadas (porta, persistência,
+registro de consumo), e as duas primeiras se resolveram com regras já escritas
+do projeto. A terceira virou a decisão autônoma acima, marcada para revisão em
+vez de fechada em silêncio.

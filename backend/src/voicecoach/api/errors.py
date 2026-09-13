@@ -48,6 +48,7 @@ from voicecoach.api.schemas.problem import (
 )
 from voicecoach.application.ports.media_storage import MediaStorageError
 from voicecoach.application.ports.repositories import ConflictingWriteError
+from voicecoach.application.ports.translator import TranslatorError
 from voicecoach.application.ports.turn_events import TurnEventsError
 from voicecoach.application.ports.turn_queue import TurnQueueError
 from voicecoach.application.use_cases.process_turn import TurnNotFoundError
@@ -65,6 +66,9 @@ FALHAS_DE_INFRAESTRUTURA = (
     TurnEventsError,
     ConflictingWriteError,
     UnknownWireEventError,
+    # CARD-036, RF6: tradutor fora do ar é 503 com o mesmo vocabulário dos
+    # outros — o texto original continua legível e a UI diz que não deu.
+    TranslatorError,
 )
 
 

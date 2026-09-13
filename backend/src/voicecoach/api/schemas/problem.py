@@ -43,6 +43,9 @@ TYPE_SERVICE_BUDGET_EXCEEDED = f"{BASE}:service-budget-exceeded"
 TYPE_SESSION_ENDED = f"{BASE}:session-ended"
 # CARD-032: o turn já entregou a resposta — descartar é outra conversa (RF2).
 TYPE_TURN_ALREADY_COMPLETED = f"{BASE}:turn-already-completed"
+# CARD-036: o recurso existe, mas aquele texto ainda não — o cliente mostra o
+# original em vez de tratar como erro.
+TYPE_NOTHING_TO_TRANSLATE = f"{BASE}:nothing-to-translate"
 
 
 class ProblemDetails(BaseModel):
