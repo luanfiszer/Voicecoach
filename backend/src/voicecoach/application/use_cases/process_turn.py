@@ -94,6 +94,7 @@ if TYPE_CHECKING:
         UnitOfWork,
         UsageEventRepository,
     )
+    from voicecoach.application.ports.service_budget import ServiceBudget
     from voicecoach.application.ports.speech_to_text import SpeechToText
     from voicecoach.application.ports.teacher_llm import TeacherLlm
     from voicecoach.application.ports.text_to_speech import (
@@ -295,6 +296,7 @@ class ProcessTurnHandler:
         tts_provider: str,
         stt_min_confidence: float,
         stt_max_no_speech: float,
+        service_budget: ServiceBudget,
     ) -> None:
         self._turns = turns
         self._sessions = sessions
@@ -307,6 +309,10 @@ class ProcessTurnHandler:
         self._encoder = encoder
         self._events = events
         self._clock = clock
+        # Kill switch global (ADR-0063): soma o custo real na `_registrar_uso`.
+        # Vive aqui e não só no `StartTurn` porque só depois do professor
+        # responder é que o custo REAL (não a checagem de saldo) existe.
+        self._budget = service_budget
         # Construído aqui e não recebido por parâmetro: é um colaborador feito
         # das MESMAS portas que este handler já tem, não uma capacidade nova.
         # Pedi-lo à composition root obrigaria o worker a montar duas vezes o
@@ -676,6 +682,11 @@ class ProcessTurnHandler:
                 estimated_cost_usd=custo,
             )
         )
+        # Kill switch global (ADR-0063/CARD-015): só soma o que se sabe
+        # precificar — o ERROR acima já denuncia o resto, e inventar um custo
+        # aqui seria pior que a lacuna documentada no ADR.
+        if custo is not None:
+            await self._budget.add_cost(custo, when=self._clock())
 
     async def _fechar(
         self, turn: Turn, student_id: UUID, sintetizados: list[SynthesizedAudio]

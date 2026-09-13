@@ -27,6 +27,7 @@ import pytest
 from fakes_pipeline import (
     FakeEncoder,
     FakeMediaStorage,
+    FakeServiceBudget,
     FakeSessionRepository,
     FakeStt,
     FakeTeacher,
@@ -169,6 +170,7 @@ class Montagem:
         self.encoder = encoder or FakeEncoder()
         self.events = events or FakeTurnEvents()
         self.clock = RelogioFalso()
+        self.budget = FakeServiceBudget()
         self.handler = ProcessTurnHandler(
             turns=self.turns,
             sessions=self.sessions,
@@ -187,6 +189,7 @@ class Montagem:
             tts_provider="piper",
             stt_min_confidence=-1.0,
             stt_max_no_speech=0.6,
+            service_budget=self.budget,
         )
 
     async def processar(self, *, final: bool = True) -> None:

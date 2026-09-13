@@ -52,7 +52,9 @@ risco que o card nomeia:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 from voicecoach.application.ports.repositories import ConflictingWriteError
 from voicecoach.application.result import Err, Ok, Result
@@ -60,7 +62,6 @@ from voicecoach.domain.media_keys import input_key
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from datetime import datetime, timedelta
     from uuid import UUID
 
     from voicecoach.application.ports.media_storage import MediaStorage
@@ -68,8 +69,30 @@ if TYPE_CHECKING:
         SessionRepository,
         TurnRepository,
         UnitOfWork,
+        UsageEventRepository,
     )
+    from voicecoach.application.ports.service_budget import ServiceBudget
     from voicecoach.application.ports.turn_queue import TurnQueue
+
+# A mesma zona da cota diária (ADR-0063): "hoje" é o calendário de Brasília, a
+# promessa que a tela faz ("renova às 00:00, horário de Brasília") — não o
+# UTC em que o banco grava `occurred_at`. Duplicada em `redis_service_budget`
+# (adapter, camada diferente) de propósito: `application` não importa
+# `adapters`, e uma constante de fuso não justifica um módulo `domain` novo só
+# para ser compartilhada.
+_FUSO_DA_COTA = ZoneInfo("America/Sao_Paulo")
+
+
+def _janela_diaria(agora: datetime) -> tuple[datetime, datetime]:
+    """``[meia-noite de hoje, meia-noite de amanhã)`` no fuso da cota.
+
+    Meio-aberta como o `totals_for_student` exige — e como todo o resto do
+    projeto que soma por janela (ADR-0051).
+    """
+    inicio = agora.astimezone(_FUSO_DA_COTA).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return inicio, inicio + timedelta(days=1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +145,37 @@ class SessionNotFound:
     session_id: UUID
 
 
+@dataclass(frozen=True, slots=True)
+class DailyQuotaExceeded:
+    """O student excedeu a cota diária, em minutos OU em turns (ADR-0063).
+
+    ``reset_at`` é a próxima meia-noite no fuso da cota — a borda o expõe como
+    ``retry_after`` do Problem Details. Não diz QUAL dos dois tetos mordeu: a
+    tela promete minutos, e expor "foi o teto de turns" vazaria mecânica de
+    custo interna que o aluno não contratou saber (CARD-033, RF5).
+    """
+
+    reset_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ServiceBudgetExceeded:
+    """O orçamento do produto (diário ou mensal) estourou — não é do student.
+
+    Vazio de propósito: ao contrário da cota, não há "quando volta" que a API
+    possa prometer com confiança (o teto mensal só reseta no fim do mês), e a
+    borda responde ``503`` — o mesmo vocabulário de "dependência indisponível"
+    que o resto da API já usa para "tente de novo mais tarde".
+    """
+
+
+# União fechada do que a borda faz da API de fora de "aceito" (`TurnAccepted`).
+# `match` + `assert_never` na rota é o que garante que acrescentar um motivo
+# aqui sem tratá-lo lá quebre no mypy, não em produção (mesmo padrão do
+# `TeacherEvent`/`RejectionReason`).
+type StartTurnRejection = SessionNotFound | DailyQuotaExceeded | ServiceBudgetExceeded
+
+
 class StartTurnHandler:
     """Recebe o áudio, cria o Turn e o entrega à fila."""
 
@@ -130,28 +184,62 @@ class StartTurnHandler:
         *,
         turns: TurnRepository,
         sessions: SessionRepository,
+        usage_events: UsageEventRepository,
         unit_of_work: UnitOfWork,
         storage: MediaStorage,
         queue: TurnQueue,
+        service_budget: ServiceBudget,
         clock: Callable[[], datetime],
         new_turn_id: Callable[[], UUID],
+        daily_quota_spoken: timedelta,
+        daily_quota_turns: int,
     ) -> None:
         self._turns = turns
         self._sessions = sessions
+        self._usage = usage_events
         self._uow = unit_of_work
         self._storage = storage
         self._queue = queue
+        self._budget = service_budget
         self._clock = clock
         self._new_turn_id = new_turn_id
+        # Números crus, não `Settings`: `application` não importa `config`
+        # (ADR-0013) — a composition root já leu e resolveu os dois valores.
+        self._daily_quota_spoken = daily_quota_spoken
+        self._daily_quota_turns = daily_quota_turns
 
-    async def handle(self, command: StartTurn) -> Result[TurnAccepted, SessionNotFound]:
+    async def handle(
+        self, command: StartTurn
+    ) -> Result[TurnAccepted, StartTurnRejection]:
         ja_existe = await self._turns.get_by_idempotency_key(command.idempotency_key)
         if ja_existe is not None:
+            # F11 (CARD-015): reenvio idempotente NUNCA consome cota de novo —
+            # é o mesmo turn, não um turn a mais. Por isso o replay sai ANTES
+            # de qualquer checagem de cota ou orçamento.
             return await self._repetir(ja_existe.id)
 
         session = await self._sessions.get(command.session_id)
         if session is None:
             return Err(SessionNotFound(command.session_id))
+
+        agora = self._clock()
+        # Kill switch ANTES da cota por student: é a checagem mais barata (uma
+        # leitura Redis, sem índice de banco nenhum) e é a que protege o
+        # orçamento do produto inteiro, não só deste aluno.
+        if await self._budget.is_exceeded(when=agora):
+            return Err(ServiceBudgetExceeded())
+
+        inicio_do_dia, inicio_de_amanha = _janela_diaria(agora)
+        consumo = await self._usage.totals_for_student(
+            session.student_id, since=inicio_do_dia, until=inicio_de_amanha
+        )
+        # `unpriced_turns` não pede tratamento à parte aqui (ADR-0063): a soma
+        # de `turns`/`spoken` já inclui todo turn, com preço conhecido ou não.
+        if (
+            consumo.turns >= self._daily_quota_turns
+            or consumo.spoken >= self._daily_quota_spoken
+        ):
+            return Err(DailyQuotaExceeded(reset_at=inicio_de_amanha))
 
         turn_id = self._new_turn_id()
         chave = input_key(session.student_id, session.id, turn_id, command.extension)

@@ -99,6 +99,7 @@ Escreva um ADR sempre que a decisão:
 | [0060](0060-o-backend-sai-do-mac-e-a-latencia-paga-a-conta.md) | O backend sai do Mac para um VPS Linux, e a latência paga a conta | aceito (ajusta a parte de infra do 0010 e a Parte E da visão; **exerce** o 0027 em vez de contrariá-lo; substitui a escolha do CARD-038) |
 | [0061](0061-o-primeiro-teste-do-cliente-vitest-sobre-logica-extraida.md) | O primeiro teste do cliente: `vitest` sobre lógica extraída | aceito |
 | [0062](0062-a-imagem-do-minio-migra-do-docker-hub-para-o-quay-io.md) | A imagem do MinIO migra do Docker Hub para o quay.io | aceito |
+| [0063](0063-cota-diaria-em-minutos-e-turns-e-kill-switch-global-por-custo.md) | Cota diária por student em minutos e turns, kill switch global por custo | aceito |
 
 ## ADRs pendentes de decisão de produto
 

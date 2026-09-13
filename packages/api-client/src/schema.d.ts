@@ -78,6 +78,12 @@ export interface paths {
          *     gero uma") faria o esquecimento do cliente virar um turno extra processado e
          *     pago, em silêncio — e a rede móvel, que é o caso de uso inteiro da
          *     idempotência, é justamente onde o reenvio acontece.
+         *
+         *     O rate limit (ADR-0063) roda como dependência da ROTA, antes até deste
+         *     corpo começar — é o que faz a checagem custar zero IO de upload quando
+         *     nega. A cota diária e o kill switch, ao contrário, precisam do
+         *     ``student_id`` (só a sessão o revela) e por isso moram dentro do
+         *     ``handler.handle``.
          */
         post: operations["criar_turn_v1_sessions__session_id__turns_post"];
         delete?: never;

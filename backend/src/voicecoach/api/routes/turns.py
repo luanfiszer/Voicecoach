@@ -31,6 +31,7 @@ from sse_starlette.sse import EventSourceResponse
 from voicecoach.adapters.events.redis_turn_events import wire_name
 from voicecoach.api.audio_intake import extensao_para, medir
 from voicecoach.api.dependencies import (
+    enforce_turn_rate_limit,
     get_settings_from_app,
     media_storage,
     start_turn_handler,
@@ -38,7 +39,11 @@ from voicecoach.api.dependencies import (
     turn_repository,
 )
 from voicecoach.api.errors import ProblemError
-from voicecoach.api.schemas.problem import TYPE_SESSION_NOT_FOUND
+from voicecoach.api.schemas.problem import (
+    TYPE_DAILY_QUOTA_EXCEEDED,
+    TYPE_SERVICE_BUDGET_EXCEEDED,
+    TYPE_SESSION_NOT_FOUND,
+)
 from voicecoach.api.schemas.turns import (
     ChunkPayload,
     CompletedPayload,
@@ -62,7 +67,13 @@ from voicecoach.application.ports.turn_events import (
 )
 from voicecoach.application.result import Err, Ok
 from voicecoach.application.use_cases.process_turn import TurnNotFoundError
-from voicecoach.application.use_cases.start_turn import StartTurn, StartTurnHandler
+from voicecoach.application.use_cases.start_turn import (
+    DailyQuotaExceeded,
+    ServiceBudgetExceeded,
+    SessionNotFound,
+    StartTurn,
+    StartTurnHandler,
+)
 from voicecoach.application.use_cases.stream_turn_events import (
     Delivery,
     StreamTurnEventsHandler,
@@ -100,6 +111,7 @@ CABECALHOS_DE_STREAM = {
     "/sessions/{session_id}/turns",
     status_code=status.HTTP_202_ACCEPTED,
     summary="Envia a fala do aluno e enfileira o turno",
+    dependencies=[Depends(enforce_turn_rate_limit)],
 )
 async def criar_turn(
     session_id: UUID,
@@ -123,6 +135,12 @@ async def criar_turn(
     gero uma") faria o esquecimento do cliente virar um turno extra processado e
     pago, em silêncio — e a rede móvel, que é o caso de uso inteiro da
     idempotência, é justamente onde o reenvio acontece.
+
+    O rate limit (ADR-0063) roda como dependência da ROTA, antes até deste
+    corpo começar — é o que faz a checagem custar zero IO de upload quando
+    nega. A cota diária e o kill switch, ao contrário, precisam do
+    ``student_id`` (só a sessão o revela) e por isso moram dentro do
+    ``handler.handle``.
     """
     extensao = extensao_para(audio.content_type)
     bytes_do_aluno = await audio.read()
@@ -139,23 +157,44 @@ async def criar_turn(
         )
     )
 
-    # `match` sobre o `Result`, terminando em `assert_never`: acrescentar um
-    # desfecho ao caso de uso sem tratá-lo aqui quebra no mypy (ADR do Result).
+    # `match` em DOIS níveis, e não um só sobre `resultado`: o mypy não
+    # propaga a exaustividade de um `case Err(error=X(...))` aninhado até o
+    # parâmetro genérico de `Err` — precisa ver o `match` sobre `erro`
+    # diretamente para provar que os três casos esgotam `StartTurnRejection`.
     match resultado:
         case Ok(value=aceito):
             return TurnAcceptedResponse(
                 turn_id=aceito.turn_id, replayed=aceito.replayed
             )
-        case Err(error=ausente):
-            raise ProblemError(
-                type_=TYPE_SESSION_NOT_FOUND,
-                title="Sessão não encontrada",
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"A sessão {ausente.session_id} não existe.",
-                session_id=str(ausente.session_id),
-            )
-        case _:  # pragma: no cover - inalcançável enquanto o mypy passar
-            assert_never(resultado)
+        case Err(error=erro):
+            match erro:
+                case SessionNotFound(session_id=ausente):
+                    raise ProblemError(
+                        type_=TYPE_SESSION_NOT_FOUND,
+                        title="Sessão não encontrada",
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"A sessão {ausente} não existe.",
+                        session_id=str(ausente),
+                    )
+                case DailyQuotaExceeded(reset_at=quando):
+                    raise ProblemError(
+                        type_=TYPE_DAILY_QUOTA_EXCEEDED,
+                        title="Cota diária esgotada",
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail="Você atingiu o limite de uso de hoje. A cota "
+                        "renova à meia-noite, horário de Brasília.",
+                        reset_at=quando.isoformat(),
+                    )
+                case ServiceBudgetExceeded():
+                    raise ProblemError(
+                        type_=TYPE_SERVICE_BUDGET_EXCEEDED,
+                        title="Serviço pausado temporariamente",
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="O serviço atingiu o limite de uso do período. "
+                        "Tente novamente mais tarde.",
+                    )
+                case _:  # pragma: no cover - inalcançável enquanto o mypy passar
+                    assert_never(erro)
 
 
 @router.get(

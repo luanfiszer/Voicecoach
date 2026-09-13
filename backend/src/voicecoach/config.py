@@ -470,12 +470,27 @@ class Settings(BaseSettings):
     # depois — a varredura é convergente, não precisa ser exaustiva.
     stale_sweep_batch_limit: int = Field(default=50, gt=0)
 
-    # --- Proteção de custo (ADR-0010, visão §D) ------------------------------
+    # --- Proteção de custo (ADR-0010, visão §D; cota e kill switch: ADR-0063) -
     # Decimal, não float: dinheiro em binário de ponto flutuante acumula erro.
     # Equivalente mental exato: `decimal` do C#.
     daily_audio_minutes_per_student: int = Field(default=10, gt=0)
     daily_budget_usd: Decimal = Field(default=Decimal("1.00"), gt=0)
     monthly_budget_usd: Decimal = Field(default=Decimal("10.00"), gt=0)
+
+    # O segundo teto da cota (ADR-0063, decidido em 2026-08-27 com o
+    # desenvolvedor): minutos sozinho não protege do padrão de abuso mais
+    # barato de produzir (muitas falas curtas) — a divergência medida foi
+    # 3,17x. 60/dia cobre folgado o perfil "pesado" (~30/dia) sem deixar o
+    # "patológico" (~100/dia) passar — estimativa a recalibrar com o
+    # `UsageEvent` real, não medição.
+    daily_quota_turns_per_student: int = Field(default=60, gt=0)
+
+    # Rate limit por student e por IP no POST de turn (ADR-0063, item 3) —
+    # protege contra *loop* de cliente, não contra custo agregado (isso é o
+    # kill switch acima). Números iniciais, mesma disciplina de estimativa.
+    turn_rate_limit_window: timedelta = timedelta(minutes=1)
+    turn_rate_limit_per_student: int = Field(default=20, gt=0)
+    turn_rate_limit_per_ip: int = Field(default=60, gt=0)
 
     # --- Infraestrutura local (ADR-0004 / 0005 / 0006) -----------------------
     # Estas TÊM default porque o docker-compose.yml deste repositório é quem as

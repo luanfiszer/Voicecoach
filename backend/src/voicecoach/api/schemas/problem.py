@@ -31,6 +31,13 @@ TYPE_TURN_NOT_FOUND = f"{BASE}:turn-not-found"
 TYPE_INVALID_STATE = f"{BASE}:invalid-state"
 TYPE_INVALID_EVENT_ID = f"{BASE}:invalid-event-id"
 TYPE_DEPENDENCY_UNAVAILABLE = f"{BASE}:dependency-unavailable"
+# ADR-0063 (CARD-015): três motivos diferentes de recusar um turn, três `type`
+# diferentes — o cliente distingue "tente mais devagar" (rate limit) de "sua
+# cota renova à meia-noite" (quota) de "o serviço pausou" (kill switch), sem
+# comparar string de `detail`.
+TYPE_RATE_LIMITED = f"{BASE}:rate-limited"
+TYPE_DAILY_QUOTA_EXCEEDED = f"{BASE}:daily-quota-exceeded"
+TYPE_SERVICE_BUDGET_EXCEEDED = f"{BASE}:service-budget-exceeded"
 
 
 class ProblemDetails(BaseModel):
