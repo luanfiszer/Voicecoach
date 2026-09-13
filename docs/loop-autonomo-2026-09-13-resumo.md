@@ -241,11 +241,85 @@ Nenhuma das três está marcada **PENDENTE DE REVISÃO HUMANA** no sentido do
 §6 — são leituras diretas do texto dos cards, não decisões de produto
 inventadas pelo agente.
 
-## 11. Próximo card na fila
+## 11. Terceira leva desta noite — CARD-049, e por que parou aqui
 
-**CARD-049** (cadastro, login e o par de tokens) — mas só depois de
-confirmação explícita do desenvolvedor, pela recomendação registrada em §10.
-Se a resposta for seguir, releia o card e o ADR-0007 inteiros antes de
-implementar: ele decide o segredo de assinatura (vem de onde?) e assinala
-"ADR de provedor de e-mail" como dependência sem ADR nenhum ainda escrito —
-isso pode ser o primeiro bloqueio real do card, não só uma formalidade.
+O desenvolvedor confirmou abrir o CARD-049 depois da pergunta do §10. Esta
+leva mergeou um card grande e parou **a pedido explícito dele**, para
+revisão, antes de tocar no CARD-050.
+
+### O que foi mergeado
+
+| Card | PR | O que entregou |
+|---|---|---|
+| CARD-049 | [#55](https://github.com/luanfiszer/Voicecoach/pull/55) | Cadastro/login/tokens completo (ADR-0007): argon2id, JWT+refresh rotativo com detecção de reuso, verificação de e-mail, **recuperação de senha** (adicionada nesta sessão — o próprio card a nomeava como "o furo clássico"). 8 endpoints em `/v1/auth`. `requesting_student_id()` deixou de ser `DEV_STUDENT_ID` fixo em TODAS as rotas. [ADR-0068](adr/0068-provedor-de-email-transacional-resend-com-console-como-default.md) (Resend + console). Um segundo commit na mesma branch, antes do merge, corrigiu o CI (faltava `JWT_SECRET` no passo que gera o schema OpenAPI e os tipos TS) |
+
+Nenhum outro card foi tocado nesta leva — CARD-049 sozinho já era do
+tamanho de vários cards anteriores somados (58 arquivos, ~6300 linhas).
+
+### Duas perguntas de produto, feitas ao vivo ao desenvolvedor e respondidas
+(registro completo em `docs/perguntas-em-aberto.md`)
+
+1. **"Ativar JWT real em TODAS as rotas já existentes agora, sabendo que
+   isso quebra o app até o CARD-050 existir?"** — **sim, ativar tudo.** Não
+   foi decisão do agente: o app mobile fica sem falar com o backend até o
+   próximo card.
+2. **"Login social (Google) entra junto deste card, ou é card separado?"**
+   — **card separado.** "Só Google" viola a Guideline 4.8 da Apple (exige
+   Sign in with Apple também); virou o **CARD-060**, com ADR próprio
+   pendente para revisar o ADR-0007.
+
+### Três bugs achados pelos próprios testes, corrigidos antes do merge
+
+1. `Argon2PasswordHasher.verify` não cobria `InvalidHashError` — hierarquia
+   de exceção separada de `VerificationError` no argon2-cffi (verificado com
+   `.__mro__`: uma desce de `ValueError`, a outra de `Argon2Error`). Sem o
+   segundo `except`, um hash malformado faria login **crashar** (500) em vez
+   de recusar.
+2. `mark_email_verified` pedia `credential_id`, mas todo chamador só tem
+   `student_id` — `KeyError` no primeiro teste de roundtrip. A porta foi
+   corrigida para filtrar por `student_id` (único em `credentials`).
+3. A rota `confirm-email` reusava `TYPE_INVALID_REFRESH_TOKEN` por engano,
+   copiado do endpoint de refresh vizinho — corrigido com um tipo próprio
+   (`TYPE_INVALID_EMAIL_CONFIRMATION_TOKEN`).
+
+### Decisões — o que é PENDENTE DE REVISÃO HUMANA de verdade
+
+- **`RESEND_API_KEY` não existe no `.env`** — `EMAIL_PROVIDER` fica em
+  `console` (escreve o link no log) até o desenvolvedor criar a conta
+  Resend e decidir sobre domínio verificado. O e-mail de confirmação nunca
+  foi testado contra a API real, só com `httpx.MockTransport`.
+- **CARD-060** (login social) está criado e sem ADR ainda — o ADR que
+  revisa o ADR-0007 fica para quando aquele card rodar.
+- Recuperação de senha não tem UI: o e-mail carrega o token como texto,
+  sem formulário — trabalho de cliente (CARD-050/052).
+
+As duas perguntas de produto (acima) **não** são pendências — foram
+respondidas ao vivo, não são decisão autônoma do agente.
+
+### Achado técnico que vale lembrar
+
+O padrão "adicionar um import antes de qualquer uso" faz o hook de
+pre-edição (`ruff check --fix`) **remover o import como não usado** — só
+sobrevive quando import e primeiro uso entram no mesmo `Edit`. Mordeu
+umas 15 vezes nesta sessão (sempre com o mesmo sintoma: `F821 Undefined
+name` no próximo edit). Não é bug do processo, é uma característica do
+autofix que vale saber de antemão na próxima sessão longa de edição.
+
+## 12. Como retomar
+
+**Parou a pedido explícito do desenvolvedor**, não por falta de card seguro
+— ao contrário das paradas anteriores (§1, §10), aqui havia um próximo card
+claro (CARD-050) e a decisão de não seguir foi dele, para revisar o volume
+grande que o CARD-049 trouxe antes de continuar.
+
+Próximo candidato natural: **CARD-050** (a sessão autenticada no cliente
+mobile — secure storage, refresh automático, expiração). É outro card
+grande, do lado mobile, e o app **já está quebrado** sem ele (efeito
+colateral aceito do CARD-049). O próprio card nomeia o bug do refresh
+concorrente como risco central — vale reler o card inteiro antes de
+começar, não só o resumo daqui.
+
+Depois dele (ou em paralelo, se o desenvolvedor preferir), **CARD-060**
+(login social) tem o ADR pendente e depende do CARD-049 (concluído) — pode
+ser o próximo card de backend caso o CARD-050 fique para uma sessão de
+cliente específica.
