@@ -31,6 +31,24 @@ if TYPE_CHECKING:
     from voicecoach.domain.usage import StudentUsageTotals, UsageEvent
 
 
+class RowNotFoundError(LookupError):
+    """Pediu-se para escrever numa linha que não existe.
+
+    Não é erro de domínio (ADR-0017): nenhuma regra de negócio foi violada — o
+    chamador pediu para gravar algo que nunca foi inserido, o que é bug de
+    orquestração.
+
+    **Mora na porta, e mudou de lugar no CARD-034** (antes vivia no adapter).
+    A razão é a mesma que o ``LlmError`` já registra: *onde o erro mora é
+    consequência de quem precisa capturá-lo*. A varredura de sessões inativas
+    o captura por item — uma sessão apagada entre a listagem e a escrita não
+    pode derrubar o lote —, e ``application`` não pode importar ``adapters``
+    (seta proibida do ADR-0012, e o ``lint-imports`` a pegaria).
+
+    O adapter continua levantando-a; o que mudou é de onde ele a importa.
+    """
+
+
 class ConflictingWriteError(RuntimeError):
     """O armazenamento recusou a escrita por violar uma restrição de unicidade.
 
@@ -92,6 +110,28 @@ class SessionRepository(Protocol):
     async def get(self, session_id: UUID) -> Session | None: ...
 
     async def update(self, session: Session) -> None: ...
+
+    async def list_inactive(self, *, before: datetime, limit: int) -> list[UUID]:
+        """As sessões abertas sem atividade desde antes de ``before`` (CARD-034).
+
+        **Devolve ids, não entidades**, pela mesma razão do ``list_stale``: uma
+        lista de ``Session`` seria uma foto, e entre o SELECT e a escrita o
+        aluno pode ter falado.
+
+        A atividade é o **último turn** da sessão, ou o ``started_at`` quando
+        não houve turn nenhum (RF2) — sessão aberta e abandonada também fecha.
+
+        **Sessão com turn ``queued``/``processing`` NÃO entra** (RF3), por mais
+        antigo que ele seja: o aluno pode estar esperando uma resposta travada,
+        e encerrar a sessão por baixo dele faria a tela de timeout do CARD-025
+        aparecer numa sessão que acabou de fechar. Quem cuida do turn travado é
+        a outra varredura.
+
+        Os mais antigos primeiro, e ``limit`` obrigatório: com lote limitado e
+        sem ordem, a sessão parada há mais tempo poderia ficar de fora de toda
+        rodada, para sempre — a mesma armadilha que o ``list_stale`` nomeia.
+        """
+        ...
 
     async def try_end(self, session_id: UUID, now: datetime) -> datetime:
         """Encerra atomicamente, só se ainda não tiver sido encerrada (CARD-031).

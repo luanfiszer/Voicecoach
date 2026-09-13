@@ -51,7 +51,7 @@ O diagnóstico card a card, a ordem e as decisões estão em
 | [031](CARD-031-ciclo-de-vida-da-sessao-na-borda.md) | Backend do encerrar/offline: `end` na borda + sessão encerrada como `Err` | 3 | backend | M | 010, 013 | **concluído** |
 | [032](CARD-032-descartar-turn-travado.md) | Backend do "Descartar" — **pode morrer no plano**: decidido que não apaga nada | 3 | backend | P | 025 | **concluído** |
 | [033](CARD-033-saldo-de-cota-e-estado-do-servico.md) | Backend do saldo de cota e do serviço pausado (leitura) | 3 | backend | P | 015 | **concluído** |
-| [034](CARD-034-encerramento-automatico-por-inatividade.md) | Encerramento automático da sessão por inatividade (job do arq) | 3 | backend | P | 031, 025 | backlog |
+| [034](CARD-034-encerramento-automatico-por-inatividade.md) | Encerramento automático da sessão por inatividade (job do arq) | 3 | backend | P | 031, 025 | **concluído** |
 | [035](CARD-035-controles-do-player-sobre-a-fila-de-trechos.md) | Controles do player sobre a fila: `0.75×`, `repetir`, scrub | 3 | mobile | M | 028, 012 | **bloqueado** — todos os critérios de aceite são audíveis (scrub sem silêncio, player que vaza, p50 medido); precisa de simulador e escuta. Corte sugerido no card |
 | [036](CARD-036-traducao-sob-demanda.md) | Tradução sob demanda: o endpoint do botão `traduzir` | 3 | backend | P | 013, 014, 026 | **concluído** |
 | [049](CARD-049-cadastro-login-e-o-par-de-tokens.md) | **Cadastro, login e o par de tokens** — a auth que o ADR-0007 desenhou | 3 | backend | M | ADR-0007, **ADR de provedor de e-mail** | backlog — **bloqueante de V1.0 (N3)**. O código de convite do ADR-0010 morre: app público **é** o "beta aberto" do gatilho |

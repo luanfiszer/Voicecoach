@@ -501,6 +501,29 @@ class Settings(BaseSettings):
     # depois — a varredura é convergente, não precisa ser exaustiva.
     stale_sweep_batch_limit: int = Field(default=50, gt=0)
 
+    # --- Encerramento automático de sessão (CARD-034) ------------------------
+    #
+    # **30 minutos, e o número sai de uma conta, não de gosto** (RF5). O ciclo
+    # de um turn é: o aluno ouve a resposta (~17 s medidos), pensa, e formula
+    # uma frase em inglês — minutos, não segundos. Sobre isso, a vida real:
+    # a campainha, o trabalho, o banheiro. 30 min cobre folgadamente os três.
+    #
+    # **A assimetria do erro é o que fixa o valor.** Errar para o lado longo
+    # custa uma sessão aparecendo como "em andamento" no histórico por mais
+    # tempo — ninguém se machuca. Errar para o curto custa **a fala do aluno**:
+    # ele volta, grava, e o turn é recusado pelo RF3 do CARD-031 com a sessão
+    # já fechada. É o modo de falha mais irritante possível, e o prazo generoso
+    # é a única defesa contra ele.
+    #
+    # Gatilho para revisar: medir a distribuição real de intervalo entre turns
+    # (o `UsageEvent` tem `occurred_at`) e ver onde cai o percentil 99.
+    inactive_session_after: timedelta = timedelta(minutes=30)
+
+    # Lote pequeno pelo mesmo motivo do `stale_sweep_batch_limit`: o worker roda
+    # com MAX_JOBS = 1, então cada rodada de varredura é tempo em que nenhum
+    # aluno vivo é atendido. Encerrar 500 sessões velhas pode levar 10 rodadas.
+    inactive_session_batch_limit: int = Field(default=50, gt=0)
+
     # --- Proteção de custo (ADR-0010, visão §D; cota e kill switch: ADR-0063) -
     # Decimal, não float: dinheiro em binário de ponto flutuante acumula erro.
     # Equivalente mental exato: `decimal` do C#.

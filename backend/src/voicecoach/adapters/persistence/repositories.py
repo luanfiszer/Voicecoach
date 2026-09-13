@@ -35,6 +35,10 @@ from voicecoach.adapters.persistence.models import (
     TurnRow,
     UsageEventRow,
 )
+
+# A exceção mora na PORTA desde o CARD-034: quem a captura é `application`,
+# que não pode importar `adapters`. Daqui ela é apenas levantada.
+from voicecoach.application.ports.repositories import RowNotFoundError
 from voicecoach.domain.correction import CorrectionType
 from voicecoach.domain.session import SessionDigest as _SessionDigest
 from voicecoach.domain.session import SessionSummary
@@ -51,15 +55,6 @@ if TYPE_CHECKING:
     from voicecoach.domain.translation import Translation, TranslationTarget
     from voicecoach.domain.turn import Turn
     from voicecoach.domain.usage import UsageEvent
-
-
-class RowNotFoundError(LookupError):
-    """Pediu-se para atualizar uma linha que não existe.
-
-    Não é erro de domínio (ADR-0017): nenhuma regra de negócio foi violada — o
-    chamador pediu para gravar algo que nunca foi inserido, o que é bug de
-    orquestração e pertence a esta camada.
-    """
 
 
 class SqlAlchemyStudentRepository:
@@ -95,6 +90,38 @@ class SqlAlchemySessionRepository:
             message = f"Session {session.id} não existe."
             raise RowNotFoundError(message)
         mappers.apply_session(session, row)
+
+    async def list_inactive(self, *, before: datetime, limit: int) -> list[UUID]:
+        """Uma query agregada, com a inatividade decidida no ``HAVING``.
+
+        ``coalesce(max(created_at), started_at)`` é o marco de atividade (RF2):
+        o último turn quando existe, o início da sessão quando não. Sem o
+        ``coalesce``, a sessão sem turn nenhum teria marco ``NULL`` — e
+        ``NULL < :before`` é ``NULL``, não ``true``, então ela nunca seria
+        candidata. É o mesmo buraco que o ``list_stale`` já tinha nomeado para
+        o turn ``queued``.
+
+        ``count(...) filter (where ...)`` é o `FILTER` do Postgres — um
+        agregado condicional. Ele implementa o RF3: a sessão com qualquer turn
+        em ``queued``/``processing`` é excluída pelo ``HAVING``, não por um
+        segundo round-trip.
+        """
+        em_andamento = func.count(TurnRow.id).filter(
+            TurnRow.status.in_((TurnStatus.QUEUED, TurnStatus.PROCESSING))
+        )
+        marco = func.coalesce(func.max(TurnRow.created_at), SessionRow.started_at)
+        stmt = (
+            select(SessionRow.id)
+            .select_from(SessionRow)
+            .outerjoin(TurnRow, TurnRow.session_id == SessionRow.id)
+            .where(SessionRow.ended_at.is_(None))
+            .group_by(SessionRow.id, SessionRow.started_at)
+            .having(marco < before)
+            .having(em_andamento == 0)
+            .order_by(marco)
+            .limit(limit)
+        )
+        return list((await self._session.scalars(stmt)).all())
 
     async def try_end(self, session_id: UUID, now: datetime) -> datetime:
         """`UPDATE` condicional, atômico — a resolução real do RNF4.

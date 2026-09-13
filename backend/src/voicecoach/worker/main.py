@@ -53,6 +53,10 @@ from voicecoach.application.use_cases.process_turn import (
     ProcessTurnHandler,
     RetryableTurnFailureError,
 )
+from voicecoach.application.use_cases.sweep_inactive_sessions import (
+    SweepInactiveSessions,
+    SweepInactiveSessionsHandler,
+)
 from voicecoach.application.use_cases.sweep_stale_turns import (
     SweepStaleTurns,
     SweepStaleTurnsHandler,
@@ -291,6 +295,31 @@ async def sweep_stale_turns(ctx: dict[str, Any]) -> None:
         await handler.handle(SweepStaleTurns())
 
 
+async def sweep_inactive_sessions(ctx: dict[str, Any]) -> None:
+    """A varredura de sessões inativas, disparada pelo `cron_jobs` (CARD-034).
+
+    A mecânica de coordenação entre réplicas é a MESMA do
+    `sweep_stale_turns` — o `job_id` determinístico do `arq` faz o Redis
+    resolver o que o Quartz resolveria com uma tabela de locks; ver o docstring
+    daquele job. Aqui a idempotência é ainda mais forte: o encerramento passa
+    por `try_end` (`UPDATE ... COALESCE`), então duas rodadas simultâneas
+    convergem para o mesmo `ended_at` sem levantar.
+    """
+    settings = ctx["settings"]
+    session_factory = ctx["session_factory"]
+
+    async with session_factory() as session:
+        handler = SweepInactiveSessionsHandler(
+            sessions=SqlAlchemySessionRepository(session),
+            unit_of_work=session,
+            clock=_agora,
+            # A config atravessa aqui, não lá dentro (ADR-0013).
+            inactive_after=settings.inactive_session_after,
+            batch_limit=settings.inactive_session_batch_limit,
+        )
+        await handler.handle(SweepInactiveSessions())
+
+
 class WorkerSettings:
     """O que o `arq worker` lê. Uma classe usada como namespace, não instanciada.
 
@@ -316,8 +345,16 @@ class WorkerSettings:
     # `run_at_startup` fica FALSO (o default). Ligá-lo faria toda subida de
     # worker varrer — inclusive a subida que acontece logo depois de um deploy,
     # quando os turns em voo estão legitimamente parados havia segundos.
+    #
+    # A varredura de sessões (CARD-034) roda a cada 5 minutos, e no segundo 30 —
+    # **duas escolhas, duas razões**. A cada 5 min porque o prazo é de 30 min:
+    # detectar 60 s antes não muda nada para o aluno, e cada rodada disputa o
+    # `MAX_JOBS = 1` com quem está falando agora. No segundo 30 para não cair
+    # junto com a varredura de turns (segundo 0) — duas varreduras no mesmo
+    # instante são o dobro de tempo em que o aluno vivo espera.
     cron_jobs = [  # noqa: RUF012 — contrato do arq, não é anotável
-        cron(sweep_stale_turns, second=0)
+        cron(sweep_stale_turns, second=0),
+        cron(sweep_inactive_sessions, minute=set(range(0, 60, 5)), second=30),
     ]
     on_startup = startup
     on_shutdown = shutdown

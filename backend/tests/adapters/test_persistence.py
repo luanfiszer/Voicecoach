@@ -33,7 +33,6 @@ from voicecoach.adapters.persistence.engine import (
 )
 from voicecoach.adapters.persistence.mappers import StaleTurnError
 from voicecoach.adapters.persistence.repositories import (
-    RowNotFoundError,
     SqlAlchemySessionRepository,
     SqlAlchemyStudentRepository,
     SqlAlchemyTranslationRepository,
@@ -47,6 +46,7 @@ from voicecoach.adapters.persistence.seed import (
 from voicecoach.adapters.persistence.unit_of_work import SqlAlchemyUnitOfWork
 from voicecoach.application.ports.repositories import (
     ConflictingWriteError,
+    RowNotFoundError,
     SessionRepository,
     StudentRepository,
     TranslationRepository,
@@ -1631,3 +1631,141 @@ async def test_a_janela_exclui_o_que_e_mais_velho(
     )
 
     assert all(d.id != antiga.id for d in listagem)
+
+
+# --- varredura de sessões inativas (CARD-034) -------------------------------
+
+
+async def _sessao_aberta(
+    db_session: AsyncSession, student_id: UUID, *, aberta_em: datetime
+) -> Session:
+    sessions: SessionRepository = SqlAlchemySessionRepository(db_session)
+    sessao = Session(id=uuid4(), student_id=student_id, started_at=aberta_em)
+    await sessions.add(sessao)
+    await db_session.commit()
+    return sessao
+
+
+async def _turn_em(
+    db_session: AsyncSession, sessao: Session, *, quando: datetime, concluido: bool
+) -> Turn:
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    turn = sessao.start_turn(
+        turn_id=uuid4(),
+        input_audio_ref="dev/entrada.m4a",
+        audio_duration=timedelta(seconds=4),
+        now=quando,
+    )
+    turn.start_processing(quando)
+    if concluido:
+        turn.attach_transcript("hi", quando)
+        turn.attach_reply("Nice!", quando)
+        turn.attach_reply_audio("dev/resposta.mp3", quando)
+        turn.complete(quando)
+    await repository.add(turn)
+    await db_session.commit()
+    return turn
+
+
+async def test_list_inactive_acha_a_sessao_parada_e_ignora_a_recente(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    student, _ = aluno_isolado
+    repository: SessionRepository = SqlAlchemySessionRepository(db_session)
+    parada = await _sessao_aberta(
+        db_session, student.id, aberta_em=NOW - timedelta(hours=5)
+    )
+    await _turn_em(db_session, parada, quando=NOW - timedelta(hours=4), concluido=True)
+    recente = await _sessao_aberta(
+        db_session, student.id, aberta_em=NOW - timedelta(hours=5)
+    )
+    await _turn_em(
+        db_session, recente, quando=NOW - timedelta(minutes=2), concluido=True
+    )
+
+    candidatas = await repository.list_inactive(
+        before=NOW - timedelta(minutes=30), limit=50
+    )
+
+    assert parada.id in candidatas
+    assert recente.id not in candidatas
+
+
+async def test_list_inactive_pega_a_sessao_sem_turn_nenhum(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """RF2: sem turn, o marco é o `started_at`.
+
+    Sem o `coalesce` do adapter, o marco seria `NULL` — e `NULL < :before` é
+    `NULL`, não `true`. Esta sessão nunca apareceria, em silêncio.
+    """
+    student, _ = aluno_isolado
+    repository: SessionRepository = SqlAlchemySessionRepository(db_session)
+    vazia = await _sessao_aberta(
+        db_session, student.id, aberta_em=NOW - timedelta(hours=2)
+    )
+
+    candidatas = await repository.list_inactive(
+        before=NOW - timedelta(minutes=30), limit=50
+    )
+
+    assert vazia.id in candidatas
+
+
+async def test_list_inactive_exclui_sessao_com_turn_em_processamento(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """RF3, no `HAVING` com `FILTER` — não num segundo round-trip."""
+    student, _ = aluno_isolado
+    repository: SessionRepository = SqlAlchemySessionRepository(db_session)
+    esperando = await _sessao_aberta(
+        db_session, student.id, aberta_em=NOW - timedelta(hours=6)
+    )
+    await _turn_em(
+        db_session, esperando, quando=NOW - timedelta(hours=5), concluido=False
+    )
+
+    candidatas = await repository.list_inactive(
+        before=NOW - timedelta(minutes=30), limit=50
+    )
+
+    assert esperando.id not in candidatas
+
+
+async def test_list_inactive_ignora_sessao_ja_encerrada(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    student, _ = aluno_isolado
+    repository: SessionRepository = SqlAlchemySessionRepository(db_session)
+    fechada = await _sessao_aberta(
+        db_session, student.id, aberta_em=NOW - timedelta(hours=4)
+    )
+    await repository.try_end(fechada.id, NOW - timedelta(hours=1))
+    await db_session.commit()
+
+    candidatas = await repository.list_inactive(
+        before=NOW - timedelta(minutes=30), limit=50
+    )
+
+    assert fechada.id not in candidatas
+
+
+async def test_list_inactive_devolve_as_mais_antigas_primeiro_e_respeita_o_lote(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """Sem ordem, a sessão parada há mais tempo ficaria fora de toda rodada."""
+    student, _ = aluno_isolado
+    repository: SessionRepository = SqlAlchemySessionRepository(db_session)
+    mais_velha = await _sessao_aberta(
+        db_session, student.id, aberta_em=NOW - timedelta(hours=10)
+    )
+    do_meio = await _sessao_aberta(
+        db_session, student.id, aberta_em=NOW - timedelta(hours=8)
+    )
+    await _sessao_aberta(db_session, student.id, aberta_em=NOW - timedelta(hours=6))
+
+    candidatas = await repository.list_inactive(
+        before=NOW - timedelta(minutes=30), limit=2
+    )
+
+    assert candidatas == [mais_velha.id, do_meio.id]
