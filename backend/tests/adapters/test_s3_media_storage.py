@@ -225,17 +225,24 @@ async def test_url_assinada_expira(storage: S3MediaStorage) -> None:
     de falha que este teste cobre, o achado F6 do diagnóstico que é o motivo
     de o ADR-0006 existir — ele ainda reprova, no fim do prazo, **nunca**
     aceita passar por omissão de tempo.
+
+    **TTL de 3 s, não 1 s** (achado no CI do CARD-057, 2026-09-13): com 1 s, a
+    PRIMEIRA leitura — antes de qualquer espera — já veio 403 num runner
+    carregado, porque o tempo entre assinar a URL e o `client.get` chegar ao
+    MinIO comeu sozinho a folga inteira. O TTL curto não é o que este teste
+    verifica; é só o botão que faz a expiração acontecer rápido.
     """
     chave = reply_chunk_key(STUDENT, SESSION, TURN, 2, "aac")
     await storage.put(chave, b"efemero", "audio/aac")
 
-    url = await storage.presigned_get_url(chave, timedelta(seconds=1))
+    ttl = timedelta(seconds=3)
+    url = await storage.presigned_get_url(chave, ttl)
 
     async with httpx.AsyncClient() as client:
         antes = await client.get(url)
         assert antes.status_code == 200
 
-        prazo_final = time.perf_counter() + 11.0  # TTL (1 s) + 10 s de folga
+        prazo_final = time.perf_counter() + ttl.total_seconds() + 10.0
         depois = antes
         while depois.status_code != 403 and time.perf_counter() < prazo_final:
             await asyncio.sleep(0.2)

@@ -241,3 +241,12 @@ uma suíte de repetição dedicada, que adicionaria uma dependência
 mesmo caminho do Docker Hub — continua sem mitigação além do alarme do `pull`
 no CI. Nada a fazer agora sem evidência de que aconteceu; registrado lá, não
 aqui.
+
+**Achado no CI do PR #34, depois do push inicial:** `test_url_assinada_expira`
+reprovou — mas não pela flakiness antiga. A PRIMEIRA leitura
+(`antes.status_code == 200`, antes de qualquer espera) já veio `403` num
+runner carregado: o TTL de 1 s comeu-se sozinho no tempo entre assinar a URL
+e o `client.get` chegar ao MinIO. Correção: TTL subiu para 3 s (o prazo de
+espera do polling cresceu junto, `ttl + 10 s`) — o valor do TTL não é o que o
+teste verifica, só o botão que faz a expiração acontecer rápido. Confirmado
+localmente (5 execuções seguidas, 0 falhas) e no CI (ver PR #34).
