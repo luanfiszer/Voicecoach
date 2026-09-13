@@ -63,6 +63,21 @@ class AudioInput:
 
 
 @dataclass(frozen=True, slots=True)
+class Segment:
+    """Um trecho do áudio com os tempos que o Whisper já calculou.
+
+    Value object do projeto — não é o segmento do ``faster-whisper`` nem o
+    ``dict`` do ``mlx-whisper`` (ADR-0056, regra 1). Sem consumidor de
+    propósito neste card: pausa e ritmo ficam disponíveis para o dia em que
+    houver pergunta pedagógica que os use (ADR-0056, Alternativa C).
+    """
+
+    start_seconds: float
+    end_seconds: float
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
 class Transcript:
     """O que o STT devolve — texto, e o mínimo em volta dele que alguém usa.
 
@@ -70,11 +85,29 @@ class Transcript:
     de áudio por dia** (``daily_audio_minutes_per_student``), e esta é a única
     etapa do pipeline que conhece a duração real do que foi falado. Deixá-la de
     fora obrigaria a decodificar o áudio uma segunda vez só para contar.
+
+    ``confidence`` e ``no_speech`` chegaram no ADR-0056, calculados por cada
+    adapter a partir do ``avg_logprob``/``no_speech_prob`` que o motor já
+    produz por segmento — normalizar é responsabilidade de quem conhece o
+    formato de cada motor, não do caso de uso.
     """
 
     text: str
     language: str
     duration_seconds: float
+    confidence: float
+    """Log-probabilidade média por segmento, ponderada pela duração de cada um.
+
+    **Não é uma escala de 0 a 1, nem porcentagem** — é sempre negativa, e
+    mais perto de zero é melhor. Medido no ADR-0055: transcrições corretas
+    ficam entre -0,13 e -0,32; alucinações (modelo `.en` diante de
+    português) ficam entre -1,12 e -5,94. Converter para uma escala
+    "amigável" inventaria uma calibração que o motor não fornece.
+    """
+    no_speech: float
+    """A maior ``no_speech_prob`` entre os segmentos — 0.0 quando não há
+    segmento nenhum (nada a que atribuir probabilidade de "não é fala")."""
+    segments: tuple[Segment, ...]
 
 
 class SpeechToText(Protocol):

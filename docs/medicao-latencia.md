@@ -2,7 +2,8 @@
 
 - **Data:** 2026-08-19; §8 acrescentada em 2026-08-21 (CARD-007); §9 em
   2026-08-23 (CARD-008); **§10 em 2026-08-23 (CARD-009) — a primeira medição de
-  COMPOSIÇÃO, que a §1 avisava não existir**
+  COMPOSIÇÃO, que a §1 avisava não existir**; §13 em 2026-09-13 (CARD-039) —
+  remedição do STT multilíngue com detecção de idioma (ADR-0055/0056)
 - **Status:** **completa** para os três componentes (STT, LLM, TTS) **e para o
   pipeline composto** (§10)
 - **Origem:** sessão de medição anterior aos adapters de IA (CARDs 006/007/008)
@@ -759,3 +760,107 @@ e rede móvel. Acrescenta-se um item novo:
 - **Nenhuma das 10 execuções teve mais de uma correção.** O insumo é um WAV fixo
   com uma frase, então o caminho "2 correções ⇒ 2 linhas" está provado por teste
   contra Postgres real e pela comparação de prompt, **não** por esta medição.
+
+---
+
+## 13. CARD-039 — remedição do STT multilíngue, com o custo da detecção
+
+- **Data:** 2026-09-13
+- **Motivação:** o ADR-0055 mediu a troca de modelo (`.en` → multilíngue) e o
+  custo da detecção com scripts **ad-hoc, não commitados** — a tabela existe no
+  ADR, mas não como instrumento reexecutável. Esta seção fecha essa lacuna
+  (`benchmarks/stt_deteccao_idioma.py`, mesmo protocolo de `_common.py`) e
+  remede o número depois de o card ter trocado os defaults de verdade
+  (`config.py`).
+- **Onde e método:** mesma máquina (Apple M4) das §§2–10, motor `mlx-whisper`
+  (o `auto` desta máquina). n=5 por célula, primeira execução descartada,
+  reporta-se p50.
+- **Insumo novo:** `pt-br-curto.wav` (3,97 s) — fala sintética em português
+  (`say -v Luciana`, mesma voz da investigação do ADR-0055), texto "Não sei
+  como dizer isso em inglês, você pode me ajudar?". Commitado em
+  `tests/fixtures/stt/` (fixture dos testes) e em `benchmarks/inputs/` (insumo
+  do benchmark) — mesmos bytes nos dois lugares.
+
+### 13.1 O custo da detecção, reproduzido
+
+| Config \ insumo | pt-br-curto | amazing-project | curto | longo |
+|---|---|---|---|---|
+| `small.en` (ANTIGO) | 1,76 s | 0,24 s | 0,59 s | 2,08 s |
+| `small` multi + `en` fixo (recuo) | 0,28 s | 0,24 s | 0,61 s | 2,11 s |
+| `small` multi + detecção (NOVO) | 0,44 s | 0,44 s | 0,78 s | 2,30 s |
+
+**Δ detecção vs. en fixo, mesma variante multilíngue:** +0,16 s (pt-br-curto) ·
++0,20 s (amazing-project) · +0,17 s (curto) · +0,19 s (longo). **Média +0,18 s**
+— reproduz o +0,17 s do ADR-0055 dentro do ruído de medição, agora como
+instrumento versionado em vez de número de investigação.
+
+**A troca de variante (`.en` → multi, `en` fixo nos dois) segue custando ~zero**
+fora do caso que motivou o card: `small.en` gastou 1,76 s em `pt-br-curto`
+contra 0,28 s do multi — não é o motor ficando mais lento, é a alucinação
+clássica de legenda de YouTube produzindo texto mais longo para transcrever
+("Please remember to subscribe as well so you never miss my up…", quando o
+áudio real dizia outra coisa inteiramente). **Isso por si só já é evidência do
+bug que o card corrige**, à parte da tabela de tempo.
+
+### 13.2 O mecanismo, confirmado linha a linha
+
+| Config | `pt-br-curto` transcrito como |
+|---|---|
+| `small.en` (ANTIGO) | *"Please remember to subscribe as well so you never miss my up…"* — alucinação, nada a ver com o áudio |
+| `small` multi + `en` fixo | *"I don't know how to say this in English, can you help me?"* — **idêntico** ao que o ADR-0055 registrou para o mesmo experimento, com voz e frase diferentes: o recuo barato entende a intenção, mas apaga que houve português |
+| `small` multi + detecção | *"Não sei como dizer isso em inglês, você pode me ajudar?"* — a transcrição **é** o que foi dito, e `language == "pt"` |
+
+### 13.3 `confidence`, e uma discrepância entre motores que a medição revela
+
+Medido com o adapter de produção (não só o script de tempo), nos dois motores,
+mesmos quatro insumos:
+
+| Config \ insumo | pt-br-curto | amazing-project | curto | longo |
+|---|---|---|---|---|
+| `small.en` (ANTIGO), **mlx** | -0,945 | -0,323 | -0,206 | -0,173 |
+| `small.en` (ANTIGO), **faster-whisper**, 5 execuções | -0,97 · -1,02 · -1,03 · -1,10 · -0,97 | — | — | — |
+| `small` multi + detecção, **mlx** | **-0,208** (5 execuções, todas idênticas) | -0,317 | -0,175 | -0,115 |
+| `small` multi + detecção, **faster-whisper** | **-0,208** | — | — | — |
+
+**Achado não previsto pelo ADR-0055, e mais sério que "escalas diferem entre
+motores":** rodando o `.en` antigo 5 vezes contra o MESMO áudio, `confidence`
+oscilou entre **-0,97 e -1,10** — em torno do limiar `-1,0` que o critério de
+aceite original deste card usava, não abaixo dele de forma confiável. Causa:
+o `WhisperModel.transcribe` tem **fallback de temperatura** — quando a
+primeira passagem (determinística, `temperature=0`) falha os limiares de
+qualidade internos, ele tenta de novo com uma temperatura maior, que introduz
+amostragem estocástica. Cada tentativa aluciná um texto em inglês diferente
+("Don't forget to subscribe…", "If you like this video…"), e o
+`confidence` varia junto. **É o próprio ADR-0055 confirmado com mais detalhe**
+("não é só errado: é não-determinístico"), não uma regressão desta sessão.
+
+O modelo **novo** não tem essa variância: as mesmas 5 execuções deram
+`confidence=-0,208` e o texto correto, byte a byte idênticos toda vez — sem
+alucinação, não há decisão de temperatura a variar.
+
+### 13.4 O critério de aceite, verificado — e ajustado para ser verificável
+
+O critério de aceite original ("confidence do `.en` antigo `< -1,0`") não é
+uma verificação confiável: um limiar fixo dentro da própria faixa de variância
+do bug passa ou falha por sorte. `TESTE AJUSTADO` — decisão tomada durante a
+implementação, confirmada com o desenvolvedor —
+`tests/adapters/test_stt_integration.py::test_confidence_separa_a_alucinacao_do_modelo_en_da_transcricao_correta`
+compara **relativamente**: `confidence` do modelo novo tem que superar o do
+antigo em pelo menos 0,3 — robusto à variância medida acima (o novo fica a
+~0,7–0,9 de distância do antigo, não a ~0,3) e ainda prova exatamente o que o
+card promete. Rodado 3x seguidas para confirmar que não é sorte: passou nas
+3. **Dívida explícita para o CARD-040:** o limiar de confiança do desfecho
+"não entendi" (ADR-0057) precisa ser escolhido considerando essa variância —
+um limiar único e fixo perto de -1,0 herdaria o mesmo problema.
+
+### 13.5 O que esta medição NÃO cobre
+
+- **`faster-whisper` não foi remedido em tempo** (só em `confidence`, via
+  teste) — o script novo mede só `mlx`, que é o motor local desta máquina. O
+  Δ de tempo da detecção no `faster-whisper` fica para quando houver máquina
+  x86 disponível (mesma limitação do ADR-0027).
+- **Continua sendo voz sintética** (ADR-0055): prova o mecanismo e o custo, não
+  o acerto sobre sotaque brasileiro real.
+- **O pipeline composto** (worker completo, §10) não foi remedido
+  ponta-a-ponta com o modelo novo — só o componente STT isolado, que é o que
+  este card altera.

@@ -1,11 +1,18 @@
 """STT local na GPU do Apple Silicon com ``mlx-whisper``.
 
-Duas vezes mais rápido que o ``faster-whisper`` no ``small.en`` (0,59 s contra
+Duas vezes mais rápido que o ``faster-whisper`` no ``small`` (0,59 s contra
 1,18 s) e — o que a tabela não mostra — **libera a CPU**, que no worker disputa
 com o TTS (ADR-0025). Em troca, só existe em Mac ARM.
 
 Consequência de desenho: a biblioteca é extra opcional e o import é **tardio**.
 Ver ``load_mlx_whisper`` para o porquê.
+
+A língua é configurável (ADR-0055). **Verificado em
+``mlx_whisper/transcribe.py``** (não suposto): ``language=None`` só dispara
+``model.detect_language()`` de verdade quando o modelo é multilíngue — num
+modelo ``.en``, a biblioteca força ``"en"`` mesmo recebendo ``None``. É por
+isso que a troca de modelo (ADR-0055 item 1) e a de idioma são o mesmo commit:
+configurável **sem** o modelo multilíngue não detectaria nada.
 """
 
 from __future__ import annotations
@@ -16,6 +23,7 @@ from typing import TYPE_CHECKING, Protocol
 from voicecoach.adapters.stt.audio import decode, duration_seconds
 from voicecoach.application.ports.speech_to_text import (
     AudioInput,
+    Segment,
     SttError,
     Transcript,
 )
@@ -24,14 +32,15 @@ if TYPE_CHECKING:
     import numpy as np
     from numpy.typing import NDArray
 
-LANGUAGE = "en"
-
 
 class _TranscribeFn(Protocol):
     """A função ``mlx_whisper.transcribe``, descrita pelo que usamos dela.
 
     ``verbose=None`` silencia a barra de progresso: em worker, ela iria para o
-    log a cada turno sem informar nada.
+    log a cada turno sem informar nada. ``language`` não é parâmetro nomeado
+    na assinatura real (vai por ``**decode_options``), mas descrevê-lo aqui é
+    o que faz o `mypy` conferir a chamada — mesmo motivo do `_Engine` do outro
+    adapter.
     """
 
     def __call__(
@@ -40,7 +49,7 @@ class _TranscribeFn(Protocol):
         /,
         *,
         path_or_hf_repo: str,
-        language: str,
+        language: str | None,
         verbose: bool | None,
     ) -> dict[str, object]: ...
 
@@ -54,9 +63,12 @@ class MlxWhisperSpeechToText:
     interface, não de mecânica.
     """
 
-    def __init__(self, transcribe_fn: _TranscribeFn, model_repo: str) -> None:
+    def __init__(
+        self, transcribe_fn: _TranscribeFn, model_repo: str, language: str | None
+    ) -> None:
         self._transcribe_fn = transcribe_fn
         self._model_repo = model_repo
+        self._language = language
 
     async def transcribe(self, audio: AudioInput) -> Transcript:
         """Mesma fronteira do outro adapter, conta de GIL diferente.
@@ -91,17 +103,52 @@ class MlxWhisperSpeechToText:
         saida = self._transcribe_fn(
             samples,
             path_or_hf_repo=self._model_repo,
-            language=LANGUAGE,
+            language=self._language,
             verbose=None,
         )
+        # `saida["segments"]` já é uma LISTA de dicts (não um generator como no
+        # faster-whisper) — a biblioteca a materializou inteira antes de
+        # devolver. Iterar mais de uma vez aqui não repete trabalho de CPU.
+        segments_brutos = saida.get("segments", [])
+        if not isinstance(segments_brutos, list):
+            segments_brutos = []
+        segments: list[Segment] = []
+        logprob_x_duracao = 0.0
+        duracao_total = 0.0
+        no_speech = 0.0
+        for bruto in segments_brutos:
+            # A forma do dict é a do `mlx-whisper` (verificado em
+            # transcribe.py), não input de usuário — o `assert` documenta a
+            # suposição em vez de silenciá-la com `cast`.
+            assert isinstance(bruto, dict)
+            start = float(bruto["start"])
+            end = float(bruto["end"])
+            duracao = end - start
+            segments.append(
+                Segment(
+                    start_seconds=start,
+                    end_seconds=end,
+                    text=str(bruto["text"]).strip(),
+                )
+            )
+            logprob_x_duracao += float(bruto["avg_logprob"]) * duracao
+            duracao_total += duracao
+            no_speech = max(no_speech, float(bruto["no_speech_prob"]))
+
+        confidence = logprob_x_duracao / duracao_total if duracao_total > 0 else 0.0
         return Transcript(
             text=str(saida["text"]).strip(),
-            language=str(saida.get("language", LANGUAGE)),
+            language=str(saida["language"]),
             duration_seconds=duration_seconds(samples),
+            confidence=confidence,
+            no_speech=no_speech,
+            segments=tuple(segments),
         )
 
 
-def load_mlx_whisper(model_repo: str) -> MlxWhisperSpeechToText:
+def load_mlx_whisper(
+    model_repo: str, language: str | None = None
+) -> MlxWhisperSpeechToText:
     """Importa a biblioteca e devolve o adapter — nesta ordem, e só aqui.
 
     **O import é tardio de propósito** (ADR-0027, item 4). ``import
@@ -120,4 +167,4 @@ def load_mlx_whisper(model_repo: str) -> MlxWhisperSpeechToText:
     import mlx_whisper
 
     transcribe_fn: _TranscribeFn = mlx_whisper.transcribe
-    return MlxWhisperSpeechToText(transcribe_fn, model_repo)
+    return MlxWhisperSpeechToText(transcribe_fn, model_repo, language)

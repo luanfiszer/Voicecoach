@@ -254,7 +254,14 @@ class FakeStt:
         if self._erro is not None:
             raise self._erro
         self.chamadas.append(audio.data)
-        return Transcript(text=self.texto, language="en", duration_seconds=4.0)
+        return Transcript(
+            text=self.texto,
+            language="en",
+            duration_seconds=4.0,
+            confidence=-0.2,
+            no_speech=0.0,
+            segments=(),
+        )
 
 
 class FakeTeacher:

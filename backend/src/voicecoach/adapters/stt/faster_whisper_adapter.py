@@ -6,9 +6,12 @@ Os parâmetros aqui NÃO são os que os tutoriais mostram — são os medidos:
 - ``float32``, não ``int8``. Contraintuitivo e medido: abandonar a quantização
   fez o ``small.en`` cair de 1,48 s para 1,18 s. "int8 porque é mais leve" é
   otimização por hábito que a medição desmentiu;
-- ``beam_size=1``, não 5. Corta ~30%;
-- língua forçada ``en``. Não é autodetecção — o aluno fala inglês por
-  definição, e detectar custa uma janela a mais.
+- ``beam_size=1``, não 5. Corta ~30%.
+
+A língua é configurável (ADR-0055): ``None`` dispara a autodetecção real da
+biblioteca (``language: Optional[str] = None`` na própria assinatura do
+``WhisperModel.transcribe``), e um valor fixo é o recuo barato de volta para o
+comportamento antigo, sem recompilar.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from typing import TYPE_CHECKING, Protocol
 from voicecoach.adapters.stt.audio import decode, duration_seconds
 from voicecoach.application.ports.speech_to_text import (
     AudioInput,
+    Segment,
     SttError,
     Transcript,
 )
@@ -31,11 +35,11 @@ if TYPE_CHECKING:
 
 # Medidos em `docs/medicao-latencia.md` §3.2. Constantes de módulo, não campos
 # de configuração: são conclusões de medição, e mexer neles sem remedir é
-# desfazer a medição. O que É configurável é o modelo (ADR-0027, item 7).
+# desfazer a medição. O que É configurável é o modelo (ADR-0027, item 7) e o
+# idioma (ADR-0055, `stt_language` em `config.py`).
 COMPUTE_TYPE = "float32"
 DEVICE = "cpu"
 BEAM_SIZE = 1
-LANGUAGE = "en"
 
 # O VAD (detecção de atividade de voz) segue LIGADO como no protótipo, e segue
 # NÃO AVALIADO (ADR-0027, item 8): o insumo sintético da medição não tinha
@@ -45,14 +49,21 @@ VAD_FILTER = True
 
 
 class _Segment(Protocol):
-    """O que este adapter usa de um segmento — nada além do texto.
+    """O que este adapter usa de um segmento do ``faster-whisper``.
 
     Declarar o mínimo que se consome (em vez de importar o tipo real da
     biblioteca) mantém o teste unitário honesto: o stub do teste precisa ter
     exatamente isto, e não um objeto inteiro do `faster-whisper`.
+
+    ``avg_logprob`` e ``no_speech_prob`` chegaram no ADR-0056 — são a base do
+    ``confidence``/``no_speech`` que o `Transcript` agora carrega.
     """
 
     text: str
+    start: float
+    end: float
+    avg_logprob: float
+    no_speech_prob: float
 
 
 class _Info(Protocol):
@@ -75,7 +86,7 @@ class _Engine(Protocol):
         audio: NDArray[np.float32],
         /,
         *,
-        language: str,
+        language: str | None,
         beam_size: int,
         vad_filter: bool,
     ) -> tuple[Iterable[_Segment], _Info]: ...
@@ -90,8 +101,9 @@ class FasterWhisperSpeechToText:
     adapter testável sem baixar 500 MB de pesos.
     """
 
-    def __init__(self, engine: _Engine) -> None:
+    def __init__(self, engine: _Engine, language: str | None) -> None:
         self._engine = engine
+        self._language = language
 
     async def transcribe(self, audio: AudioInput) -> Transcript:
         """Transcreve sem travar o event loop.
@@ -120,30 +132,54 @@ class FasterWhisperSpeechToText:
 
     def _transcribe_sync(self, audio: AudioInput) -> Transcript:
         samples = decode(audio)
-        segments, info = self._engine.transcribe(
+        raw_segments, info = self._engine.transcribe(
             samples,
-            language=LANGUAGE,
+            language=self._language,
             beam_size=BEAM_SIZE,
             vad_filter=VAD_FILTER,
         )
-        # ARMADILHA, e é por isso que esta linha está DENTRO do executor:
-        # `segments` é um *generator*, não uma lista. A chamada acima devolve
-        # em microssegundos sem transcrever nada; o trabalho de CPU só acontece
-        # quando alguém consome o iterador. Consumi-lo fora daqui (na corrotina)
-        # jogaria 1,2 s de CPU de volta no event loop — exatamente o que o
-        # `run_in_executor` existe para evitar.
+        # ARMADILHA, e é por isso que este laço está DENTRO do executor:
+        # `raw_segments` é um *generator*, não uma lista. A chamada acima
+        # devolve em microssegundos sem transcrever nada; o trabalho de CPU só
+        # acontece quando alguém consome o iterador — e só pode ser consumido
+        # UMA vez. É por isso que `confidence`/`no_speech`/`segments` nascem
+        # todos no mesmo laço, em vez de três passagens separadas.
         #
         # O parente mais próximo em C# é `IEnumerable` com `yield return`. A
         # diferença que importa não é a preguiça em si: é ONDE o trabalho roda.
-        text = " ".join(segment.text.strip() for segment in segments)
+        segments: list[Segment] = []
+        logprob_x_duracao = 0.0
+        duracao_total = 0.0
+        no_speech = 0.0
+        for raw in raw_segments:
+            duracao = raw.end - raw.start
+            segments.append(
+                Segment(
+                    start_seconds=raw.start, end_seconds=raw.end, text=raw.text.strip()
+                )
+            )
+            logprob_x_duracao += raw.avg_logprob * duracao
+            duracao_total += duracao
+            no_speech = max(no_speech, raw.no_speech_prob)
+
+        # Média ponderada por duração (ADR-0056): um segmento maior pesa mais.
+        # Sem segmento nenhum (silêncio puro), não há o que ponderar — 0.0 não
+        # é "confiança perfeita", é "nada para medir".
+        confidence = logprob_x_duracao / duracao_total if duracao_total > 0 else 0.0
+        text = " ".join(segment.text for segment in segments)
         return Transcript(
             text=text.strip(),
             language=info.language,
             duration_seconds=duration_seconds(samples),
+            confidence=confidence,
+            no_speech=no_speech,
+            segments=tuple(segments),
         )
 
 
-def load_faster_whisper(model_size: str) -> FasterWhisperSpeechToText:
+def load_faster_whisper(
+    model_size: str, language: str | None = None
+) -> FasterWhisperSpeechToText:
     """Carrega os pesos e devolve o adapter pronto — a operação cara.
 
     Separada do construtor porque é ela que baixa o modelo na primeira execução
@@ -153,4 +189,4 @@ def load_faster_whisper(model_size: str) -> FasterWhisperSpeechToText:
     from faster_whisper import WhisperModel
 
     engine: _Engine = WhisperModel(model_size, device=DEVICE, compute_type=COMPUTE_TYPE)
-    return FasterWhisperSpeechToText(engine)
+    return FasterWhisperSpeechToText(engine, language)

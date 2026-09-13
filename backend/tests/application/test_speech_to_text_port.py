@@ -36,7 +36,12 @@ class FakeSpeechToText:
     async def transcribe(self, audio: AudioInput) -> Transcript:
         self.calls.append(audio)
         return Transcript(
-            text=self._text, language="en", duration_seconds=len(audio.data) / 32_000
+            text=self._text,
+            language="en",
+            duration_seconds=len(audio.data) / 32_000,
+            confidence=-0.2,
+            no_speech=0.0,
+            segments=(),
         )
 
 

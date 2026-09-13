@@ -149,11 +149,11 @@ def _settings(provider: SttProvider) -> Settings:
 def test_create_usa_o_modelo_do_faster_whisper(
     plataforma: Callable[[str, str], None], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    recebido: list[str] = []
+    recebido: list[tuple[str, str | None]] = []
     monkeypatch.setattr(
         faster_whisper_adapter,
         "load_faster_whisper",
-        lambda modelo: recebido.append(modelo),
+        lambda modelo, idioma: recebido.append((modelo, idioma)),
     )
     plataforma("linux", "x86_64")
 
@@ -162,23 +162,43 @@ def test_create_usa_o_modelo_do_faster_whisper(
     # Cada adapter tem a SUA string de modelo (nome CTranslate2 aqui,
     # repositório do Hugging Face no mlx): trocá-las é um erro silencioso que
     # só apareceria como "modelo não encontrado" na primeira transcrição.
-    assert recebido == ["small.en"]
+    # `small`, não `small.en` (ADR-0055) — e o idioma, `None` por default.
+    assert recebido == [("small", None)]
 
 
 def test_create_usa_o_repositorio_do_mlx(
     plataforma: Callable[[str, str], None], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    recebido: list[str] = []
+    recebido: list[tuple[str, str | None]] = []
     monkeypatch.setattr(
         mlx_whisper_adapter,
         "load_mlx_whisper",
-        lambda repo: recebido.append(repo),
+        lambda repo, idioma: recebido.append((repo, idioma)),
     )
     plataforma("darwin", "arm64")
 
     create_speech_to_text(_settings(SttProvider.AUTO))
 
-    assert recebido == ["mlx-community/whisper-small.en-mlx"]
+    assert recebido == [("mlx-community/whisper-small-mlx", None)]
+
+
+def test_create_repassa_o_idioma_configurado(
+    plataforma: Callable[[str, str], None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # O recuo barato do ADR-0055 precisa chegar ao loader: `stt_language="en"`
+    # no `.env`, sem deploy.
+    recebido: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        faster_whisper_adapter,
+        "load_faster_whisper",
+        lambda modelo, idioma: recebido.append((modelo, idioma)),
+    )
+    plataforma("linux", "x86_64")
+    settings = _settings(SttProvider.AUTO).model_copy(update={"stt_language": "en"})
+
+    create_speech_to_text(settings)
+
+    assert recebido == [("small", "en")]
 
 
 def test_create_propaga_a_falha_de_boot_sem_carregar_nada(

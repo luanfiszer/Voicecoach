@@ -94,7 +94,7 @@ def create_speech_to_text(settings: Settings) -> SpeechToText:
         from voicecoach.adapters.stt.mlx_whisper_adapter import load_mlx_whisper
 
         logger.info("STT: carregando modelo mlx '%s'", settings.stt_model_mlx)
-        return load_mlx_whisper(settings.stt_model_mlx)
+        return load_mlx_whisper(settings.stt_model_mlx, settings.stt_language)
 
     from voicecoach.adapters.stt.faster_whisper_adapter import (
         load_faster_whisper,
@@ -104,4 +104,4 @@ def create_speech_to_text(settings: Settings) -> SpeechToText:
         "STT: carregando modelo faster-whisper '%s'",
         settings.stt_model_faster_whisper,
     )
-    return load_faster_whisper(settings.stt_model_faster_whisper)
+    return load_faster_whisper(settings.stt_model_faster_whisper, settings.stt_language)
