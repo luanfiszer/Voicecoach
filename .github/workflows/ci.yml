@@ -43,6 +43,12 @@ jobs:
         # equivalente do `dotnet restore --locked-mode`.
         run: uv sync --frozen
 
+      - name: Puxa a imagem do MinIO (falha cedo, com o nome certo)
+        # ADR-0062: se a origem sumir de novo, o erro sai aqui, nomeado — não
+        # como 15 `ImageNotFound` de fixture no pytest, que era o sintoma
+        # original do CARD-057. Sem retry: imagem ausente é sinal, não ruído.
+        run: docker compose -f ../docker-compose.yml pull minio createbuckets
+
       - name: ruff format (verifica, não reescreve)
         run: uv run ruff format --check src tests
 

@@ -17,11 +17,13 @@ implementações divergem mais.
 from __future__ import annotations
 
 import asyncio
+import re
 import socket
 import threading
 import time
 from collections.abc import Iterator
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -53,7 +55,9 @@ from voicecoach.domain.media_keys import (
 
 # Mesma imagem e mesma tag do `docker-compose.yml`: o teste e o ambiente de
 # desenvolvimento não podem divergir de versão sem que alguém decida isso.
-MINIO_IMAGE = "minio/minio:RELEASE.2025-09-07T16-13-09Z"
+# quay.io, não Docker Hub (ADR-0062) — o `test_a_imagem_do_compose_bate_com_a_
+# do_teste` abaixo é o que impede as duas cópias de divergir em silêncio.
+MINIO_IMAGE = "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
 ACCESS_KEY = "voicecoach"
 SECRET_KEY = "voicecoach-dev-secret"
 BUCKET = "test-media"
@@ -61,6 +65,49 @@ BUCKET = "test-media"
 STUDENT = UUID("11111111-1111-1111-1111-111111111111")
 SESSION = UUID("22222222-2222-2222-2222-222222222222")
 TURN = UUID("33333333-3333-3333-3333-333333333333")
+
+# Raiz do repositório: backend/tests/adapters/ -> backend/tests/ -> backend/ -> raiz.
+_COMPOSE_PATH = Path(__file__).resolve().parents[3] / "docker-compose.yml"
+
+
+def _imagem_do_servico(compose_texto: str, servico: str) -> str:
+    """Lê a imagem de um serviço do compose por regex, sem depender de `pyyaml`.
+
+    O CARD-057 permitia `pyyaml` "se já estiver no ambiente" — mas ele só
+    chega aqui de forma transitiva (via outra dependência), nunca declarado
+    diretamente no `pyproject.toml`: depender dele quebraria de um jeito
+    confuso se essa transitiva sumisse. O `docker-compose.yml` tem um formato
+    regular o bastante para leitura de texto bastar.
+    """
+    padrao = re.compile(
+        rf"^  {re.escape(servico)}:\n(?:    .*\n)*?    image:\s*(\S+)",
+        re.MULTILINE,
+    )
+    encontrado = padrao.search(compose_texto)
+    assert encontrado, f"serviço {servico!r} não encontrado em docker-compose.yml"
+    return encontrado.group(1)
+
+
+def test_a_imagem_do_compose_bate_com_a_do_teste() -> None:
+    """CARD-057: hoje as três cópias da referência só concordam por disciplina.
+
+    Se alguém trocar a imagem em um lugar (teste ou compose) e esquecer os
+    outros, este teste reprova e nomeia as referências divergentes — a
+    divergência não espera pelo próximo `docker compose up` de alguém numa
+    máquina sem cache para aparecer.
+    """
+    texto = _COMPOSE_PATH.read_text()
+
+    minio = _imagem_do_servico(texto, "minio")
+    createbuckets = _imagem_do_servico(texto, "createbuckets")
+
+    assert minio == MINIO_IMAGE, (
+        f"docker-compose.yml (serviço minio): {minio!r} != {MINIO_IMAGE!r}"
+    )
+    assert createbuckets == MINIO_IMAGE, (
+        f"docker-compose.yml (serviço createbuckets): "
+        f"{createbuckets!r} != {MINIO_IMAGE!r}"
+    )
 
 
 @pytest.fixture(scope="session")
@@ -170,24 +217,37 @@ async def test_objeto_nao_e_legivel_sem_assinatura(
 async def test_url_assinada_expira(storage: S3MediaStorage) -> None:
     """Critério de aceite: a URL morre depois do TTL.
 
-    **Nota honesta sobre flakiness:** este é o único teste da suíte que depende
-    de tempo de parede. Ele dorme 2 s para um TTL de 1 s — a folga de 100% existe
-    porque a expiração é avaliada pelo relógio do MinIO, não pelo nosso, e num CI
-    carregado os dois podem estar a centenas de milissegundos de distância. Se um
-    dia ele piscar, a correção é aumentar a folga, **nunca** remover o teste: o
-    modo de falha que ele cobre (URL que nunca expira) é o achado F6 do
-    diagnóstico, e é o motivo de o ADR-0006 existir.
+    **Sem `sleep` fixo (CARD-057).** A versão anterior dormia 2 s para um TTL
+    de 1 s e lia uma única vez depois — com o CI carregado, o relógio do MinIO
+    e o nosso podiam estar longe o bastante um do outro para o teste piscar
+    (achado no `main` em 2026-09-10). Em vez de uma folga fixa, consulta-se a
+    URL em intervalos até um prazo generoso: se a URL nunca expirar — o modo
+    de falha que este teste cobre, o achado F6 do diagnóstico que é o motivo
+    de o ADR-0006 existir — ele ainda reprova, no fim do prazo, **nunca**
+    aceita passar por omissão de tempo.
+
+    **TTL de 3 s, não 1 s** (achado no CI do CARD-057, 2026-09-13): com 1 s, a
+    PRIMEIRA leitura — antes de qualquer espera — já veio 403 num runner
+    carregado, porque o tempo entre assinar a URL e o `client.get` chegar ao
+    MinIO comeu sozinho a folga inteira. O TTL curto não é o que este teste
+    verifica; é só o botão que faz a expiração acontecer rápido.
     """
     chave = reply_chunk_key(STUDENT, SESSION, TURN, 2, "aac")
     await storage.put(chave, b"efemero", "audio/aac")
 
-    url = await storage.presigned_get_url(chave, timedelta(seconds=1))
+    ttl = timedelta(seconds=3)
+    url = await storage.presigned_get_url(chave, ttl)
+
     async with httpx.AsyncClient() as client:
         antes = await client.get(url)
-        await asyncio.sleep(2)
-        depois = await client.get(url)
+        assert antes.status_code == 200
 
-    assert antes.status_code == 200
+        prazo_final = time.perf_counter() + ttl.total_seconds() + 10.0
+        depois = antes
+        while depois.status_code != 403 and time.perf_counter() < prazo_final:
+            await asyncio.sleep(0.2)
+            depois = await client.get(url)
+
     assert depois.status_code == 403
 
 
