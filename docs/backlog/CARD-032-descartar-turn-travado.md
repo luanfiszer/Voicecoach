@@ -2,7 +2,7 @@
 
 - **ID:** CARD-032
 - **Épico:** Fase 3 — Domínio pedagógico (backend do artboard 16)
-- **Plataforma:** backend · **Esforço:** P · **Status:** backlog
+- **Plataforma:** backend · **Esforço:** P · **Status:** concluído (2026-09-13)
 - **Dependências:** CARD-025; ADR-0023, ADR-0037, ADR-0039
 
 ## Contexto
@@ -123,3 +123,83 @@ Como se testa corrida de verdade em `pytest` async — `asyncio.gather` sobre du
 chamadas que disputam a mesma linha, e por que um teste sequencial disfarçado
 passa exatamente no bug que ele deveria pegar. É a mesma armadilha do
 get-then-set, e não há `lock` de aplicação para salvar: quem arbitra é o banco.
+
+## Execução (2026-09-13, loop autônomo)
+
+**O primeiro risco do card era "o card pode não precisar existir" — verificado
+e resolvido: precisa.** O RF6 (turn lento que conclui DEPOIS do descarte) só é
+seguro com um registro no servidor — sem ele, um turn descartado que conclui
+voltaria a "existir" para o cliente na próxima leitura, e não há como o app
+saber que o aluno já dispensou aquele turn sem o backend guardar o fato. O
+trabalho de backend é real; o card não morreu.
+
+**RF1** — `discarded_at: datetime | None`, campo NOVO e aditivo em `Turn`
+(domínio), na tabela `turns` (migration `ecb75ece68ff`, nulável, sem
+backfill) e no contrato (`TurnResponse.discarded_at`). Não apaga nada: nenhum
+outro campo do Turn muda ao descartar.
+
+**RF2** — `Turn.discard(now)` recusa só `status == completed`
+(`InvalidStateTransitionError`); aceito a partir de `queued`, `processing` e
+`failed` — os três estados do artboard 16.
+
+**RF3** — trechos e `delivered_partially` continuam exatamente como estavam;
+`discard()` não toca em nenhum artefato.
+
+**RF4** — nenhuma chamada a `MediaStorage` em todo o caminho de descarte.
+
+**RF5** — "Tentar de novo" confirmado como NÃO sendo reprocessamento — não
+existe rota nem caso de uso para isso. Registrado aqui de novo para o botão
+não voltar num card de UI futuro sem passar por esta decisão.
+
+**RF6** — resolvido pela combinação de duas peças: (1) `TurnRepository.try_discard`,
+um único `UPDATE` com `CASE` que decide atomicamente "aceita e marca" vs.
+"recusa" dentro do banco — nunca ler-decidir-escrever em passos separados;
+(2) `apply_turn` (o mapeador que o `update()` do worker usa) NUNCA copia
+`discarded_at` de volta — decisão registrada no ADR-0065, com o raciocínio
+completo de por que isso torna a corrida com a conclusão do worker segura
+sem lock nenhum.
+
+**RNF1** — `try_discard` idempotente por `COALESCE` dentro do `CASE`; segunda
+chamada nunca move o instante.
+
+**RNF2** — `requesting_student_id` (hoje sempre `DEV_STUDENT_ID`) comparado
+contra o dono da sessão do turn; turn de outro aluno devolve o MESMO
+`TurnNotFound` de um id inexistente (mascarado, sem oráculo de posse).
+Padrão novo, registrado no ADR-0065 para o próximo endpoint de posse repetir.
+
+**RNF3** — nenhuma ação destrutiva no contrato; confirmado, sem ADR de
+exclusão.
+
+**RNF4/RNF5** — não exigiram código: `list_by_session`, `summary_for`
+(CARD-031) e `totals_for_student` (CARD-014/015) nunca filtram por
+`discarded_at` — um turn descartado continua contando em tudo, porque
+nenhuma query nova foi criada e nenhuma existente foi tocada.
+
+**RNF6** — a corrida real, contra Postgres com DUAS conexões,
+`asyncio.gather`: `tests/adapters/test_persistence.py::test_descarte_concorrente_com_a_conclusao_nunca_perde_nenhum_dos_dois`.
+A asserção é independente de quem vence a corrida (não há vencedor fixo —
+depende de qual `UPDATE` o Postgres serializa primeiro): a conclusão do
+worker nunca se perde, e um descarte que teve sucesso nunca é apagado pela
+escrita do worker.
+
+**Endpoint:** `POST /v1/turns/{turn_id}/discard` → `204` (idempotente),
+`404` (inexistente ou de outro aluno), `409 urn:voicecoach:problem:turn-already-completed`
+(RF2).
+
+**Testes:** `tests/domain/test_turn.py` (6 novos, `Turn.discard`),
+`tests/application/test_discard_turn.py` (novo, 5 testes — idempotência,
+posse mascarada, recusa), `tests/api/test_turns.py` (6 novos, rota),
+`tests/adapters/test_persistence.py` (4 novos, incluindo a corrida real).
+
+**Contrato:** `openapi.json` e `packages/api-client/src/schema.d.ts`
+regenerados.
+
+**ADR novo:** [0065](../adr/0065-descartar-turn-marca-sem-apagar-e-sobrevive-a-conclusao-concorrente.md)
+— critérios 2 (novo campo persistido e novo endpoint) e 5 (semântica aditiva
+já fixada pelo RF1, cara de reverter depois de dado real existir).
+
+**Regra do explicador:** nenhuma pergunta de previsão coube nesta sessão — a
+única decisão de produto do card (RF1) já vinha "DECIDIDO" no próprio
+arquivo; as decisões técnicas (CASE atômico, exclusão em `apply_turn`,
+mascaramento de posse) foram determinísticas a partir do que o RF6/RNF6 já
+exigiam por escrito.

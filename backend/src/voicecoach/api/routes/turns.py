@@ -31,9 +31,11 @@ from sse_starlette.sse import EventSourceResponse
 from voicecoach.adapters.events.redis_turn_events import wire_name
 from voicecoach.api.audio_intake import extensao_para, medir
 from voicecoach.api.dependencies import (
+    discard_turn_handler,
     enforce_turn_rate_limit,
     get_settings_from_app,
     media_storage,
+    requesting_student_id,
     start_turn_handler,
     stream_handler,
     turn_repository,
@@ -44,6 +46,7 @@ from voicecoach.api.schemas.problem import (
     TYPE_SERVICE_BUDGET_EXCEEDED,
     TYPE_SESSION_ENDED,
     TYPE_SESSION_NOT_FOUND,
+    TYPE_TURN_ALREADY_COMPLETED,
 )
 from voicecoach.api.schemas.turns import (
     ChunkPayload,
@@ -67,6 +70,12 @@ from voicecoach.application.ports.turn_events import (
     Transcribed,
 )
 from voicecoach.application.result import Err, Ok
+from voicecoach.application.use_cases.discard_turn import (
+    DiscardTurn,
+    DiscardTurnHandler,
+    TurnAlreadyCompleted,
+    TurnNotFound,
+)
 from voicecoach.application.use_cases.process_turn import TurnNotFoundError
 from voicecoach.application.use_cases.start_turn import (
     DailyQuotaExceeded,
@@ -240,6 +249,45 @@ async def obter_turn(
         else None
     )
     return TurnResponse.de_turn(turn, chunk_urls=urls, reply_audio_url=reply_url)
+
+
+@router.post(
+    "/turns/{turn_id}/discard",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="'Descartar': o turn some da tela ativa, sem apagar nada (CARD-032)",
+)
+async def descartar_turn(
+    turn_id: UUID,
+    handler: Annotated[DiscardTurnHandler, Depends(discard_turn_handler)],
+    student_id: Annotated[UUID, Depends(requesting_student_id)],
+) -> None:
+    """Idempotente (RNF1): descartar duas vezes é o mesmo que uma, `204` as duas.
+
+    Nada é apagado (RF1/RF4) — o turn continua no histórico e nas agregações
+    (RNF4/RNF5). O único efeito é ``discarded_at`` marcado, para o cliente
+    parar de mostrá-lo como turn ativo.
+    """
+    resultado = await handler.handle(
+        DiscardTurn(turn_id=turn_id, student_id=student_id)
+    )
+    match resultado:
+        case Ok():
+            return None
+        case Err(error=erro):
+            match erro:
+                case TurnNotFound():
+                    raise TurnNotFoundError(f"Turn {turn_id} não existe.")
+                case TurnAlreadyCompleted():
+                    raise ProblemError(
+                        type_=TYPE_TURN_ALREADY_COMPLETED,
+                        title="Turno já concluído",
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Este turno já entregou a resposta; não é "
+                        "possível descartar uma resposta já entregue.",
+                        turn_id=str(turn_id),
+                    )
+                case _:  # pragma: no cover - inalcançável enquanto o mypy passar
+                    assert_never(erro)
 
 
 @router.get(

@@ -202,6 +202,24 @@ class TurnRepository(Protocol):
         """
         ...
 
+    async def try_discard(self, turn_id: UUID, now: datetime) -> datetime | None:
+        """Descarta atomicamente, ou diz por que não (CARD-032, RF2/RNF1/RNF6).
+
+        Devolve o ``discarded_at`` final quando o turn ficou marcado — seja
+        porque esta chamada marcou agora, seja porque uma chamada anterior já
+        tinha marcado (RNF1, idempotente). Devolve ``None`` quando o turn
+        nunca foi descartado **e** está ``completed`` (RF2): as duas condições
+        avaliadas no MESMO `UPDATE` são o que torna a checagem atômica — não
+        há "ler o status, decidir, escrever" em dois passos, que é exatamente
+        onde a corrida do RNF6 (descarte concorrente com a conclusão do
+        worker) morderia.
+
+        Levanta ``RowNotFoundError`` se o turn não existe — defesa em
+        profundidade: quem chama já checou com ``get`` antes, pela mesma razão
+        do ``EndSessionHandler`` (CARD-031).
+        """
+        ...
+
 
 class UsageEventRepository(Protocol):
     """Acesso ao custo real de cada turn (CARD-014, ADR-0051).

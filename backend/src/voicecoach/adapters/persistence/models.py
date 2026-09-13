@@ -168,6 +168,15 @@ class TurnRow(Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(_Timestamp, default=None)
 
+    # "Descartar" (CARD-032). Nulo = nunca descartado. Não nulo NÃO significa
+    # apagado (RF1) — é só "o aluno não quer mais ver isto na tela ativa".
+    # Escrito SÓ por `try_discard` (um `UPDATE` próprio, atômico); `apply_turn`
+    # nunca o copia de volta, de propósito — é o que torna a corrida com a
+    # conclusão do worker inofensiva (RNF6): os dois escritores tocam colunas
+    # disjuntas, e nenhum dos dois lê o valor do outro para decidir o que
+    # escrever.
+    discarded_at: Mapped[datetime | None] = mapped_column(_Timestamp, default=None)
+
     # `order_by` fixa a ordem de playback na própria definição do relacionamento:
     # quem carregar a coleção recebe os trechos ordenados sem lembrar de pedir.
     # Ordenar por `index` e não por `created_at` é decisão do ADR-0023 — dois

@@ -41,6 +41,8 @@ TYPE_SERVICE_BUDGET_EXCEEDED = f"{BASE}:service-budget-exceeded"
 # CARD-031: distinto de TYPE_INVALID_STATE (409 genérico) — o app precisa
 # dizer "sua fala não entrou porque a sessão fechou", não "algo deu errado".
 TYPE_SESSION_ENDED = f"{BASE}:session-ended"
+# CARD-032: o turn já entregou a resposta — descartar é outra conversa (RF2).
+TYPE_TURN_ALREADY_COMPLETED = f"{BASE}:turn-already-completed"
 
 
 class ProblemDetails(BaseModel):

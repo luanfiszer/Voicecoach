@@ -151,6 +151,17 @@ class FakeTurnRepository:
         parados.sort(key=lambda t: t.started_processing_at or t.created_at)
         return [t.id for t in parados[:limit]]
 
+    async def try_discard(self, turn_id: UUID, now: datetime) -> datetime | None:
+        from voicecoach.domain.turn import TurnStatus
+
+        turn = self.turns.get(turn_id)
+        if turn is None:
+            message = f"Turn {turn_id} não existe."
+            raise LookupError(message)
+        if turn.status is not TurnStatus.COMPLETED and turn.discarded_at is None:
+            turn.discarded_at = now
+        return turn.discarded_at
+
 
 class FakeUsageEventRepository:
     """Guarda o custo em memória, indexado por turn.

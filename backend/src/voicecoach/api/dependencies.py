@@ -37,6 +37,7 @@ from voicecoach.adapters.persistence.repositories import (
     SqlAlchemyTurnRepository,
     SqlAlchemyUsageEventRepository,
 )
+from voicecoach.adapters.persistence.seed import DEV_STUDENT_ID
 from voicecoach.adapters.persistence.unit_of_work import SqlAlchemyUnitOfWork
 from voicecoach.adapters.queue.arq_turn_queue import ArqTurnQueue
 from voicecoach.adapters.quota.redis_rate_limiter import RedisRateLimiter
@@ -54,6 +55,7 @@ from voicecoach.application.ports.repositories import (
 from voicecoach.application.ports.service_budget import ServiceBudget
 from voicecoach.application.ports.turn_events import TurnEvents
 from voicecoach.application.ports.turn_queue import TurnQueue
+from voicecoach.application.use_cases.discard_turn import DiscardTurnHandler
 from voicecoach.application.use_cases.end_session import EndSessionHandler
 from voicecoach.application.use_cases.read_quota_status import (
     ReadQuotaStatusHandler,
@@ -289,6 +291,31 @@ def read_quota_status_handler(
         daily_quota_spoken=timedelta(minutes=settings.daily_audio_minutes_per_student),
         daily_quota_turns=settings.daily_quota_turns_per_student,
     )
+
+
+def discard_turn_handler(
+    turns: Annotated[TurnRepository, Depends(turn_repository)],
+    sessions: Annotated[SessionRepository, Depends(session_repository)],
+    uow: Annotated[UnitOfWork, Depends(unit_of_work)],
+    clock: Annotated[datetime, Depends(agora)],
+) -> DiscardTurnHandler:
+    return DiscardTurnHandler(
+        turns=turns,
+        sessions=sessions,
+        unit_of_work=uow,
+        clock=lambda: clock,
+    )
+
+
+def requesting_student_id() -> UUID:
+    """O aluno da requisição, para checagens de posse como a do CARD-032.
+
+    Hoje é sempre ``DEV_STUDENT_ID`` (não há autenticação, ADR-0007) — mas a
+    checagem de posse já existe no caso de uso, então o dia em que a auth
+    chegar, só esta função muda (o token substitui a constante), e nenhuma
+    linha do handler ou da rota precisa mudar junto.
+    """
+    return DEV_STUDENT_ID
 
 
 def stream_handler(
