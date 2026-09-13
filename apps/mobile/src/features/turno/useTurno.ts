@@ -61,6 +61,20 @@ export type EstadoDoTurn =
   | 'falhou';
 
 /**
+ * O botão `traduzir` (CARD-058). `ocioso` cobre "ainda não pedi" — não há
+ * distinção entre "não tem" e "não sei ainda", igual à convenção de
+ * `correcoes`.
+ */
+export type FaseDaTraducao = 'ocioso' | 'traduzindo' | 'traduzido' | 'falhou';
+
+export type EstadoDeTraducao = {
+  fase: FaseDaTraducao;
+  texto: string | null;
+};
+
+const TRADUCAO_OCIOSA: EstadoDeTraducao = { fase: 'ocioso', texto: null };
+
+/**
  * Uma correção tipada (CARD-016/CARD-013) — não mais os quatro campos
  * legados. Os nomes em pt-BR espelham `CorrectionPayload`, campo a campo:
  * `tipo`←`type`, `corrigido`←`corrected_form`, `explicacao`←`explanation`,
@@ -142,6 +156,17 @@ export type Turno = {
    * (se algum) a tela mostra por cima do texto genérico.
    */
   excecao: ConteudoDeExcecao | null;
+  /**
+   * O botão `traduzir` (CARD-058). Igual a `correcoes`, some em `limpar()` —
+   * gravar de novo ou trocar de tela descarta a tradução.
+   */
+  traducao: EstadoDeTraducao;
+  /**
+   * Pede a tradução da resposta do professor. **Não pede duas vezes** pela
+   * mesma resposta (RNF6 do CARD-036): se já `traduzido` ou `traduzindo`,
+   * reusa o que está em memória em vez de chamar o servidor de novo.
+   */
+  traduzir: () => Promise<void>;
   /** "Descartar" (CARD-032): chama o servidor e volta ao estado ocioso. */
   descartar: () => Promise<void>;
   /**
@@ -265,6 +290,10 @@ export function useTurno(): Turno {
   const [via, setVia] = useState<'sse' | 'polling' | null>(null);
   const [audioIndisponivel, setAudioIndisponivel] = useState(false);
   const [excecao, setExcecao] = useState<ConteudoDeExcecao | null>(null);
+  const [traducao, setTraducao] = useState<EstadoDeTraducao>(TRADUCAO_OCIOSA);
+  /** Espelha `traducao` sem esperar o próximo render — mesmo padrão do `correcoesRef`. */
+  const traducaoRef = useRef<EstadoDeTraducao>(TRADUCAO_OCIOSA);
+  traducaoRef.current = traducao;
 
   const abortador = useRef<AbortController | null>(null);
   const sessaoId = useRef<string | null>(null);
@@ -350,8 +379,34 @@ export function useTurno(): Turno {
     setVia(null);
     setAudioIndisponivel(false);
     setExcecao(null);
+    setTraducao(TRADUCAO_OCIOSA);
     jaRecuperados.current.clear();
   }, [cancelar, desarmarTravamento, fila]);
+
+  /**
+   * O botão `traduzir` (CARD-058). Reusa o que já está em memória — pedir de
+   * novo pela mesma resposta gastaria IA sem necessidade (RNF6 do CARD-036).
+   * O alvo é sempre `reply`: o card cobre a resposta do professor, não as
+   * correções (fora do escopo — ver "Out" do card).
+   */
+  const traduzir = useCallback(async () => {
+    const id = turnAtualRef.current;
+    if (!id) return;
+    if (
+      traducaoRef.current.fase === 'traduzido' ||
+      traducaoRef.current.fase === 'traduzindo'
+    ) {
+      return;
+    }
+    setTraducao({ fase: 'traduzindo', texto: null });
+    try {
+      const resultado = await cliente.traduzirTexto(id, 'reply');
+      setTraducao({ fase: 'traduzido', texto: resultado.text });
+    } catch (falha) {
+      console.error('[turno] traduzir falhou:', falha);
+      setTraducao({ fase: 'falhou', texto: null });
+    }
+  }, [cliente]);
 
   const receberTrecho = useCallback(
     (trecho: Trecho) => {
@@ -657,6 +712,8 @@ export function useTurno(): Turno {
     via,
     audioIndisponivel,
     excecao,
+    traducao,
+    traduzir,
     descartar,
     tentarNovamente,
     enviar,

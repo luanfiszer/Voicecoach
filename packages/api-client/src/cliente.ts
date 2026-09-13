@@ -28,6 +28,9 @@ export type TurnAceito = Schemas['TurnAcceptedResponse'];
 export type Trecho = Schemas['ChunkPayload'];
 export type SessaoDoHistorico = Schemas['SessionListEntry'];
 export type ListaDeSessoes = Schemas['SessionListResponse'];
+/** `reply` é a resposta do professor; `correction` é a explicação de uma correção. */
+export type AlvoDeTraducao = Schemas['TranslationTarget'];
+export type Traducao = Schemas['TranslationResponse'];
 
 export type OpcoesDoCliente = {
   baseUrl: string;
@@ -102,6 +105,20 @@ export type Cliente = {
    * servidor. Idempotente — chamar duas vezes é `204` as duas.
    */
   descartarTurn(turnId: string, sinal?: AbortSignal): Promise<void>;
+  /**
+   * O botão `traduzir` (CARD-058, endpoint do CARD-036). **O corpo diz QUAL
+   * texto, nunca o texto** — o cliente escolhe entre alvos fechados
+   * (`AlvoDeTraducao`), nunca manda texto livre (RF1 do CARD-036: um endpoint
+   * de texto livre seria proxy de LLM aberto pago por nós). Pedir a mesma
+   * tradução duas vezes não cobra duas — o servidor responde `cached: true`
+   * (RF4), então este método não precisa de lógica de cache própria.
+   */
+  traduzirTexto(
+    turnId: string,
+    alvo: AlvoDeTraducao,
+    index?: number,
+    sinal?: AbortSignal,
+  ): Promise<Traducao>;
 };
 
 /**
@@ -333,6 +350,21 @@ export function criarCliente(opcoes: OpcoesDoCliente): Cliente {
       // `204 No Content`: nenhum corpo a ler. `!resposta.ok` cobre o 404/409
       // que o CARD-032 define (turn de outro aluno ou já concluído).
       if (!resposta.ok) await falhar(resposta);
+    },
+
+    async traduzirTexto(
+      turnId: string,
+      alvo: AlvoDeTraducao,
+      index?: number,
+      sinal?: AbortSignal,
+    ): Promise<Traducao> {
+      const resposta = await executar(`${base}/v1/turns/${turnId}/translations`, {
+        method: 'POST',
+        headers: cabecalhos({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ target: alvo, index: index ?? 0 }),
+        signal: sinal ?? null,
+      });
+      return json<Traducao>(resposta);
     },
 
     async *acompanharTurn(
