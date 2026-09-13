@@ -14,12 +14,22 @@ from typing import TYPE_CHECKING
 
 from voicecoach.adapters.persistence.models import (
     CorrectionRow,
+    CredentialRow,
+    EmailVerificationTokenRow,
+    PasswordResetTokenRow,
+    RefreshTokenRow,
     SessionRow,
     StudentRow,
     TranslationRow,
     TurnAudioChunkRow,
     TurnRow,
     UsageEventRow,
+)
+from voicecoach.domain.auth import (
+    Credential,
+    EmailVerificationToken,
+    PasswordResetToken,
+    RefreshToken,
 )
 from voicecoach.domain.correction import Correction
 from voicecoach.domain.session import Session
@@ -59,6 +69,100 @@ def student_from_row(row: StudentRow) -> Student:
         id=row.id,
         display_name=row.display_name,
         created_at=row.created_at,
+    )
+
+
+def credential_to_row(credential: Credential) -> CredentialRow:
+    return CredentialRow(
+        id=credential.id,
+        student_id=credential.student_id,
+        email=credential.email,
+        password_hash=credential.password_hash,
+        created_at=credential.created_at,
+        email_verified_at=credential.email_verified_at,
+    )
+
+
+def credential_from_row(row: CredentialRow) -> Credential:
+    return Credential(
+        id=row.id,
+        student_id=row.student_id,
+        email=row.email,
+        password_hash=row.password_hash,
+        created_at=row.created_at,
+        email_verified_at=row.email_verified_at,
+    )
+
+
+def refresh_token_to_row(token: RefreshToken) -> RefreshTokenRow:
+    return RefreshTokenRow(
+        id=token.id,
+        student_id=token.student_id,
+        family_id=token.family_id,
+        token_hash=token.token_hash,
+        created_at=token.created_at,
+        expires_at=token.expires_at,
+        revoked_at=token.revoked_at,
+    )
+
+
+def refresh_token_from_row(row: RefreshTokenRow) -> RefreshToken:
+    return RefreshToken(
+        id=row.id,
+        student_id=row.student_id,
+        family_id=row.family_id,
+        token_hash=row.token_hash,
+        created_at=row.created_at,
+        expires_at=row.expires_at,
+        revoked_at=row.revoked_at,
+    )
+
+
+def verification_token_to_row(
+    token: EmailVerificationToken,
+) -> EmailVerificationTokenRow:
+    return EmailVerificationTokenRow(
+        id=token.id,
+        student_id=token.student_id,
+        token_hash=token.token_hash,
+        created_at=token.created_at,
+        expires_at=token.expires_at,
+        used_at=token.used_at,
+    )
+
+
+def verification_token_from_row(
+    row: EmailVerificationTokenRow,
+) -> EmailVerificationToken:
+    return EmailVerificationToken(
+        id=row.id,
+        student_id=row.student_id,
+        token_hash=row.token_hash,
+        created_at=row.created_at,
+        expires_at=row.expires_at,
+        used_at=row.used_at,
+    )
+
+
+def password_reset_token_to_row(token: PasswordResetToken) -> PasswordResetTokenRow:
+    return PasswordResetTokenRow(
+        id=token.id,
+        student_id=token.student_id,
+        token_hash=token.token_hash,
+        created_at=token.created_at,
+        expires_at=token.expires_at,
+        used_at=token.used_at,
+    )
+
+
+def password_reset_token_from_row(row: PasswordResetTokenRow) -> PasswordResetToken:
+    return PasswordResetToken(
+        id=row.id,
+        student_id=row.student_id,
+        token_hash=row.token_hash,
+        created_at=row.created_at,
+        expires_at=row.expires_at,
+        used_at=row.used_at,
     )
 
 

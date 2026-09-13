@@ -104,6 +104,7 @@ Escreva um ADR sempre que a decisão:
 | [0065](0065-descartar-turn-marca-sem-apagar-e-sobrevive-a-conclusao-concorrente.md) | "Descartar" marca um campo aditivo e sobrevive à conclusão concorrente do worker | aceito |
 | [0066](0066-traducao-e-porta-propria-persistida-por-referencia-a-recurso.md) | Tradução é porta própria, persistida, e endereçada por referência a recurso | aceito |
 | [0067](0067-listagem-de-sessoes-e-o-significado-de-midia-expirada.md) | `GET /v1/sessions`, sem cache, e "mídia expirada" significa "não conte com ele" | aceito |
+| [0068](0068-provedor-de-email-transacional-resend-com-console-como-default.md) | Provedor de e-mail transacional: Resend, com console como default de custo zero | aceito |
 
 ## ADRs pendentes de decisão de produto
 

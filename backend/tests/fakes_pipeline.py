@@ -36,8 +36,12 @@ from decimal import Decimal
 from uuid import UUID
 
 from voicecoach.application.ports.audio_encoder import EncodedAudio
+from voicecoach.application.ports.email_sender import EmailSenderError
 from voicecoach.application.ports.media_storage import MediaStorageError
-from voicecoach.application.ports.repositories import RowNotFoundError
+from voicecoach.application.ports.repositories import (
+    ConflictingWriteError,
+    RowNotFoundError,
+)
 from voicecoach.application.ports.speech_to_text import AudioInput, Segment, Transcript
 from voicecoach.application.ports.teacher_llm import (
     TeacherEvent,
@@ -50,8 +54,15 @@ from voicecoach.application.ports.text_to_speech import (
 )
 from voicecoach.application.ports.translator import Translated, TranslatorError
 from voicecoach.application.ports.turn_events import TurnEvent
+from voicecoach.domain.auth import (
+    Credential,
+    EmailVerificationToken,
+    PasswordResetToken,
+    RefreshToken,
+)
 from voicecoach.domain.correction import CorrectionType
 from voicecoach.domain.session import Session, SessionDigest, SessionSummary
+from voicecoach.domain.student import Student
 from voicecoach.domain.translation import Translation, TranslationTarget
 from voicecoach.domain.turn import Turn
 from voicecoach.domain.usage import StudentUsageTotals, UsageEvent
@@ -590,6 +601,184 @@ class FakeTranslationRepository:
             message = f"tradução {chave} já existe."
             raise RuntimeError(message)
         self.translations[chave] = translation
+
+
+class FakeStudentRepository:
+    """Guarda ``Student`` em memória, por id (CARD-049)."""
+
+    def __init__(self) -> None:
+        self.students: dict[UUID, Student] = {}
+
+    async def add(self, student: Student) -> None:
+        self.students[student.id] = student
+
+    async def get(self, student_id: UUID) -> Student | None:
+        return self.students.get(student_id)
+
+
+class FakeCredentialRepository:
+    """Guarda ``Credential`` em memória, com o mesmo índice único do banco
+    (CARD-049) — dois e-mails iguais levantam ``ConflictingWriteError``, a
+    mesma tradução que ``SqlAlchemyUnitOfWork`` faz para o ``IntegrityError``
+    real, para que ``RegisterStudentHandler`` seja testável sem Postgres.
+    """
+
+    def __init__(self, *credentials: Credential) -> None:
+        self.by_id: dict[UUID, Credential] = {c.id: c for c in credentials}
+
+    async def add(self, credential: Credential) -> None:
+        if any(c.email == credential.email for c in self.by_id.values()):
+            message = f"e-mail {credential.email} já cadastrado."
+            raise ConflictingWriteError(message)
+        self.by_id[credential.id] = credential
+
+    async def get_by_email(self, email: str) -> Credential | None:
+        return next((c for c in self.by_id.values() if c.email == email), None)
+
+    async def get_by_student_id(self, student_id: UUID) -> Credential | None:
+        return next(
+            (c for c in self.by_id.values() if c.student_id == student_id), None
+        )
+
+    async def mark_email_verified(self, student_id: UUID, when: datetime) -> None:
+        credencial = next(c for c in self.by_id.values() if c.student_id == student_id)
+        credencial.email_verified_at = when
+
+    async def update_password_hash(self, student_id: UUID, password_hash: str) -> None:
+        credencial = next(c for c in self.by_id.values() if c.student_id == student_id)
+        credencial.password_hash = password_hash
+
+
+class FakeRefreshTokenRepository:
+    """Guarda ``RefreshToken`` em memória, incluindo a revogação em massa por
+    família — a peça central da detecção de reuso (ADR-0007, CARD-049).
+    """
+
+    def __init__(self, *tokens: RefreshToken) -> None:
+        self.by_id: dict[UUID, RefreshToken] = {t.id: t for t in tokens}
+
+    async def add(self, token: RefreshToken) -> None:
+        self.by_id[token.id] = token
+
+    async def get_by_hash(self, token_hash: str) -> RefreshToken | None:
+        return next(
+            (t for t in self.by_id.values() if t.token_hash == token_hash), None
+        )
+
+    async def mark_revoked(self, token_id: UUID, when: datetime) -> None:
+        self.by_id[token_id].revoked_at = when
+
+    async def revoke_family(self, family_id: UUID, when: datetime) -> None:
+        for token in self.by_id.values():
+            if token.family_id == family_id and token.revoked_at is None:
+                token.revoked_at = when
+
+    async def revoke_all_for_student(self, student_id: UUID, when: datetime) -> None:
+        for token in self.by_id.values():
+            if token.student_id == student_id and token.revoked_at is None:
+                token.revoked_at = when
+
+
+class FakePasswordHasher:
+    """Hash determinístico e reversível de mentirinha — nunca use fora de teste.
+
+    O ponto NÃO é criptografia (isso é o ``argon2-cffi`` real, testado em
+    ``tests/adapters/test_argon2_password_hasher.py``); é a REGRA que
+    ``LoginStudentHandler`` implementa em cima da porta: chamar ``verify``
+    sempre, mesmo quando a credencial não existe.
+    """
+
+    def __init__(self) -> None:
+        self.chamadas_de_verify = 0
+        self.chamadas_de_hash = 0
+
+    async def hash(self, password: str) -> str:
+        self.chamadas_de_hash += 1
+        return f"hash-de-{password}"
+
+    async def verify(self, password: str, password_hash: str) -> bool:
+        self.chamadas_de_verify += 1
+        return password_hash == f"hash-de-{password}"
+
+
+class FakeAccessTokenIssuer:
+    """Emite um token que é a própria representação do ``student_id`` — o
+    suficiente para o caso de uso, que só chama ``issue``. ``decode`` não é
+    exercitado por nenhum caso de uso (é a borda quem chama), mas está aqui
+    para satisfazer a porta.
+    """
+
+    def __init__(self) -> None:
+        self.emitidos: list[UUID] = []
+
+    def issue(self, student_id: UUID) -> str:
+        self.emitidos.append(student_id)
+        return f"access-token-para-{student_id}"
+
+    def decode(self, token: str) -> UUID:
+        return UUID(token.removeprefix("access-token-para-"))
+
+
+class FakeEmailVerificationTokenRepository:
+    """Guarda ``EmailVerificationToken`` em memória (CARD-049)."""
+
+    def __init__(self, *tokens: EmailVerificationToken) -> None:
+        self.by_id: dict[UUID, EmailVerificationToken] = {t.id: t for t in tokens}
+
+    async def add(self, token: EmailVerificationToken) -> None:
+        self.by_id[token.id] = token
+
+    async def get_by_hash(self, token_hash: str) -> EmailVerificationToken | None:
+        return next(
+            (t for t in self.by_id.values() if t.token_hash == token_hash), None
+        )
+
+    async def mark_used(self, token_id: UUID, when: datetime) -> None:
+        self.by_id[token_id].used_at = when
+
+
+class FakePasswordResetTokenRepository:
+    """Guarda ``PasswordResetToken`` em memória (CARD-049)."""
+
+    def __init__(self, *tokens: PasswordResetToken) -> None:
+        self.by_id: dict[UUID, PasswordResetToken] = {t.id: t for t in tokens}
+
+    async def add(self, token: PasswordResetToken) -> None:
+        self.by_id[token.id] = token
+
+    async def get_by_hash(self, token_hash: str) -> PasswordResetToken | None:
+        return next(
+            (t for t in self.by_id.values() if t.token_hash == token_hash), None
+        )
+
+    async def mark_used(self, token_id: UUID, when: datetime) -> None:
+        self.by_id[token_id].used_at = when
+
+
+class FakeEmailSender:
+    """Registra os e-mails "enviados", sem tocar rede (CARD-049).
+
+    ``falha`` programa o caminho triste do RNF do card: "o cadastro conclui,
+    o e-mail é retentado" — o teste liga a falha e afirma que o handler não
+    propaga.
+    """
+
+    def __init__(self, *, falha: bool = False) -> None:
+        self.falha = falha
+        self.enviados: list[tuple[str, str]] = []
+        self.resets_enviados: list[tuple[str, str]] = []
+
+    async def send_verification(self, *, to: str, verification_url: str) -> None:
+        if self.falha:
+            message = "provedor de e-mail fora do ar (fake)"
+            raise EmailSenderError(message)
+        self.enviados.append((to, verification_url))
+
+    async def send_password_reset(self, *, to: str, reset_url: str) -> None:
+        if self.falha:
+            message = "provedor de e-mail fora do ar (fake)"
+            raise EmailSenderError(message)
+        self.resets_enviados.append((to, reset_url))
 
 
 class FakeTranslator:

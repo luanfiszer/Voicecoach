@@ -59,6 +59,331 @@
         }
       }
     },
+    "/v1/auth/register": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Cadastro por e-mail+senha",
+        "description": "``202`` sempre \u2014 nunca ``201``, porque n\u00e3o h\u00e1 como o corpo dizer se a\nconta \u00e9 nova ou j\u00e1 existia (a checagem de aceite do card: n\u00e3o vazar\nquais e-mails existem). O aluno v\u00ea \"verifique seu e-mail\" nos dois casos.",
+        "operationId": "registrar_v1_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login por e-mail+senha",
+        "operationId": "login_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPairResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Rotaciona o par de tokens",
+        "operationId": "refresh_v1_auth_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPairResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Revoga a fam\u00edlia de refresh do token apresentado",
+        "operationId": "logout_v1_auth_logout_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/confirm-email": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Confirma o e-mail a partir do link enviado",
+        "description": "``GET`` porque \u00e9 o link que um humano clica no cliente de e-mail.\n\nO corpo \u00e9 JSON simples, n\u00e3o HTML \u2014 a UX de uma p\u00e1gina de sucesso fica\npara o CARD-050/052, quando o app tiver como interceptar o deep link.",
+        "operationId": "confirmar_email_v1_auth_confirm_email_get",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "O token do link de confirma\u00e7\u00e3o.",
+              "title": "Token"
+            },
+            "description": "O token do link de confirma\u00e7\u00e3o."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Confirmar Email V1 Auth Confirm Email Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/resend-confirmation": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Reenvia o link de confirma\u00e7\u00e3o de e-mail",
+        "description": "``202`` sempre, e-mail existente ou n\u00e3o \u2014 mesma disciplina do registro.",
+        "operationId": "reenviar_confirmacao_v1_auth_resend_confirmation_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendConfirmationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/request-password-reset": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Pede o link de redefini\u00e7\u00e3o de senha ('esqueci minha senha')",
+        "description": "``202`` sempre, e-mail existente ou n\u00e3o \u2014 mesma disciplina do registro.",
+        "operationId": "pedir_redefinicao_de_senha_v1_auth_request_password_reset_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestPasswordResetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/reset-password": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Troca a senha a partir do token recebido",
+        "description": "Troca a senha e desloga TODAS as sess\u00f5es do aluno (ADR-0007) \u2014 n\u00e3o s\u00f3\na que est\u00e1 fazendo a troca.",
+        "operationId": "redefinir_senha_v1_auth_reset_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/sessions": {
       "post": {
         "tags": [
@@ -66,6 +391,24 @@
         ],
         "summary": "Abre uma sess\u00e3o de conversa",
         "operationId": "criar_sessao_v1_sessions_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "responses": {
           "201": {
             "description": "Successful Response",
@@ -73,6 +416,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -100,6 +453,22 @@
               "title": "Days"
             },
             "description": "Janela em dias. O que ficou fora dela n\u00e3o \u00e9 erro, \u00e9 aus\u00eancia \u2014 a tela promete que o hist\u00f3rico longo vive na web."
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -178,6 +547,24 @@
         "summary": "O saldo de cota e o estado do servi\u00e7o, como leitura",
         "description": "Nunca recusa (RNF1): kill switch ativo ou cota estourada respondem\n`200` \u2014 \u00e9 a tela que EXPLICA a parede, e ela n\u00e3o pode estar atr\u00e1s dela.",
         "operationId": "ler_cota_v1_students_me_quota_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -185,6 +572,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/QuotaStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -223,6 +620,22 @@
               "title": "Idempotency-Key"
             },
             "description": "Chave gerada pelo cliente. Reenviar a mesma devolve o mesmo turn_id, sem criar nem reprocessar nada."
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "requestBody": {
@@ -321,6 +734,22 @@
               "format": "uuid",
               "title": "Turn Id"
             }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -357,6 +786,22 @@
               "type": "string",
               "format": "uuid",
               "title": "Turn Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -702,6 +1147,38 @@
         "title": "LivenessResponse",
         "description": "Resposta de ``GET /health``."
       },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
+      "LogoutRequest": {
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "title": "Refresh Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "refresh_token"
+        ],
+        "title": "LogoutRequest"
+      },
       "QuotaStatusResponse": {
         "properties": {
           "spoken_seconds": {
@@ -771,6 +1248,39 @@
         "title": "ReadinessResponse",
         "description": "Resposta de ``GET /health/ready``.\n\n``status`` \u00e9 redundante em rela\u00e7\u00e3o a ``checks`` de prop\u00f3sito: quem faz\nprobe l\u00ea s\u00f3 o c\u00f3digo HTTP, quem depura l\u00ea o mapa inteiro."
       },
+      "RefreshRequest": {
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "title": "Refresh Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "refresh_token"
+        ],
+        "title": "RefreshRequest"
+      },
+      "RegisterRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "RegisterRequest"
+      },
       "RejectedPayload": {
         "properties": {
           "reason": {
@@ -793,6 +1303,53 @@
         ],
         "title": "RejectionReason",
         "description": "Por que um turn terminou sem resposta (ADR-0057, CARD-040).\n\nTr\u00eas valores, n\u00e3o um s\u00f3: \"n\u00e3o ouvi nada\", \"voc\u00ea n\u00e3o falou ingl\u00eas\" e \"n\u00e3o\nentendi o que voc\u00ea disse\" s\u00e3o tr\u00eas mensagens diferentes ao aluno, mesmo\nos tr\u00eas encerrando o turn do mesmo jeito (sem chamar o professor).\n\n``NOT_ENGLISH`` chegou depois dos outros dois, numa decis\u00e3o de produto\nrevisada na pr\u00f3pria sess\u00e3o do CARD-040: o STT com o idioma FIXO em ingl\u00eas\n\"traduz\" silenciosamente uma fala inteira em portugu\u00eas com confian\u00e7a\nALTA (medido: -0,33, quase id\u00eantico a uma fala boa) \u2014 s\u00f3 a detec\u00e7\u00e3o real\nde idioma revela que o aluno n\u00e3o falou ingl\u00eas, e \u00e9 por isso que a\ndetec\u00e7\u00e3o permanece ligada (ADR-0055) mesmo depois deste card."
+      },
+      "RequestPasswordResetRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "RequestPasswordResetRequest"
+      },
+      "ResendConfirmationRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "ResendConfirmationRequest"
+      },
+      "ResetPasswordRequest": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "new_password": {
+            "type": "string",
+            "minLength": 8,
+            "title": "New Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "new_password"
+        ],
+        "title": "ResetPasswordRequest"
       },
       "SessionListEntry": {
         "properties": {
@@ -946,6 +1503,36 @@
         ],
         "title": "Severity",
         "description": "Quanto o erro pesa. Tr\u00eas n\u00edveis, e o n\u00famero \u00e9 a decis\u00e3o.\n\nA UI apresenta severidade em **palavras** (\"pequeno ajuste\", \"vale revisar\")\n\u2014 o que s\u00f3 \u00e9 traduz\u00edvel a partir de uma escala pequena e est\u00e1vel. Tr\u00eas \u00e9 o\nmenor n\u00famero que ainda permite ordenar e destacar sem virar escala falsa;\ndois perderiam o meio-termo, e um quarto n\u00edvel (\"critical\") seria um r\u00f3tulo\nque nem o modelo nem o produto sabem definir num tutor de conversa, ainda\nmais sem eval (Fase 4).\n\n**O r\u00f3tulo em pt-BR n\u00e3o mora aqui.** Tradu\u00e7\u00e3o \u00e9 apresenta\u00e7\u00e3o e vive no\ncliente (CARD-016): o dia em que a mesma corre\u00e7\u00e3o precisar aparecer em duas\nl\u00ednguas, o dom\u00ednio n\u00e3o muda."
+      },
+      "TokenPairResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "refresh_token": {
+            "type": "string",
+            "title": "Refresh Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In",
+            "description": "Segundos at\u00e9 o `access_token` expirar."
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "refresh_token",
+          "expires_in"
+        ],
+        "title": "TokenPairResponse",
+        "description": "O par de tokens (ADR-0007) \u2014 mesma forma para login e refresh."
       },
       "TranscribedPayload": {
         "properties": {

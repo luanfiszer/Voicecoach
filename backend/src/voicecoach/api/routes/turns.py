@@ -34,6 +34,7 @@ from voicecoach.api.dependencies import (
     discard_turn_handler,
     enforce_translation_rate_limit,
     enforce_turn_rate_limit,
+    enforce_verified_email,
     get_settings_from_app,
     media_storage,
     requesting_student_id,
@@ -141,7 +142,12 @@ CABECALHOS_DE_STREAM = {
     "/sessions/{session_id}/turns",
     status_code=status.HTTP_202_ACCEPTED,
     summary="Envia a fala do aluno e enfileira o turno",
-    dependencies=[Depends(enforce_turn_rate_limit)],
+    dependencies=[
+        Depends(enforce_turn_rate_limit),
+        # ADR-0007 (CARD-049): e-mail não confirmado não grava fala. Depois
+        # do rate limit (Redis, barato) e antes de ler o upload (caro).
+        Depends(enforce_verified_email),
+    ],
 )
 async def criar_turn(
     session_id: UUID,

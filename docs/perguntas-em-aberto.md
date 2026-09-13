@@ -28,8 +28,31 @@ Regra em vigor:
 Uma só, pela regra nova: pergunta da sessão **imediatamente anterior** que ficou
 sem desfecho volta **uma** vez.
 
-**Nenhuma.** O CARD-040 (2026-09-13) teve a sua pergunta registrada respondida
-pela própria execução — nada fica pendente para a abertura seguinte.
+**Nenhuma.** O CARD-049 (2026-09-13) teve as suas duas perguntas de produto
+respondidas ao vivo pelo desenvolvedor, no ponto da decisão — nada fica
+pendente para a abertura seguinte.
+
+> **CARD-049 (2026-09-13): duas perguntas de produto, as duas feitas no ponto
+> da decisão e respondidas ao vivo** (loop autônomo com o desenvolvedor
+> presente na sessão, não decisão do agente).
+>
+> - **P1** *"o `requesting_student_id()` deve passar a exigir JWT de verdade
+>   em TODAS as rotas já existentes agora, mesmo sabendo que isso quebra o
+>   app no aparelho até o CARD-050 (cliente) existir?"* — feita antes de
+>   tocar `api/dependencies.py`, porque as duas respostas levavam a
+>   implementações bem diferentes (auth só nos endpoints novos vs. auth em
+>   tudo). Resposta: **"ativar tudo agora, aceitando quebrar o app sem
+>   client."** Implementado: `criar_sessao`, `ler_cota` e o gate de e-mail
+>   verificado em `criar_turn` passaram a depender do token real.
+> - **P2** *"login social (Google) vem junto do CARD-049 ou é card
+>   separado?"* — surgiu no meio da execução, quando o desenvolvedor pediu
+>   Google além do e-mail+senha. Resposta, depois de eu explicar que "só
+>   Google" viola a Guideline 4.8 da Apple (exigiria Google **e** Sign in
+>   with Apple juntos): **"card separado, depois do CARD-049."** Virou o
+>   CARD-060, com ADR próprio para revisar o ADR-0007.
+>
+> Nenhuma das duas precisou de reformulação — as duas foram respondidas
+> corretamente na primeira.
 
 > **CARD-037 (2026-09-09): duas perguntas, as duas conferidas rodando.**
 >

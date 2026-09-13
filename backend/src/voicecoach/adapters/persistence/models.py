@@ -94,6 +94,85 @@ class StudentRow(Base):
     created_at: Mapped[datetime] = mapped_column(_Timestamp)
 
 
+class CredentialRow(Base):
+    """E-mail + senha (hash) de um ``Student`` (ADR-0007, CARD-049).
+
+    ``email`` é único no banco, não só verificado no caso de uso — a corrida
+    entre dois cadastros simultâneos com o mesmo e-mail é resolvida aqui, e o
+    ``IntegrityError`` que ela produz é o que ``SqlAlchemyUnitOfWork`` traduz
+    em ``ConflictingWriteError`` (mesmo desenho da `idempotency_key`).
+    """
+
+    __tablename__ = "credentials"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), unique=True
+    )
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(_Timestamp)
+    email_verified_at: Mapped[datetime | None] = mapped_column(_Timestamp, default=None)
+
+
+class RefreshTokenRow(Base):
+    """Um elo da família de refresh (ADR-0007, CARD-049).
+
+    ``token_hash`` é único: dois elos com o mesmo hash seriam o mesmo token
+    salvo duas vezes, e a busca por hash (``get_by_hash``) precisa de no
+    máximo uma linha. ``family_id`` tem índice próprio porque
+    ``revoke_family`` filtra por ele em massa — sem o índice, cada reuso
+    detectado seria um `seq scan` na tabela inteira de tokens.
+    """
+
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), index=True
+    )
+    family_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(_Timestamp)
+    expires_at: Mapped[datetime] = mapped_column(_Timestamp)
+    revoked_at: Mapped[datetime | None] = mapped_column(_Timestamp, default=None)
+
+
+class EmailVerificationTokenRow(Base):
+    """Um link de confirmação de e-mail, de uso único (ADR-0007, CARD-049)."""
+
+    __tablename__ = "email_verification_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(_Timestamp)
+    expires_at: Mapped[datetime] = mapped_column(_Timestamp)
+    used_at: Mapped[datetime | None] = mapped_column(_Timestamp, default=None)
+
+
+class PasswordResetTokenRow(Base):
+    """Um link de "esqueci minha senha", de uso único (ADR-0007, CARD-049).
+
+    Mesma forma de ``EmailVerificationTokenRow`` — tabela própria, não a
+    mesma, pela razão que o docstring de ``domain.auth.PasswordResetToken``
+    já registra: a posse do link autoriza coisas diferentes.
+    """
+
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(_Timestamp)
+    expires_at: Mapped[datetime] = mapped_column(_Timestamp)
+    used_at: Mapped[datetime | None] = mapped_column(_Timestamp, default=None)
+
+
 class SessionRow(Base):
     __tablename__ = "sessions"
     # A listagem do CARD-030 filtra por `student_id` e ordena por `started_at`:

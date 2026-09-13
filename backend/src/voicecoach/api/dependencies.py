@@ -10,11 +10,12 @@ que se chega de trocar o registro do container num teste de integração.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Annotated
 from uuid import UUID, uuid4
 
-from fastapi import Depends, Request, status
+from fastapi import Depends, Header, Request, status
 
 # **Estes imports NÃO podem ficar sob `TYPE_CHECKING`.** Com
 # `from __future__ import annotations`, toda anotação vira string — e o FastAPI
@@ -24,6 +25,8 @@ from fastapi import Depends, Request, status
 # `if TYPE_CHECKING` cria numa camada que faz introspecção.
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from voicecoach.adapters.auth.argon2_password_hasher import Argon2PasswordHasher
+from voicecoach.adapters.auth.jwt_access_token_issuer import JwtAccessTokenIssuer
 from voicecoach.adapters.events.redis_turn_events import RedisTurnEvents
 from voicecoach.adapters.health import (
     DependencyStatus,
@@ -33,22 +36,44 @@ from voicecoach.adapters.health import (
     check_worker,
 )
 from voicecoach.adapters.persistence.repositories import (
+    SqlAlchemyCredentialRepository,
+    SqlAlchemyEmailVerificationTokenRepository,
+    SqlAlchemyPasswordResetTokenRepository,
+    SqlAlchemyRefreshTokenRepository,
     SqlAlchemySessionRepository,
+    SqlAlchemyStudentRepository,
     SqlAlchemyTranslationRepository,
     SqlAlchemyTurnRepository,
     SqlAlchemyUsageEventRepository,
 )
-from voicecoach.adapters.persistence.seed import DEV_STUDENT_ID
 from voicecoach.adapters.persistence.unit_of_work import SqlAlchemyUnitOfWork
 from voicecoach.adapters.queue.arq_turn_queue import ArqTurnQueue
 from voicecoach.adapters.quota.redis_rate_limiter import RedisRateLimiter
 from voicecoach.adapters.quota.redis_service_budget import RedisServiceBudget
 from voicecoach.api.errors import ProblemError
-from voicecoach.api.schemas.problem import TYPE_RATE_LIMITED
+from voicecoach.api.schemas.auth import LoginRequest
+from voicecoach.api.schemas.problem import (
+    TYPE_EMAIL_NOT_VERIFIED,
+    TYPE_RATE_LIMITED,
+    TYPE_UNAUTHENTICATED,
+)
+from voicecoach.application.ports.access_tokens import (
+    AccessTokenIssuer,
+    InvalidAccessTokenError,
+)
+from voicecoach.application.ports.auth_repositories import (
+    CredentialRepository,
+    EmailVerificationTokenRepository,
+    PasswordResetTokenRepository,
+    RefreshTokenRepository,
+)
+from voicecoach.application.ports.email_sender import EmailSender
 from voicecoach.application.ports.media_storage import MediaStorage
+from voicecoach.application.ports.password_hasher import PasswordHasher
 from voicecoach.application.ports.rate_limiter import RateLimiter
 from voicecoach.application.ports.repositories import (
     SessionRepository,
+    StudentRepository,
     TranslationRepository,
     TurnRepository,
     UnitOfWork,
@@ -59,11 +84,23 @@ from voicecoach.application.ports.translator import Translator
 from voicecoach.application.ports.turn_events import TurnEvents
 from voicecoach.application.ports.turn_queue import TurnQueue
 from voicecoach.application.use_cases.discard_turn import DiscardTurnHandler
+from voicecoach.application.use_cases.email_verification import (
+    ConfirmEmailHandler,
+    ResendConfirmationHandler,
+)
 from voicecoach.application.use_cases.end_session import EndSessionHandler
 from voicecoach.application.use_cases.list_sessions import ListSessionsHandler
+from voicecoach.application.use_cases.login_student import LoginStudentHandler
+from voicecoach.application.use_cases.logout_student import LogoutStudentHandler
+from voicecoach.application.use_cases.password_reset import (
+    RequestPasswordResetHandler,
+    ResetPasswordHandler,
+)
 from voicecoach.application.use_cases.read_quota_status import (
     ReadQuotaStatusHandler,
 )
+from voicecoach.application.use_cases.refresh_tokens import RefreshTokensHandler
+from voicecoach.application.use_cases.register_student import RegisterStudentHandler
 from voicecoach.application.use_cases.start_turn import StartTurnHandler
 from voicecoach.application.use_cases.stream_turn_events import (
     StreamTurnEventsHandler,
@@ -340,15 +377,113 @@ def discard_turn_handler(
     )
 
 
-def requesting_student_id() -> UUID:
-    """O aluno da requisição, para checagens de posse como a do CARD-032.
+def password_hasher() -> PasswordHasher:
+    return Argon2PasswordHasher()
 
-    Hoje é sempre ``DEV_STUDENT_ID`` (não há autenticação, ADR-0007) — mas a
-    checagem de posse já existe no caso de uso, então o dia em que a auth
-    chegar, só esta função muda (o token substitui a constante), e nenhuma
-    linha do handler ou da rota precisa mudar junto.
+
+def access_token_issuer(request: Request) -> AccessTokenIssuer:
+    settings = get_settings_from_app(request)
+    return JwtAccessTokenIssuer(
+        secret=settings.jwt_secret, ttl=settings.access_token_ttl
+    )
+
+
+def credential_repository(session: Sessao) -> CredentialRepository:
+    return SqlAlchemyCredentialRepository(session)
+
+
+def refresh_token_repository(session: Sessao) -> RefreshTokenRepository:
+    return SqlAlchemyRefreshTokenRepository(session)
+
+
+def email_verification_token_repository(
+    session: Sessao,
+) -> EmailVerificationTokenRepository:
+    return SqlAlchemyEmailVerificationTokenRepository(session)
+
+
+def email_sender(request: Request) -> EmailSender:
+    """O adapter escolhido no boot (ADR-0068) — do processo, como o `translator`."""
+    sender: EmailSender = request.app.state.email_sender
+    return sender
+
+
+def verification_url(request: Request) -> Callable[[str], str]:
+    """Monta o link de confirmação a partir do token em claro.
+
+    ``public_api_base_url`` (não ``apiBaseUrl`` do cliente) porque quem clica
+    o link é um cliente de e-mail, potencialmente fora da LAN — o mesmo
+    raciocínio de `s3_public_endpoint_url` (ADR-0045), aplicado a auth.
     """
-    return DEV_STUDENT_ID
+    settings = get_settings_from_app(request)
+    base = settings.public_api_base_url.rstrip("/")
+    return lambda token: f"{base}/v1/auth/confirm-email?token={token}"
+
+
+def reset_password_url(request: Request) -> Callable[[str], str]:
+    """O token de "esqueci minha senha", numa URL informativa.
+
+    **Não é um link clicável de ação** — `POST /v1/auth/reset-password`
+    precisa da senha nova no corpo, que nenhum e-mail pode coletar. Sem app
+    web ainda (CARD-050/052), o e-mail existe para levar o token até o
+    aluno; o formulário que o consome é trabalho de cliente, não deste card.
+    """
+    settings = get_settings_from_app(request)
+    base = settings.public_api_base_url.rstrip("/")
+    return lambda token: f"{base}/v1/auth/reset-password?token={token}"
+
+
+async def requesting_student_id(
+    issuer: Annotated[AccessTokenIssuer, Depends(access_token_issuer)],
+    authorization: Annotated[str | None, Header()] = None,
+) -> UUID:
+    """O aluno da requisição, do ``Bearer`` do ``Authorization`` (ADR-0007, CARD-049).
+
+    **Antes desta função** o aluno era sempre ``DEV_STUDENT_ID`` — a troca é
+    exatamente a linha única que o comentário antigo previa: o token
+    substitui a constante, e nenhuma rota que já dependia desta função
+    mudou uma linha (CARD-032, CARD-036, listagem de sessões, saldo de cota).
+    """
+    if authorization is None or not authorization.startswith("Bearer "):
+        raise ProblemError(
+            type_=TYPE_UNAUTHENTICATED,
+            title="Não autenticado",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Cabeçalho Authorization ausente ou fora do formato "
+            "'Bearer <token>'.",
+        )
+    token = authorization.removeprefix("Bearer ").strip()
+    try:
+        return issuer.decode(token)
+    except InvalidAccessTokenError as exc:
+        raise ProblemError(
+            type_=TYPE_UNAUTHENTICATED,
+            title="Não autenticado",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        ) from exc
+
+
+async def enforce_verified_email(
+    student_id: Annotated[UUID, Depends(requesting_student_id)],
+    credentials: Annotated[CredentialRepository, Depends(credential_repository)],
+) -> None:
+    """Barra o primeiro *turn* de quem não confirmou o e-mail (ADR-0007, item 4).
+
+    **Login continua liberado** — só postar um turn é que exige e-mail
+    verificado. A falta de credencial (aluno criado fora do fluxo de
+    registro, ex.: seed de desenvolvimento) conta como não verificado —
+    falha fechada, não aberta.
+    """
+    credential = await credentials.get_by_student_id(student_id)
+    if credential is None or not credential.is_email_verified:
+        raise ProblemError(
+            type_=TYPE_EMAIL_NOT_VERIFIED,
+            title="E-mail não confirmado",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Confirme seu e-mail antes de gravar sua primeira fala. "
+            "Reenviamos o link se você pedir (POST /v1/auth/resend-confirmation).",
+        )
 
 
 async def enforce_translation_rate_limit(
@@ -427,4 +562,273 @@ def stream_handler(
         turns=turns,
         events=events,
         timeout=get_settings_from_app(request).sse_timeout,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Auth (ADR-0007, CARD-049)
+# ---------------------------------------------------------------------------
+
+
+def student_repository(session: Sessao) -> StudentRepository:
+    return SqlAlchemyStudentRepository(session)
+
+
+async def enforce_register_rate_limit(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings_from_app)],
+    limiter: Annotated[RateLimiter, Depends(rate_limiter)],
+) -> None:
+    """Nega por IP antes do hash argon2id — cada tentativa custa CPU real."""
+    ip = request.client.host if request.client else "sem-ip"
+    dentro = await limiter.hit(
+        f"auth-register:ip:{ip}",
+        window=settings.register_rate_limit_window,
+        limit=settings.register_rate_limit_per_ip,
+    )
+    if not dentro:
+        raise ProblemError(
+            type_=TYPE_RATE_LIMITED,
+            title="Muitas requisições",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Limite de cadastros por IP excedido. Tente novamente mais tarde.",
+            retry_after_seconds=int(
+                settings.register_rate_limit_window.total_seconds()
+            ),
+        )
+
+
+async def enforce_login_rate_limit(
+    pedido: LoginRequest,
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings_from_app)],
+    limiter: Annotated[RateLimiter, Depends(rate_limiter)],
+) -> None:
+    """Por IP e por e-mail (CARD-049).
+
+    ``pedido: LoginRequest`` como parâmetro de uma DEPENDÊNCIA, não só da
+    rota: o FastAPI reconhece o mesmo modelo de corpo nos dois lugares e lê o
+    JSON uma vez só — é o que permite negar por e-mail (o alvo real de uma
+    varredura de senha) sem duplicar o parsing do corpo.
+    """
+    ip = request.client.host if request.client else "sem-ip"
+    dentro_do_ip = await limiter.hit(
+        f"auth-login:ip:{ip}",
+        window=settings.auth_rate_limit_window,
+        limit=settings.login_rate_limit_per_ip,
+    )
+    dentro_do_email = await limiter.hit(
+        f"auth-login:email:{pedido.email}",
+        window=settings.auth_rate_limit_window,
+        limit=settings.login_rate_limit_per_email,
+    )
+    if not (dentro_do_ip and dentro_do_email):
+        raise ProblemError(
+            type_=TYPE_RATE_LIMITED,
+            title="Muitas requisições",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Muitas tentativas de login. Tente novamente mais tarde.",
+            retry_after_seconds=int(settings.auth_rate_limit_window.total_seconds()),
+        )
+
+
+def register_student_handler(
+    students: Annotated[StudentRepository, Depends(student_repository)],
+    credentials: Annotated[CredentialRepository, Depends(credential_repository)],
+    verification_tokens: Annotated[
+        EmailVerificationTokenRepository,
+        Depends(email_verification_token_repository),
+    ],
+    hasher: Annotated[PasswordHasher, Depends(password_hasher)],
+    sender: Annotated[EmailSender, Depends(email_sender)],
+    uow: Annotated[UnitOfWork, Depends(unit_of_work)],
+    clock: Annotated[datetime, Depends(agora)],
+    settings: Annotated[Settings, Depends(get_settings_from_app)],
+    url: Annotated[Callable[[str], str], Depends(verification_url)],
+) -> RegisterStudentHandler:
+    return RegisterStudentHandler(
+        students=students,
+        credentials=credentials,
+        verification_tokens=verification_tokens,
+        hasher=hasher,
+        email_sender=sender,
+        unit_of_work=uow,
+        clock=lambda: clock,
+        new_id=uuid4,
+        verification_ttl=settings.email_verification_ttl,
+        verification_url=url,
+    )
+
+
+def login_student_handler(
+    credentials: Annotated[CredentialRepository, Depends(credential_repository)],
+    refresh_tokens: Annotated[
+        RefreshTokenRepository, Depends(refresh_token_repository)
+    ],
+    hasher: Annotated[PasswordHasher, Depends(password_hasher)],
+    issuer: Annotated[AccessTokenIssuer, Depends(access_token_issuer)],
+    uow: Annotated[UnitOfWork, Depends(unit_of_work)],
+    clock: Annotated[datetime, Depends(agora)],
+    settings: Annotated[Settings, Depends(get_settings_from_app)],
+) -> LoginStudentHandler:
+    return LoginStudentHandler(
+        credentials=credentials,
+        refresh_tokens=refresh_tokens,
+        hasher=hasher,
+        token_issuer=issuer,
+        unit_of_work=uow,
+        clock=lambda: clock,
+        new_id=uuid4,
+        access_token_ttl=settings.access_token_ttl,
+        refresh_token_ttl=settings.refresh_token_ttl,
+    )
+
+
+def refresh_tokens_handler(
+    refresh_tokens: Annotated[
+        RefreshTokenRepository, Depends(refresh_token_repository)
+    ],
+    issuer: Annotated[AccessTokenIssuer, Depends(access_token_issuer)],
+    uow: Annotated[UnitOfWork, Depends(unit_of_work)],
+    clock: Annotated[datetime, Depends(agora)],
+    settings: Annotated[Settings, Depends(get_settings_from_app)],
+) -> RefreshTokensHandler:
+    return RefreshTokensHandler(
+        refresh_tokens=refresh_tokens,
+        token_issuer=issuer,
+        unit_of_work=uow,
+        clock=lambda: clock,
+        new_id=uuid4,
+        access_token_ttl=settings.access_token_ttl,
+        refresh_token_ttl=settings.refresh_token_ttl,
+    )
+
+
+def logout_student_handler(
+    refresh_tokens: Annotated[
+        RefreshTokenRepository, Depends(refresh_token_repository)
+    ],
+    uow: Annotated[UnitOfWork, Depends(unit_of_work)],
+    clock: Annotated[datetime, Depends(agora)],
+) -> LogoutStudentHandler:
+    return LogoutStudentHandler(
+        refresh_tokens=refresh_tokens,
+        unit_of_work=uow,
+        clock=lambda: clock,
+    )
+
+
+def confirm_email_handler(
+    verification_tokens: Annotated[
+        EmailVerificationTokenRepository,
+        Depends(email_verification_token_repository),
+    ],
+    credentials: Annotated[CredentialRepository, Depends(credential_repository)],
+    uow: Annotated[UnitOfWork, Depends(unit_of_work)],
+    clock: Annotated[datetime, Depends(agora)],
+) -> ConfirmEmailHandler:
+    return ConfirmEmailHandler(
+        verification_tokens=verification_tokens,
+        credentials=credentials,
+        unit_of_work=uow,
+        clock=lambda: clock,
+    )
+
+
+def resend_confirmation_handler(
+    credentials: Annotated[CredentialRepository, Depends(credential_repository)],
+    verification_tokens: Annotated[
+        EmailVerificationTokenRepository,
+        Depends(email_verification_token_repository),
+    ],
+    sender: Annotated[EmailSender, Depends(email_sender)],
+    uow: Annotated[UnitOfWork, Depends(unit_of_work)],
+    clock: Annotated[datetime, Depends(agora)],
+    settings: Annotated[Settings, Depends(get_settings_from_app)],
+    url: Annotated[Callable[[str], str], Depends(verification_url)],
+) -> ResendConfirmationHandler:
+    return ResendConfirmationHandler(
+        credentials=credentials,
+        verification_tokens=verification_tokens,
+        email_sender=sender,
+        unit_of_work=uow,
+        clock=lambda: clock,
+        new_id=uuid4,
+        verification_ttl=settings.email_verification_ttl,
+        verification_url=url,
+    )
+
+
+def password_reset_token_repository(
+    session: Sessao,
+) -> PasswordResetTokenRepository:
+    return SqlAlchemyPasswordResetTokenRepository(session)
+
+
+async def enforce_password_reset_rate_limit(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings_from_app)],
+    limiter: Annotated[RateLimiter, Depends(rate_limiter)],
+) -> None:
+    """Por IP (CARD-049) — mesma régua do registro: envia e-mail, custa dinheiro."""
+    ip = request.client.host if request.client else "sem-ip"
+    dentro = await limiter.hit(
+        f"auth-password-reset:ip:{ip}",
+        window=settings.register_rate_limit_window,
+        limit=settings.register_rate_limit_per_ip,
+    )
+    if not dentro:
+        raise ProblemError(
+            type_=TYPE_RATE_LIMITED,
+            title="Muitas requisições",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Limite de pedidos de redefinição de senha excedido.",
+            retry_after_seconds=int(
+                settings.register_rate_limit_window.total_seconds()
+            ),
+        )
+
+
+def request_password_reset_handler(
+    credentials: Annotated[CredentialRepository, Depends(credential_repository)],
+    reset_tokens: Annotated[
+        PasswordResetTokenRepository, Depends(password_reset_token_repository)
+    ],
+    sender: Annotated[EmailSender, Depends(email_sender)],
+    uow: Annotated[UnitOfWork, Depends(unit_of_work)],
+    clock: Annotated[datetime, Depends(agora)],
+    settings: Annotated[Settings, Depends(get_settings_from_app)],
+    url: Annotated[Callable[[str], str], Depends(reset_password_url)],
+) -> RequestPasswordResetHandler:
+    return RequestPasswordResetHandler(
+        credentials=credentials,
+        reset_tokens=reset_tokens,
+        email_sender=sender,
+        unit_of_work=uow,
+        clock=lambda: clock,
+        new_id=uuid4,
+        reset_ttl=settings.password_reset_ttl,
+        reset_url=url,
+    )
+
+
+def reset_password_handler(
+    reset_tokens: Annotated[
+        PasswordResetTokenRepository, Depends(password_reset_token_repository)
+    ],
+    credentials: Annotated[CredentialRepository, Depends(credential_repository)],
+    refresh_tokens: Annotated[
+        RefreshTokenRepository, Depends(refresh_token_repository)
+    ],
+    hasher: Annotated[PasswordHasher, Depends(password_hasher)],
+    uow: Annotated[UnitOfWork, Depends(unit_of_work)],
+    clock: Annotated[datetime, Depends(agora)],
+) -> ResetPasswordHandler:
+    return ResetPasswordHandler(
+        reset_tokens=reset_tokens,
+        credentials=credentials,
+        refresh_tokens=refresh_tokens,
+        hasher=hasher,
+        unit_of_work=uow,
+        clock=lambda: clock,
     )

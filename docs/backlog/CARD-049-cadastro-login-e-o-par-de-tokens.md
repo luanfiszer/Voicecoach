@@ -3,7 +3,7 @@
 - **ID:** CARD-049
 - **Épico:** Contas e auth de verdade (bloqueante de V1.0 — N3 do corte)
 - **Esforço:** M
-- **Status:** backlog
+- **Status:** concluído (2026-09-13)
 - **Dependências:** ADR-0007, **ADR novo obrigatório** (provedor de e-mail)
 
 ## Contexto
@@ -129,3 +129,117 @@ irrevogável por 15 min, o refresh é stateful e revogável na hora. Em .NET o
 ASP.NET Identity entregaria isso pronto; escrever a rotação à mão é ver onde a
 família de tokens mora, o que "reuso" significa em concorrência, e por que o
 `argon2id` tem parâmetros que **precisam** ser decididos e não herdados.
+
+## Execução (2026-09-13, loop autônomo)
+
+**As duas perguntas de produto da sessão foram feitas ao vivo ao
+desenvolvedor** (registro completo em `docs/perguntas-em-aberto.md`): (1)
+ativar `requesting_student_id()` com JWT real em TODAS as rotas já
+existentes agora, aceitando quebrar o app sem cliente até o CARD-050 — **sim,
+ativar tudo**; (2) login social (Google) junto deste card ou separado —
+**separado, virou CARD-060** (Google exigiria Sign in with Apple também,
+Guideline 4.8 da Apple — não é "card menor").
+
+### O que foi implementado
+
+- **Domínio** (`domain/auth.py`): `Credential`, `RefreshToken`,
+  `EmailVerificationToken`, `PasswordResetToken` — quatro dataclasses puras,
+  sem SQLAlchemy nem pydantic.
+- **Portas**: `PasswordHasher` (argon2id, métodos `async` por rodar em
+  executor — CPU-bound de propósito), `AccessTokenIssuer` (JWT), `EmailSender`
+  (dois métodos: confirmação e redefinição de senha), `CredentialRepository`,
+  `RefreshTokenRepository`, `EmailVerificationTokenRepository`,
+  `PasswordResetTokenRepository`.
+- **Seis casos de uso**: `RegisterStudent`, `LoginStudent`, `RefreshTokens`
+  (rotação + detecção de reuso), `LogoutStudent`, `ConfirmEmail` +
+  `ResendConfirmation`, e — **fora do escopo original, adicionado nesta
+  sessão** — `RequestPasswordReset` + `ResetPassword` (ver "Recuperação de
+  senha" abaixo).
+- **Adapters**: `Argon2PasswordHasher` (`run_in_executor`, parâmetros OWASP
+  explícitos), `JwtAccessTokenIssuer` (HS256), `ConsoleEmailSender` (default
+  de custo zero) e `ResendEmailSender` (`httpx` puro, sem SDK) — escolha
+  registrada no **ADR-0068**.
+- **Persistência**: 4 tabelas novas (`credentials`, `refresh_tokens`,
+  `email_verification_tokens`, `password_reset_tokens`), migrations escritas
+  à mão, repositórios SQLAlchemy testados contra Postgres real
+  (testcontainers).
+- **Borda**: 8 endpoints em `/v1/auth` (`register`, `login`, `refresh`,
+  `logout`, `confirm-email`, `resend-confirmation`,
+  `request-password-reset`, `reset-password`); `requesting_student_id()`
+  reescrito para decodificar o `Bearer` (era `DEV_STUDENT_ID` fixo);
+  `enforce_verified_email` novo, no `POST /turns`; rate limit por IP
+  (registro, refresh de senha) e por IP+e-mail (login).
+- **Rotas existentes migradas**: `criar_sessao` (POST /sessions) e `ler_cota`
+  (GET /students/me/quota) passaram de `DEV_STUDENT_ID` para o token real.
+
+### Recuperação de senha — não estava no escopo original, e foi adicionada
+
+O card nomeia isto por escrito, na seção "Riscos": *"recuperação de senha
+esquecida no escopo é o furo clássico"* e no "Out": *"entra aqui ou vira card
+próprio na execução"*. Ao revisar o card **antes** de declarar a sessão
+concluída, decidi que **não abrir um card novo para um requisito de
+segurança básico já nomeado pelo próprio card** é a leitura mais conservadora
+— abrir um card separado arriscaria essa dívida nunca ser paga (a mesma
+lição que o histórico de cards deste projeto já registra várias vezes:
+dívida sem card fica esquecida). Implementado com o mesmo padrão de
+`EmailVerificationToken` (tabela própria — a posse do link autoriza coisas
+diferentes) e **uma invariante que o ADR-0007 já exigia e eu só cumpri**:
+trocar a senha revoga **todas** as sessões do aluno (`revoke_all_for_student`
+em todas as famílias de refresh, não só a de quem pediu o reset) — testado
+contra Postgres real e ponta a ponta pela rota.
+
+### Bugs achados pelos próprios testes, corrigidos antes do merge
+
+1. **`Argon2PasswordHasher.verify` não cobria `InvalidHashError`** — a
+   exceção do argon2-cffi para hash malformado herda de `ValueError`, não de
+   `VerificationError` (hierarquias distintas, verificado com
+   `.__mro__`). Sem o segundo `except`, um hash gravado por engano em outro
+   formato faria login **crashar** (500) em vez de recusar (senha errada).
+   Achado pelo teste `test_hash_malformado_nao_propaga_e_devolve_false`.
+2. **`mark_email_verified` pedia `credential_id`, mas todo chamador só tem
+   `student_id`** (é o que `EmailVerificationToken` carrega) — `KeyError` no
+   primeiro teste que exercitou o roundtrip completo. Corrigido trocando a
+   porta para filtrar por `student_id` (único em `credentials`).
+3. **A rota `confirm-email` reusava `TYPE_INVALID_REFRESH_TOKEN`** no erro
+   400 em vez de um tipo próprio — copiado por descuido do endpoint de
+   refresh vizinho. Corrigido com `TYPE_INVALID_EMAIL_CONFIRMATION_TOKEN`
+   novo, achado ao revisar a rota antes de escrever o teste de API.
+
+Nenhum dos três chegou a ser mergeado — todos foram achados e corrigidos
+dentro desta mesma sessão, antes do PR.
+
+### ADR e decisões técnicas
+
+- **ADR-0068** (provedor de e-mail, critério 1+3+4 do
+  `docs/adr/README.md`): Resend, com `ConsoleEmailSender` como default de
+  custo zero. **Limitação registrada, não escondida**: sem domínio
+  verificado, o sandbox do Resend só entrega para o e-mail da própria conta
+  — o clique de confirmação de um aluno real não pode ser testado ponta a
+  ponta até o CARD-055 (domínio). O mecanismo (geração/hash/expiração/
+  revogação de token) está testado inteiramente sem depender disso.
+- **PENDENTE DE REVISÃO HUMANA**: `RESEND_API_KEY` não existe no `.env`
+  desta sessão (CLAUDE.md: não lidar com segredo real em modo autônomo) —
+  `EMAIL_PROVIDER` fica em `console` até o desenvolvedor criar a conta
+  Resend e decidir se/quando verificar um domínio.
+- Alvo de tradução do login social ficou fora deste card por decisão do
+  desenvolvedor (P2 acima) — CARD-060 criado.
+- Nenhum outro ADR além do 0068: PyJWT/argon2-cffi já estavam decididos pelo
+  ADR-0007 (só entraram no `pyproject.toml` e nas listas `forbidden`).
+
+### Gates
+
+`uv run ruff format/check`, `mypy`, `lint-imports` — verdes. `pytest --cov`:
+94% global (gate 80%), **99% no núcleo `domain`+`application`** (gate 90%).
+Suíte de auth: 11 testes de rota (incluindo os dois fluxos completos —
+registro→confirmação→login→refresh com reuso→logout, e
+esqueci-minha-senha→reset→sessões antigas mortas), 6 de persistência contra
+Postgres real, ~35 de domínio/application/adapter.
+
+### Pendências reais para quem revisar
+
+- Conta Resend e `RESEND_API_KEY` (acima).
+- `criar_turn`/`criar_sessao` agora exigem token real — **o app mobile
+  quebra até o CARD-050** existir. Foi a decisão explícita da P1.
+- Recuperação de senha não tem UI nenhuma ainda (o e-mail carrega o token
+  como texto/query string, não um formulário) — trabalho de cliente,
+  CARD-050/052.
