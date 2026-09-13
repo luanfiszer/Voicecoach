@@ -54,9 +54,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
-from zoneinfo import ZoneInfo
 
 from voicecoach.application.ports.repositories import ConflictingWriteError
+from voicecoach.application.quota_window import janela_diaria
 from voicecoach.application.result import Err, Ok, Result
 from voicecoach.domain.media_keys import input_key
 
@@ -73,26 +73,6 @@ if TYPE_CHECKING:
     )
     from voicecoach.application.ports.service_budget import ServiceBudget
     from voicecoach.application.ports.turn_queue import TurnQueue
-
-# A mesma zona da cota diária (ADR-0063): "hoje" é o calendário de Brasília, a
-# promessa que a tela faz ("renova às 00:00, horário de Brasília") — não o
-# UTC em que o banco grava `occurred_at`. Duplicada em `redis_service_budget`
-# (adapter, camada diferente) de propósito: `application` não importa
-# `adapters`, e uma constante de fuso não justifica um módulo `domain` novo só
-# para ser compartilhada.
-_FUSO_DA_COTA = ZoneInfo("America/Sao_Paulo")
-
-
-def _janela_diaria(agora: datetime) -> tuple[datetime, datetime]:
-    """``[meia-noite de hoje, meia-noite de amanhã)`` no fuso da cota.
-
-    Meio-aberta como o `totals_for_student` exige — e como todo o resto do
-    projeto que soma por janela (ADR-0051).
-    """
-    inicio = agora.astimezone(_FUSO_DA_COTA).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
-    return inicio, inicio + timedelta(days=1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,7 +227,7 @@ class StartTurnHandler:
         if await self._budget.is_exceeded(when=agora):
             return Err(ServiceBudgetExceeded())
 
-        inicio_do_dia, inicio_de_amanha = _janela_diaria(agora)
+        inicio_do_dia, inicio_de_amanha = janela_diaria(agora)
         consumo = await self._usage.totals_for_student(
             session.student_id, since=inicio_do_dia, until=inicio_de_amanha
         )

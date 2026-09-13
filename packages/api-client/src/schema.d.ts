@@ -82,6 +82,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/students/me/quota": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * O saldo de cota e o estado do serviço, como leitura
+         * @description Nunca recusa (RNF1): kill switch ativo ou cota estourada respondem
+         *     `200` — é a tela que EXPLICA a parede, e ela não pode estar atrás dela.
+         */
+        get: operations["ler_cota_v1_students_me_quota_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/turns": {
         parameters: {
             query?: never;
@@ -172,6 +193,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * BlockedReason
+         * @description Por que o aluno não pode falar AGORA — nunca por quê em dólares (RF4).
+         *
+         *     ``DAILY_MINUTES`` é o caso comum, e a tela já tem a barra para ele. Os
+         *     outros dois são os que RF3/RF5 pedem para não caírem na mesma mensagem:
+         *     ``MANY_SHORT_TURNS`` é o teto de turns mordendo com minutos sobrando, e
+         *     ``SERVICE_PAUSED`` é o kill switch — um fato do PRODUTO, não do aluno.
+         * @enum {string}
+         */
+        BlockedReason: "daily_minutes" | "many_short_turns" | "service_paused";
         /** Body_criar_turn_v1_sessions__session_id__turns_post */
         Body_criar_turn_v1_sessions__session_id__turns_post: {
             /**
@@ -345,6 +377,32 @@ export interface components {
              * @constant
              */
             status: "alive";
+        };
+        /** QuotaStatusResponse */
+        QuotaStatusResponse: {
+            /**
+             * Spoken Seconds
+             * @description Falado hoje, na janela da cota.
+             */
+            spoken_seconds: number;
+            /**
+             * Quota Spoken Seconds
+             * @description O teto comunicado ao aluno.
+             */
+            quota_spoken_seconds: number;
+            /**
+             * Resets At
+             * Format: date-time
+             * @description Instante absoluto da virada — o MESMO do `retry_after` do 429 de cota (mesma fonte, ADR-0063).
+             */
+            resets_at: string;
+            /**
+             * Service Available
+             * @description `false` quando o kill switch do orçamento está ativo.
+             */
+            service_available: boolean;
+            /** @description Por que o aluno não pode falar agora, sem expor mecânica de custo. `null` quando ele pode. */
+            blocked_reason?: components["schemas"]["BlockedReason"] | null;
         };
         /**
          * ReadinessResponse
@@ -708,6 +766,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ler_cota_v1_students_me_quota_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaStatusResponse"];
                 };
             };
         };

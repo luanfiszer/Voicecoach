@@ -124,6 +124,28 @@
         }
       }
     },
+    "/v1/students/me/quota": {
+      "get": {
+        "tags": [
+          "students"
+        ],
+        "summary": "O saldo de cota e o estado do servi\u00e7o, como leitura",
+        "description": "Nunca recusa (RNF1): kill switch ativo ou cota estourada respondem\n`200` \u2014 \u00e9 a tela que EXPLICA a parede, e ela n\u00e3o pode estar atr\u00e1s dela.",
+        "operationId": "ler_cota_v1_students_me_quota_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/sessions/{session_id}/turns": {
       "post": {
         "tags": [
@@ -300,6 +322,16 @@
   },
   "components": {
     "schemas": {
+      "BlockedReason": {
+        "type": "string",
+        "enum": [
+          "daily_minutes",
+          "many_short_turns",
+          "service_paused"
+        ],
+        "title": "BlockedReason",
+        "description": "Por que o aluno n\u00e3o pode falar AGORA \u2014 nunca por qu\u00ea em d\u00f3lares (RF4).\n\n``DAILY_MINUTES`` \u00e9 o caso comum, e a tela j\u00e1 tem a barra para ele. Os\noutros dois s\u00e3o os que RF3/RF5 pedem para n\u00e3o ca\u00edrem na mesma mensagem:\n``MANY_SHORT_TURNS`` \u00e9 o teto de turns mordendo com minutos sobrando, e\n``SERVICE_PAUSED`` \u00e9 o kill switch \u2014 um fato do PRODUTO, n\u00e3o do aluno."
+      },
       "Body_criar_turn_v1_sessions__session_id__turns_post": {
         "properties": {
           "audio": {
@@ -532,6 +564,50 @@
         "type": "object",
         "title": "LivenessResponse",
         "description": "Resposta de ``GET /health``."
+      },
+      "QuotaStatusResponse": {
+        "properties": {
+          "spoken_seconds": {
+            "type": "number",
+            "title": "Spoken Seconds",
+            "description": "Falado hoje, na janela da cota."
+          },
+          "quota_spoken_seconds": {
+            "type": "number",
+            "title": "Quota Spoken Seconds",
+            "description": "O teto comunicado ao aluno."
+          },
+          "resets_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Resets At",
+            "description": "Instante absoluto da virada \u2014 o MESMO do `retry_after` do 429 de cota (mesma fonte, ADR-0063)."
+          },
+          "service_available": {
+            "type": "boolean",
+            "title": "Service Available",
+            "description": "`false` quando o kill switch do or\u00e7amento est\u00e1 ativo."
+          },
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BlockedReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Por que o aluno n\u00e3o pode falar agora, sem expor mec\u00e2nica de custo. `null` quando ele pode."
+          }
+        },
+        "type": "object",
+        "required": [
+          "spoken_seconds",
+          "quota_spoken_seconds",
+          "resets_at",
+          "service_available"
+        ],
+        "title": "QuotaStatusResponse"
       },
       "ReadinessResponse": {
         "properties": {
