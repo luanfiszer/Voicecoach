@@ -3,7 +3,7 @@
 - **ID:** CARD-041
 - **Épico:** Qualidade da conversa (briefing 2026-09-09, ponto 3 — decisão pedagógica)
 - **Esforço:** M
-- **Status:** backlog
+- **Status:** bloqueado (2026-09-13) — ver "Execução" abaixo
 - **Dependências:** CARD-039, ADR-0059, ADR-0055
 
 ## Contexto
@@ -114,3 +114,52 @@ certa de uma fronteira que vai crescer — e a diferença prática entre
 de construtor ou parâmetro opcional: aqui a assinatura da porta **não muda mais
 nunca**, e quem lê o `StudentContext` é obrigado pelo `mypy` a tratar a ausência
 em vez de receber um default silencioso.
+
+## Execução (2026-09-13, loop autônomo) — BLOQUEADO, decisão de produto
+
+**Não implementado.** Achei uma contradição entre duas decisões já commitadas
+que não sou eu quem deve resolver — nenhuma das duas é um dado técnico; as
+duas são escolha de produto sobre a experiência do aluno.
+
+**O conflito, com precisão:**
+
+- Este card (CARD-041, decisão de produto de 2026-09-09) pede que a fala em
+  português **chegue ao professor**, que a trata pedagogicamente — "ensina a
+  dizer aquilo em inglês, em vez de fingir que ouviu inglês".
+- O CARD-040 (mesclado em 2026-09-13, portanto **depois** deste card ter sido
+  escrito) revisou o ADR-0057 e fez `avaliar_transcricao`
+  (`process_turn.py:180`) **rejeitar** todo turn com
+  `transcript.language != "en"` — português incluído — com
+  `RejectionReason.NOT_ENGLISH`, **antes** de qualquer chamada ao professor.
+  Essa mudança foi decidida com o desenvolvedor durante a execução do
+  CARD-040, mas sem revisitar este card, que ficou com a premissa
+  desatualizada.
+
+**Por que isto bloqueia, e não é decisão que eu deva tomar sozinho:** com o
+código de `main` hoje, o mecanismo que este card pede para construir (bloco
+de contexto no prompt do professor, disparado por `spoken_language == "pt"`)
+**nunca dispararia** — o turn já foi cortado na etapa anterior do pipeline.
+Implementar mesmo assim seria escrever uma instrução de prompt morta, e
+"decidir sozinho qual das duas ADRs perde" mudaria de forma direta e visível
+o que o aluno recebe (uma tela de "não entendi, você não falou inglês" contra
+uma resposta pedagógica do professor) — exatamente o tipo de escolha que a
+regra do explicador existe para não deixar o agente fazer no escuro.
+
+**O que falta, para o desenvolvedor decidir (não é dado que eu possa gerar):**
+
+1. **Português continua sendo `NOT_ENGLISH`** (revoga a premissa deste card;
+   ele fecha como "superado pelo ADR-0057 revisado", com uma nota no
+   ADR-0059 registrando a mudança de rumo) — ou
+2. **`NOT_ENGLISH` passa a ter uma exceção para português especificamente**
+   (ex.: só `pt` chega ao professor com o bloco de contexto deste card;
+   qualquer outro idioma detectado continua sendo recusado) — o que exige
+   reabrir o ADR-0057 com uma nova alternativa, não só implementar este card
+   como está escrito.
+
+Nenhuma das duas é reversível de graça depois de estar em produção (a
+primeira descarta o mecanismo pedagógico já decidido em 2026-09-09; a segunda
+muda o contrato de recusa que o CARD-040 acabou de fechar) — por isso não
+escolhi a "mais conservadora" sozinho: aqui as duas alternativas têm ADR
+próprio e nenhuma é claramente mais reversível que a outra.
+
+**Seguindo para o próximo card da fila (CARD-044) sem tocar mais neste.**
