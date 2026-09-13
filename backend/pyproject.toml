@@ -70,6 +70,16 @@ dependencies = [
     #   verificado com o dry-run: `starlette` ficou em 1.6.0.
     "sse-starlette>=3.4",
     "python-multipart>=0.0.20",
+    # CARD-049 (ADR-0007): a auth escrita à mão que o ADR já escolheu.
+    #   argon2-cffi — argon2id para hash de senha. Bindings CFFI sobre a
+    #                 implementação C de referência (a que a Password Hashing
+    #                 Competition escolheu), não uma reimplementação Python.
+    #   PyJWT       — access token JWT (HS256). Sem dependência de framework
+    #                 web embutida, ao contrário de `python-jose` (que traz
+    #                 `pyasn1`/`ecdsa` para curvas que este projeto não usa —
+    #                 HS256 é HMAC puro, sem curva nenhuma).
+    "argon2-cffi>=23.1",
+    "pyjwt>=2.9",
 ]
 
 # `mlx-whisper` é dependência OPCIONAL, não base (ADR-0027, item 4): ela só
@@ -333,6 +343,13 @@ forbidden_modules = [
     "sse_starlette",
     "multipart",
     "python_multipart",
+    # Auth entra no CARD-049 (ADR-0007). As portas `PasswordHasher` e
+    # `AccessTokenIssuer` moram em `application` e são exatamente onde as
+    # duas tentariam vazar: bastaria tipar um método com o tipo nativo da
+    # biblioteca. `jwt` é o nome do módulo que o PyJWT instala (o pacote no
+    # PyPI é `pyjwt`, o import é `jwt` — a mesma armadilha da Q8).
+    "argon2",
+    "jwt",
 ]
 
 [[tool.importlinter.contracts]]
@@ -405,6 +422,13 @@ forbidden_modules = [
     "sse_starlette",
     "multipart",
     "python_multipart",
+    # Auth entra no CARD-049 (ADR-0007). As portas `PasswordHasher` e
+    # `AccessTokenIssuer` moram em `application` e são exatamente onde as
+    # duas tentariam vazar: bastaria tipar um método com o tipo nativo da
+    # biblioteca. `jwt` é o nome do módulo que o PyJWT instala (o pacote no
+    # PyPI é `pyjwt`, o import é `jwt` — a mesma armadilha da Q8).
+    "argon2",
+    "jwt",
 ]
 
 # `voicecoach.config` mora fora das cinco camadas (ADR-0013), então o contrato

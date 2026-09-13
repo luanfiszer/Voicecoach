@@ -29,6 +29,10 @@ from sqlalchemy.orm import selectinload
 from voicecoach.adapters.persistence import mappers
 from voicecoach.adapters.persistence.models import (
     CorrectionRow,
+    CredentialRow,
+    EmailVerificationTokenRow,
+    PasswordResetTokenRow,
+    RefreshTokenRow,
     SessionRow,
     StudentRow,
     TranslationRow,
@@ -50,6 +54,12 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from voicecoach.domain.auth import (
+        Credential,
+        EmailVerificationToken,
+        PasswordResetToken,
+        RefreshToken,
+    )
     from voicecoach.domain.session import Session, SessionDigest
     from voicecoach.domain.student import Student
     from voicecoach.domain.translation import Translation, TranslationTarget
@@ -69,6 +79,145 @@ class SqlAlchemyStudentRepository:
     async def get(self, student_id: UUID) -> Student | None:
         row = await self._session.get(StudentRow, student_id)
         return None if row is None else mappers.student_from_row(row)
+
+
+class SqlAlchemyCredentialRepository:
+    """Implementa ``application.ports.auth_repositories.CredentialRepository``."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, credential: Credential) -> None:
+        self._session.add(mappers.credential_to_row(credential))
+
+    async def get_by_email(self, email: str) -> Credential | None:
+        stmt = select(CredentialRow).where(CredentialRow.email == email)
+        row = (await self._session.execute(stmt)).scalar_one_or_none()
+        return None if row is None else mappers.credential_from_row(row)
+
+    async def get_by_student_id(self, student_id: UUID) -> Credential | None:
+        stmt = select(CredentialRow).where(CredentialRow.student_id == student_id)
+        row = (await self._session.execute(stmt)).scalar_one_or_none()
+        return None if row is None else mappers.credential_from_row(row)
+
+    async def mark_email_verified(self, student_id: UUID, when: datetime) -> None:
+        stmt = (
+            update(CredentialRow)
+            .where(CredentialRow.student_id == student_id)
+            .values(email_verified_at=when)
+        )
+        await self._session.execute(stmt)
+
+    async def update_password_hash(self, student_id: UUID, password_hash: str) -> None:
+        stmt = (
+            update(CredentialRow)
+            .where(CredentialRow.student_id == student_id)
+            .values(password_hash=password_hash)
+        )
+        await self._session.execute(stmt)
+
+
+class SqlAlchemyRefreshTokenRepository:
+    """Implementa ``application.ports.auth_repositories.RefreshTokenRepository``."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, token: RefreshToken) -> None:
+        self._session.add(mappers.refresh_token_to_row(token))
+
+    async def get_by_hash(self, token_hash: str) -> RefreshToken | None:
+        stmt = select(RefreshTokenRow).where(RefreshTokenRow.token_hash == token_hash)
+        row = (await self._session.execute(stmt)).scalar_one_or_none()
+        return None if row is None else mappers.refresh_token_from_row(row)
+
+    async def mark_revoked(self, token_id: UUID, when: datetime) -> None:
+        stmt = (
+            update(RefreshTokenRow)
+            .where(RefreshTokenRow.id == token_id)
+            .values(revoked_at=when)
+        )
+        await self._session.execute(stmt)
+
+    async def revoke_family(self, family_id: UUID, when: datetime) -> None:
+        """Revoga todos os elos VIVOS da família — a detecção de reuso do ADR-0007.
+
+        ``revoked_at.is_(None)`` no ``WHERE`` é o que preserva o instante
+        original de cada revogação anterior: sem ele, um reuso detectado
+        pisaria no ``revoked_at`` de um elo que já tinha sido rotacionado
+        normalmente antes, trocando "quando" por "agora" sem motivo.
+        """
+        stmt = (
+            update(RefreshTokenRow)
+            .where(
+                RefreshTokenRow.family_id == family_id,
+                RefreshTokenRow.revoked_at.is_(None),
+            )
+            .values(revoked_at=when)
+        )
+        await self._session.execute(stmt)
+
+    async def revoke_all_for_student(self, student_id: UUID, when: datetime) -> None:
+        """Troca de senha desloga tudo — todas as famílias, não só uma."""
+        stmt = (
+            update(RefreshTokenRow)
+            .where(
+                RefreshTokenRow.student_id == student_id,
+                RefreshTokenRow.revoked_at.is_(None),
+            )
+            .values(revoked_at=when)
+        )
+        await self._session.execute(stmt)
+
+
+class SqlAlchemyEmailVerificationTokenRepository:
+    """Implementa ``EmailVerificationTokenRepository`` (``ports/auth_repositories``)."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, token: EmailVerificationToken) -> None:
+        self._session.add(mappers.verification_token_to_row(token))
+
+    async def get_by_hash(self, token_hash: str) -> EmailVerificationToken | None:
+        stmt = select(EmailVerificationTokenRow).where(
+            EmailVerificationTokenRow.token_hash == token_hash
+        )
+        row = (await self._session.execute(stmt)).scalar_one_or_none()
+        return None if row is None else mappers.verification_token_from_row(row)
+
+    async def mark_used(self, token_id: UUID, when: datetime) -> None:
+        stmt = (
+            update(EmailVerificationTokenRow)
+            .where(EmailVerificationTokenRow.id == token_id)
+            .values(used_at=when)
+        )
+        await self._session.execute(stmt)
+
+
+class SqlAlchemyPasswordResetTokenRepository:
+    """Implementa ``PasswordResetTokenRepository`` (``ports/auth_repositories``)."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, token: PasswordResetToken) -> None:
+        self._session.add(mappers.password_reset_token_to_row(token))
+
+    async def get_by_hash(self, token_hash: str) -> PasswordResetToken | None:
+        stmt = select(PasswordResetTokenRow).where(
+            PasswordResetTokenRow.token_hash == token_hash
+        )
+        row = (await self._session.execute(stmt)).scalar_one_or_none()
+        return None if row is None else mappers.password_reset_token_from_row(row)
+
+    async def mark_used(self, token_id: UUID, when: datetime) -> None:
+        stmt = (
+            update(PasswordResetTokenRow)
+            .where(PasswordResetTokenRow.id == token_id)
+            .values(used_at=when)
+        )
+        await self._session.execute(stmt)
 
 
 class SqlAlchemySessionRepository:

@@ -14,10 +14,29 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from fakes_api import AGORA, TURN_ID, Fakes
+from fakes_api import AGORA, ALUNO, TURN_ID, Fakes
 from voicecoach.api import dependencies as deps
 from voicecoach.api.app import create_app
 from voicecoach.config import Settings
+
+
+@pytest.fixture(autouse=True)
+def _jwt_secret_para_testes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``jwt_secret`` é obrigatório (CARD-049), como ``anthropic_api_key`` já
+    era — mas, ao contrário dele, dezenas de `Settings(...)` espalhados pelos
+    testes de outros cards não o declaram (não tinham por quê, na época).
+
+    **`autouse` em vez de editar cada construção.** Uma variável de ambiente
+    entra na precedência do pydantic-settings ANTES do default declarado —
+    ver o docstring de `config.py` — então isto cobre todo `Settings(...)`
+    do processo de teste sem tocar em nenhum deles. A alternativa (acrescentar
+    `jwt_secret="..."` em cada um) espalharia um detalhe de UM card por
+    arquivos de oito cards diferentes que não têm nada a ver com auth.
+    """
+    monkeypatch.setenv(
+        "JWT_SECRET",
+        "test-jwt-secret-0123456789abcdef",  # gitleaks:allow
+    )
 
 
 @pytest.fixture
@@ -71,6 +90,19 @@ def app(settings: Settings, fakes: Fakes) -> Iterator[FastAPI]:
             deps.rate_limiter: lambda: fakes.rate_limiter,
             deps.translation_repository: lambda: fakes.translations,
             deps.translator: lambda: fakes.translator,
+            # CARD-049: ALUNO é quem a maioria das rotas espera encontrar —
+            # os testes de auth de verdade (`test_auth.py`) NÃO usam este
+            # fixture de rota; eles chamam os handlers direto, com os fakes
+            # crus. `credential_repository` vem com ALUNO já verificado
+            # (ver `Fakes.__init__`), então `enforce_verified_email` não
+            # bloqueia os testes que não são sobre isso.
+            deps.requesting_student_id: lambda: ALUNO,
+            deps.student_repository: lambda: fakes.students,
+            deps.credential_repository: lambda: fakes.credentials,
+            deps.refresh_token_repository: lambda: fakes.refresh_tokens,
+            deps.email_verification_token_repository: lambda: fakes.verification_tokens,
+            deps.password_reset_token_repository: lambda: fakes.password_reset_tokens,
+            deps.email_sender: lambda: fakes.email_sender,
         }
     )
     yield aplicacao

@@ -27,9 +27,15 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from fakes_pipeline import (
+    FakeCredentialRepository,
+    FakeEmailSender,
+    FakeEmailVerificationTokenRepository,
     FakeMediaStorage,
+    FakePasswordResetTokenRepository,
+    FakeRefreshTokenRepository,
     FakeServiceBudget,
     FakeSessionRepository,
+    FakeStudentRepository,
     FakeTranslationRepository,
     FakeTranslator,
     FakeTurnEvents,
@@ -37,6 +43,7 @@ from fakes_pipeline import (
     FakeUnitOfWork,
     FakeUsageEventRepository,
 )
+from voicecoach.domain.auth import Credential
 from voicecoach.domain.session import Session
 from voicecoach.domain.turn import Turn
 
@@ -96,6 +103,26 @@ class Fakes:
         # sobre tradução ajustam os dois pelo `fakes`.
         self.translations = FakeTranslationRepository()
         self.translator = FakeTranslator()
+        # CARD-049: e-mail verificado por padrão para ALUNO — os testes que
+        # não são sobre auth continuam passando sem precisar registrar uma
+        # credencial; os testes de `enforce_verified_email` desverificam
+        # explicitamente. Mesma disciplina de "permissivo por padrão" do
+        # `rate_limiter`/`budget` (ADR-0063).
+        self.students = FakeStudentRepository()
+        self.credentials = FakeCredentialRepository(
+            Credential(
+                id=uuid4(),
+                student_id=ALUNO,
+                email="aluno@example.com",
+                password_hash="$argon2id$fake$para-testes-que-nao-sao-de-login",
+                created_at=AGORA,
+                email_verified_at=AGORA,
+            )
+        )
+        self.refresh_tokens = FakeRefreshTokenRepository()
+        self.verification_tokens = FakeEmailVerificationTokenRepository()
+        self.password_reset_tokens = FakePasswordResetTokenRepository()
+        self.email_sender = FakeEmailSender()
 
     async def enqueue(self, turn_id: UUID) -> None:
         self.enfileirados.append(turn_id)

@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING
 import redis.asyncio as redis
 from arq.connections import RedisSettings, create_pool
 
+from voicecoach.adapters.email.factory import create_email_sender
 from voicecoach.adapters.llm.factory import create_translator
 from voicecoach.adapters.persistence.engine import (
     create_engine,
@@ -94,6 +95,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # fecha o transporte quando é coletado, e não há thread pool próprio como
     # no storage.
     app.state.translator = create_translator(settings)
+
+    # O e-mail transacional (CARD-049, ADR-0068): mesmo raciocínio do
+    # tradutor — o cliente HTTP do adapter Resend tem pool próprio, e
+    # construí-lo por request abriria um pool novo a cada cadastro.
+    app.state.email_sender = create_email_sender(settings)
 
     try:
         yield

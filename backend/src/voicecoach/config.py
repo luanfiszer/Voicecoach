@@ -117,6 +117,17 @@ class SttProvider(StrEnum):
     OPENAI = "openai"
 
 
+class EmailProvider(StrEnum):
+    """Qual adapter de e-mail transacional o processo usa (ADR-0068).
+
+    Sem ``auto``, ao contrário do STT: não há "plataforma" que decida — a
+    escolha é sempre explícita, e o default é o de custo zero.
+    """
+
+    CONSOLE = "console"
+    RESEND = "resend"
+
+
 class TtsProvider(StrEnum):
     """Qual motor de voz o processo usa (ADR do CARD-008).
 
@@ -545,6 +556,68 @@ class Settings(BaseSettings):
     turn_rate_limit_window: timedelta = timedelta(minutes=1)
     turn_rate_limit_per_student: int = Field(default=20, gt=0)
     turn_rate_limit_per_ip: int = Field(default=60, gt=0)
+
+    # --- Auth: e-mail+senha, JWT, refresh rotativo (ADR-0007, CARD-049) ------
+    # Segredo obrigatório, como o `anthropic_api_key`: sem ele, `PyJWT` não tem
+    # o que assinar, e um default aqui (mesmo "aleatório") viraria o segredo
+    # real de quem nunca gerou o próprio — o pior tipo de default, porque
+    # parece seguro. Gerar um:
+    #   python -c "import secrets; print(secrets.token_urlsafe(32))"
+    jwt_secret: str = Field(min_length=32)
+
+    # 15 min — o número que o ADR-0007 escolheu e cujo trade-off ele aceitou
+    # por escrito: até este tempo de token válido depois de uma revogação.
+    access_token_ttl: timedelta = timedelta(minutes=15)
+
+    # 30 dias — "sessão longa, sem redigitar senha" (ADR-0007, contexto
+    # mobile). Cada refresh rotaciona para um par novo com o MESMO prazo a
+    # partir de agora; a família só morre por logout ou reuso detectado.
+    refresh_token_ttl: timedelta = timedelta(days=30)
+
+    # 24h para confirmar o e-mail. Maior que o TTL de tradução/professor
+    # porque quem confirma é um humano lendo a caixa de entrada, não um
+    # cliente automatizado — folga de sobra para "vi o e-mail à noite".
+    email_verification_ttl: timedelta = timedelta(hours=24)
+
+    # 1h para "esqueci minha senha" — mais curto que a confirmação de e-mail
+    # de propósito (prática comum de reset de senha): a janela de um link que
+    # troca a senha e desloga tudo merece ser mais estreita que a de um link
+    # que só confirma posse do e-mail.
+    password_reset_ttl: timedelta = timedelta(hours=1)
+
+    # Rate limit de auth (item "Endpoint" do CARD-049 — estimativas
+    # declaradas, recalibradas por métrica, mesma disciplina do CARD-063).
+    # Login por IP E por e-mail: o segundo é o que impede varredura de senha
+    # contra UMA conta-alvo, que o limite por IP sozinho não pega (um
+    # atacante distribuído por IP ainda bate na mesma conta).
+    auth_rate_limit_window: timedelta = timedelta(minutes=1)
+    login_rate_limit_per_ip: int = Field(default=10, gt=0)
+    login_rate_limit_per_email: int = Field(default=5, gt=0)
+    # Janela maior e teto menor: registro é mais raro que login por natureza,
+    # e cada um custa um hash argon2id (~50-100ms de CPU) mesmo no caminho
+    # "e-mail já existe" — um IP em loop aqui é o ataque de negação de
+    # serviço mais barato de montar contra este endpoint específico.
+    register_rate_limit_window: timedelta = timedelta(hours=1)
+    register_rate_limit_per_ip: int = Field(default=3, gt=0)
+
+    # --- E-mail transacional (ADR-0068) ---------------------------------------
+    # `console` é o default de custo zero (ADR-0010): escreve o link no log do
+    # processo. `resend` exige `RESEND_API_KEY` — sem ela, o boot recusa
+    # (`adapters/email/factory.py`), nunca cai para o console em silêncio.
+    email_provider: EmailProvider = EmailProvider.CONSOLE
+    resend_api_key: str | None = None
+    # O remetente sandbox do Resend, usável SEM verificar domínio — mas só
+    # entrega para o e-mail da própria conta Resend (ADR-0068, limitação
+    # registrada). Trocar exige um domínio verificado (CARD-055).
+    resend_from_email: str = "Voicecoach <onboarding@resend.dev>"
+    email_timeout_seconds: float = Field(default=10.0, gt=0)
+
+    # O host que entra no link de confirmação. Default de desenvolvimento
+    # (mesma URL que `apiBaseUrl` resolveria numa LAN) — em produção
+    # (CARD-055/038) isto passa a ser o domínio público, e é o mesmo tipo de
+    # campo que `s3_public_endpoint_url` já modela: "o host que quem está de
+    # FORA do processo precisa alcançar", não o host que o processo escuta.
+    public_api_base_url: str = "http://localhost:8000"
 
     # --- Infraestrutura local (ADR-0004 / 0005 / 0006) -----------------------
     # Estas TÊM default porque o docker-compose.yml deste repositório é quem as

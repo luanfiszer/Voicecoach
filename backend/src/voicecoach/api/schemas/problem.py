@@ -46,6 +46,15 @@ TYPE_TURN_ALREADY_COMPLETED = f"{BASE}:turn-already-completed"
 # CARD-036: o recurso existe, mas aquele texto ainda não — o cliente mostra o
 # original em vez de tratar como erro.
 TYPE_NOTHING_TO_TRANSLATE = f"{BASE}:nothing-to-translate"
+# CARD-049 (ADR-0007): quatro desfechos de auth, quatro URNs — o cliente
+# distingue "sem token"/"token ruim" (401, tela de login) de "e-mail não
+# confirmado" (403, tela própria) sem comparar `detail`.
+TYPE_UNAUTHENTICATED = f"{BASE}:unauthenticated"
+TYPE_INVALID_CREDENTIALS = f"{BASE}:invalid-credentials"
+TYPE_INVALID_REFRESH_TOKEN = f"{BASE}:invalid-refresh-token"
+TYPE_EMAIL_NOT_VERIFIED = f"{BASE}:email-not-verified"
+TYPE_INVALID_EMAIL_CONFIRMATION_TOKEN = f"{BASE}:invalid-email-confirmation-token"
+TYPE_INVALID_PASSWORD_RESET_TOKEN = f"{BASE}:invalid-password-reset-token"
 
 
 class ProblemDetails(BaseModel):

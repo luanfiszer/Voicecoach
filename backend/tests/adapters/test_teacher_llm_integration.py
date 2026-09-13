@@ -48,7 +48,14 @@ HISTORICO = [
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(anthropic_api_key=os.environ["ANTHROPIC_API_KEY"])
+    return Settings(
+        anthropic_api_key=os.environ["ANTHROPIC_API_KEY"],
+        # Fixture de teste, não segredo real (gitleaks: heurística genérica).
+        jwt_secret=os.environ.get(
+            "JWT_SECRET",
+            "test-jwt-secret-0123456789abcdef",  # gitleaks:allow
+        ),
+    )
 
 
 async def test_professor_real_responde_em_cascata(settings: Settings) -> None:

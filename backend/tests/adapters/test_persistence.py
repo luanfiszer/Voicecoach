@@ -33,6 +33,10 @@ from voicecoach.adapters.persistence.engine import (
 )
 from voicecoach.adapters.persistence.mappers import StaleTurnError
 from voicecoach.adapters.persistence.repositories import (
+    SqlAlchemyCredentialRepository,
+    SqlAlchemyEmailVerificationTokenRepository,
+    SqlAlchemyPasswordResetTokenRepository,
+    SqlAlchemyRefreshTokenRepository,
     SqlAlchemySessionRepository,
     SqlAlchemyStudentRepository,
     SqlAlchemyTranslationRepository,
@@ -44,6 +48,12 @@ from voicecoach.adapters.persistence.seed import (
     DEV_STUDENT_ID,
 )
 from voicecoach.adapters.persistence.unit_of_work import SqlAlchemyUnitOfWork
+from voicecoach.application.ports.auth_repositories import (
+    CredentialRepository,
+    EmailVerificationTokenRepository,
+    PasswordResetTokenRepository,
+    RefreshTokenRepository,
+)
 from voicecoach.application.ports.repositories import (
     ConflictingWriteError,
     RowNotFoundError,
@@ -53,6 +63,12 @@ from voicecoach.application.ports.repositories import (
     TurnRepository,
     UnitOfWork,
     UsageEventRepository,
+)
+from voicecoach.domain.auth import (
+    Credential,
+    EmailVerificationToken,
+    PasswordResetToken,
+    RefreshToken,
 )
 from voicecoach.domain.correction import Correction, CorrectionType, Severity
 from voicecoach.domain.session import Session
@@ -1769,3 +1785,262 @@ async def test_list_inactive_devolve_as_mais_antigas_primeiro_e_respeita_o_lote(
     )
 
     assert candidatas == [mais_velha.id, do_meio.id]
+
+
+# --- Auth: credentials, refresh_tokens, email_verification_tokens (CARD-049) -
+
+
+async def test_credential_faz_roundtrip_por_email_e_por_student_id(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    student, _sessao = aluno_isolado
+    repository: CredentialRepository = SqlAlchemyCredentialRepository(db_session)
+    credencial = Credential(
+        id=uuid4(),
+        student_id=student.id,
+        email=f"{student.id}@example.com",
+        password_hash="$argon2id$fake$para-teste",
+        created_at=NOW,
+    )
+
+    await repository.add(credencial)
+    await db_session.commit()
+
+    por_email = await repository.get_by_email(credencial.email)
+    por_student = await repository.get_by_student_id(student.id)
+    assert por_email == credencial
+    assert por_student == credencial
+
+
+async def test_credential_email_duplicado_e_recusado(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    student, _sessao = aluno_isolado
+    outro = Student(id=uuid4(), display_name="Outro aluno", created_at=NOW)
+    students: StudentRepository = SqlAlchemyStudentRepository(db_session)
+    await students.add(outro)
+    await db_session.commit()
+
+    repository: CredentialRepository = SqlAlchemyCredentialRepository(db_session)
+    email_compartilhado = f"{student.id}@example.com"
+    await repository.add(
+        Credential(
+            id=uuid4(),
+            student_id=student.id,
+            email=email_compartilhado,
+            password_hash="hash-1",
+            created_at=NOW,
+        )
+    )
+    await db_session.commit()
+
+    await repository.add(
+        Credential(
+            id=uuid4(),
+            student_id=outro.id,
+            email=email_compartilhado,
+            password_hash="hash-2",
+            created_at=NOW,
+        )
+    )
+    uow: UnitOfWork = SqlAlchemyUnitOfWork(db_session)
+    with pytest.raises(ConflictingWriteError):
+        await uow.commit()
+
+
+async def test_mark_email_verified_persiste(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    student, _sessao = aluno_isolado
+    repository: CredentialRepository = SqlAlchemyCredentialRepository(db_session)
+    credencial = Credential(
+        id=uuid4(),
+        student_id=student.id,
+        email=f"{student.id}@example.com",
+        password_hash="hash",
+        created_at=NOW,
+    )
+    await repository.add(credencial)
+    await db_session.commit()
+
+    await repository.mark_email_verified(student.id, NOW + timedelta(hours=1))
+    await db_session.commit()
+
+    relida = await repository.get_by_student_id(student.id)
+    assert relida is not None
+    assert relida.is_email_verified is True
+
+
+async def test_refresh_token_faz_roundtrip_por_hash(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    student, _sessao = aluno_isolado
+    repository: RefreshTokenRepository = SqlAlchemyRefreshTokenRepository(db_session)
+    token = RefreshToken(
+        id=uuid4(),
+        student_id=student.id,
+        family_id=uuid4(),
+        token_hash=f"hash-{uuid4()}",
+        created_at=NOW,
+        expires_at=NOW + timedelta(days=30),
+    )
+
+    await repository.add(token)
+    await db_session.commit()
+
+    relido = await repository.get_by_hash(token.token_hash)
+    assert relido == token
+
+
+async def test_revoke_family_revoga_so_os_vivos_e_preserva_o_instante_anterior(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """A invariante central da detecção de reuso (ADR-0007), contra Postgres real."""
+    student, _sessao = aluno_isolado
+    repository: RefreshTokenRepository = SqlAlchemyRefreshTokenRepository(db_session)
+    familia = uuid4()
+    ja_revogado = RefreshToken(
+        id=uuid4(),
+        student_id=student.id,
+        family_id=familia,
+        token_hash=f"hash-a-{uuid4()}",
+        created_at=NOW,
+        expires_at=NOW + timedelta(days=30),
+        revoked_at=NOW + timedelta(minutes=5),
+    )
+    vivo = RefreshToken(
+        id=uuid4(),
+        student_id=student.id,
+        family_id=familia,
+        token_hash=f"hash-b-{uuid4()}",
+        created_at=NOW,
+        expires_at=NOW + timedelta(days=30),
+    )
+    await repository.add(ja_revogado)
+    await repository.add(vivo)
+    await db_session.commit()
+
+    await repository.revoke_family(familia, NOW + timedelta(hours=1))
+    await db_session.commit()
+
+    relido_antigo = await repository.get_by_hash(ja_revogado.token_hash)
+    relido_vivo = await repository.get_by_hash(vivo.token_hash)
+    assert relido_antigo is not None
+    assert relido_antigo.revoked_at == NOW + timedelta(minutes=5)
+    assert relido_vivo is not None
+    assert relido_vivo.revoked_at == NOW + timedelta(hours=1)
+
+
+async def test_email_verification_token_faz_roundtrip_e_mark_used(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    student, _sessao = aluno_isolado
+    repository: EmailVerificationTokenRepository = (
+        SqlAlchemyEmailVerificationTokenRepository(db_session)
+    )
+    token = EmailVerificationToken(
+        id=uuid4(),
+        student_id=student.id,
+        token_hash=f"hash-{uuid4()}",
+        created_at=NOW,
+        expires_at=NOW + timedelta(hours=24),
+    )
+    await repository.add(token)
+    await db_session.commit()
+
+    assert (await repository.get_by_hash(token.token_hash)) == token
+
+    await repository.mark_used(token.id, NOW + timedelta(minutes=10))
+    await db_session.commit()
+
+    relido = await repository.get_by_hash(token.token_hash)
+    assert relido is not None
+    assert relido.used_at == NOW + timedelta(minutes=10)
+
+
+async def test_password_reset_token_faz_roundtrip_e_mark_used(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    student, _sessao = aluno_isolado
+    repository: PasswordResetTokenRepository = SqlAlchemyPasswordResetTokenRepository(
+        db_session
+    )
+    token = PasswordResetToken(
+        id=uuid4(),
+        student_id=student.id,
+        token_hash=f"hash-{uuid4()}",
+        created_at=NOW,
+        expires_at=NOW + timedelta(hours=1),
+    )
+    await repository.add(token)
+    await db_session.commit()
+
+    assert (await repository.get_by_hash(token.token_hash)) == token
+
+    await repository.mark_used(token.id, NOW + timedelta(minutes=10))
+    await db_session.commit()
+
+    relido = await repository.get_by_hash(token.token_hash)
+    assert relido is not None
+    assert relido.used_at == NOW + timedelta(minutes=10)
+
+
+async def test_update_password_hash_persiste(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    student, _sessao = aluno_isolado
+    repository: CredentialRepository = SqlAlchemyCredentialRepository(db_session)
+    await repository.add(
+        Credential(
+            id=uuid4(),
+            student_id=student.id,
+            email=f"{student.id}@example.com",
+            password_hash="hash-antigo",
+            created_at=NOW,
+        )
+    )
+    await db_session.commit()
+
+    await repository.update_password_hash(student.id, "hash-novo")
+    await db_session.commit()
+
+    relida = await repository.get_by_student_id(student.id)
+    assert relida is not None
+    assert relida.password_hash == "hash-novo"
+
+
+async def test_revoke_all_for_student_revoga_duas_familias_diferentes(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """A invariante de troca de senha: TODAS as sessões, não só uma família."""
+    student, _sessao = aluno_isolado
+    repository: RefreshTokenRepository = SqlAlchemyRefreshTokenRepository(db_session)
+    familia_a = RefreshToken(
+        id=uuid4(),
+        student_id=student.id,
+        family_id=uuid4(),
+        token_hash=f"hash-a-{uuid4()}",
+        created_at=NOW,
+        expires_at=NOW + timedelta(days=30),
+    )
+    familia_b = RefreshToken(
+        id=uuid4(),
+        student_id=student.id,
+        family_id=uuid4(),
+        token_hash=f"hash-b-{uuid4()}",
+        created_at=NOW,
+        expires_at=NOW + timedelta(days=30),
+    )
+    await repository.add(familia_a)
+    await repository.add(familia_b)
+    await db_session.commit()
+
+    await repository.revoke_all_for_student(student.id, NOW + timedelta(minutes=1))
+    await db_session.commit()
+
+    relido_a = await repository.get_by_hash(familia_a.token_hash)
+    relido_b = await repository.get_by_hash(familia_b.token_hash)
+    assert relido_a is not None
+    assert relido_a.revoked_at is not None
+    assert relido_b is not None
+    assert relido_b.revoked_at is not None
