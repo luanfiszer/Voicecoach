@@ -3,8 +3,8 @@
 - **ID:** CARD-051
 - **Épico:** Lançamento na App Store (bloqueante de V1.0 — N4 do corte)
 - **Esforço:** M
-- **Status:** backlog
-- **Dependências:** CARD-049, CARD-050, CARD-017, ADR-0024
+- **Status:** concluído (2026-09-13)
+- **Dependências:** CARD-049, CARD-050, CARD-017, [ADR-0069](../adr/0069-delete-de-conta-conteudo-apaga-usageevent-sobrevive-anonimo.md)
 
 ## Contexto
 
@@ -121,3 +121,116 @@ seria um *soft delete* com um job de limpeza, com uma diferença que este caso
 torna concreta: aqui o dado não está só no banco, está num object storage com
 retenção própria, e "apagar" vira uma operação distribuída que precisa ser
 idempotente porque **vai** rodar duas vezes.
+
+## Execução (2026-09-13, loop autônomo)
+
+### A decisão que o card pedia por escrito — [ADR-0069](../adr/0069-delete-de-conta-conteudo-apaga-usageevent-sobrevive-anonimo.md)
+
+Ao ler o esquema real (não de memória, per LEARNING-0003), a tensão que o
+card nomeia ("apagar demais" vs. "apagar de menos") já estava resolvida **do
+jeito errado** no banco: `usage_events.turn_id` e `usage_events.student_id`
+tinham `ON DELETE CASCADE`, herdados de uma época em que nenhum turn e
+nenhuma conta jamais eram apagados (CARD-032 decidiu que "Descartar" não
+apaga nada). Este é o primeiro card que de fato executa um `DELETE` sobre
+`students`/`sessions`/`turns` — e o `CASCADE` existente apagaria a única
+fonte de verdade de custo (ADR-0051) junto com a conta.
+
+**Decidido (critério 4 do `adr/README.md` — privacidade e retenção; também
+toca o critério 2, altera a fronteira de FK que o CARD-014 fixou):**
+`UsageEvent` nunca é apagado por um delete de conta. `turn_id` perde a
+restrição de FK (a coluna e a PK continuam existindo — só deixam de ser
+*enforced* contra `turns`); `student_id` fica nulável com
+`ON DELETE SET NULL`, para que o banco anonimize a linha no mesmo instante
+em que apaga o `Student`, sem depender de um `UPDATE` que um job futuro
+poderia esquecer. Detalhe completo, alternativas e consequências: ADR-0069.
+
+### O que foi implementado
+
+- **`Student.deleted_at`** (domínio + migration `f3a1c9e4b7d2`) — a exclusão
+  lógica. `Student.is_active` deriva dele.
+- **`DeleteAccountHandler`** (`application/use_cases/delete_account.py`):
+  marca a conta e revoga TODAS as famílias de refresh
+  (`revoke_all_for_student`, já existente desde o CARD-049) na mesma
+  transação. `DELETE /v1/students/me` (204, rate limit 3/h por conta, próprio
+  do card — "ação única e irreversível").
+- **`requesting_student_id` deixou de ser 100% stateless** (ADR-0007 já
+  previa a exceção, sem nomeá-la): a partir deste card ela também consulta o
+  `Student` e recusa (401) se a conta não existir ou tiver `deleted_at`
+  preenchido. É o ÚNICO ponto por onde toda rota autenticada passa — a
+  checagem mora aqui, uma vez, para nenhuma rota (presente ou futura) poder
+  esquecê-la. `LoginStudentHandler` ganhou a mesma checagem (a credencial
+  sobrevive até o expurgo; sem ela, senha certa numa conta marcada ainda
+  logaria).
+- **`PurgeDeletedAccountsHandler`** (`application/use_cases/purge_deleted_accounts.py`)
+  — o expurgo físico, por **varredura periódica no worker** (`cron_jobs` do
+  `arq`, a cada 5 min, no segundo 45 — mesmo mecanismo de
+  `sweep_stale_turns`/`sweep_inactive_sessions`, CARD-025/034), não uma fila
+  de jobs por conta: o problema (idempotência, coordenação entre réplicas via
+  `job_id` determinístico, lote limitado) já estava resolvido e testado, e
+  nenhuma característica do expurgo pedia mecanismo diferente. Ordem por
+  conta: `turns` → `sessions` → storage (`MediaStorage.delete_prefix`, já
+  implementado desde o CARD-017/ADR-0024) → `Student`. Se o storage falhar
+  (`MediaStorageError`), a conta segue marcada e inacessível para a próxima
+  rodada — turns/sessions já apagados não reaparecem, e reexecutá-los é
+  `DELETE` de zero linhas (idempotente).
+- **`StudentRepository`** ganhou `mark_deleted`/`list_pending_purge`/`delete`;
+  `SessionRepository` e `TurnRepository` ganharam `delete_all_for_student`
+  (a ordem entre os dois é a garantia central — `sessions` não tem
+  `ON DELETE CASCADE` para `turns`, de propósito).
+- **Cliente:** `Cliente.excluirConta()` em `packages/api-client`; a tela de
+  Perfil (`apps/mobile/app/(tabs)/perfil.tsx`) ganhou o link "Excluir minha
+  conta" → confirmação com o aviso sobre assinatura (item 6 do card) → botão
+  destrutivo (`BotaoPrimario` ganhou `variante="destrutivo"`, cor `perigo`
+  nova em `theme/tokens.ts` — sem artboard, registrada como convenção de
+  plataforma, não invenção). Ao confirmar: `cliente.excluirConta()` seguido
+  de `sessao.sair()` para a limpeza local (mesmo caminho do logout).
+
+### Decisão autônoma registrada — aviso de assinatura é incondicional
+
+O item 6 do card pede que a tela avise sobre assinatura ativa antes de
+confirmar. Como a Fase 4 (pagamento/IAP) não existe ainda neste produto, o
+app não tem como saber se há assinatura — o aviso é mostrado **sempre**,
+texto genérico ("se você tem uma assinatura ativa..."), em vez de
+condicionado a um estado que não existe. **Não é PENDENTE DE REVISÃO
+HUMANA**: é a única leitura possível do requisito dado o que o sistema
+consegue saber hoje; revisitar quando a Fase 4 chegar é natural, não
+correção de bug.
+
+### O que não foi verificado (dívida declarada)
+
+- **Nada da tela de Perfil rodou em Simulador ou aparelho físico** — mesma
+  limitação já registrada para o CARD-050 (o app inteiro, desde a auth,
+  segue sem verificação visual real nesta sessão). Toda a lógica de sessão e
+  o `excluirConta()` do client estão testados (`pnpm run gates` verde); o que
+  só a tela renderizada prova (o link, o botão destrutivo, o texto de aviso)
+  fica para a próxima sessão com Simulador/aparelho.
+- **Lifecycle rules do S3 e o `delete_prefix`** (que este card liga ao fluxo
+  de conta) já existiam prontos desde antes desta sessão — achado ao ler o
+  código, não implementado aqui. O CARD-017 continua marcado "backlog" no
+  índice do backlog por não ter sido a sessão que o executou formalmente;
+  vale uma auditoria própria num card futuro, fora do escopo deste.
+
+### Testes e gates
+
+Backend: 6 testes novos de adapter contra Postgres real via testcontainers
+(`tests/adapters/test_persistence.py`, incluindo os dois que provam o núcleo
+do ADR-0069: apagar o turn preserva o `UsageEvent`, apagar a conta o
+anonimiza via `SET NULL`), 2 de `DeleteAccountHandler`, 6 de
+`PurgeDeletedAccountsHandler`, 2 de `LoginStudentHandler` (conta excluída),
+4 de rota (`DELETE /v1/students/me`, incluindo um teste ponta a ponta com
+JWT real que prova o critério de aceite central: o MESMO access token,
+ainda dentro do TTL de 15 min, para de valer depois da exclusão). 623 testes
+no total, `pytest --cov` 93,72% global, núcleo (`domain`+`application`)
+99% — os dois gates de cobertura, `ruff format/check`, `mypy --strict` e
+`lint-imports` verdes.
+
+Cliente: 2 testes novos em `packages/api-client` (`excluirConta`); `pnpm run
+gates` verde (lint + `tsc --strict` + vitest), 82 testes no monorepo
+cliente.
+
+### ADR
+
+[ADR-0069](../adr/0069-delete-de-conta-conteudo-apaga-usageevent-sobrevive-anonimo.md)
+— critério 4 (privacidade/retenção) e 2 (fronteira de FK). É o ADR que o
+próprio card exige antes de fechar ("Esta decisão é ADR... e o card não
+fecha sem ela").

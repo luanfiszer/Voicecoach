@@ -34,6 +34,12 @@ export const cores = {
     // O fundo do chip neutro ("N turnos") do mesmo artboard — um cinza mais
     // claro que `superficie`. Mesma origem e mesma ressalva do papel acima.
     chip: '#EDEAE5',
+    // Não existe artboard de exclusão de conta (CARD-051) — papel novo,
+    // registrado como tal, e não extraído de imagem nenhuma: o vermelho
+    // convencional de ação destrutiva (mesmo tom que iOS/Android usam para
+    // "Delete"), para que o único botão irreversível do app se distinga do
+    // acento comum por convenção de plataforma, não por invenção de marca.
+    perigo: '#C0392B',
   },
   dark: {
     fundo: '#121211',
@@ -50,6 +56,9 @@ export const cores = {
     // não um valor do designer (CARD-029).
     acentoSuave: '#3A2A24',
     chip: '#232220',
+    // Mesma ressalva de `light.perigo`, um tom mais claro para manter
+    // contraste sobre o fundo escuro.
+    perigo: '#E05B4C',
   },
 } as const;
 

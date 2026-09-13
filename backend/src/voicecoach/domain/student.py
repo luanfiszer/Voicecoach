@@ -35,3 +35,13 @@ class Student:
     id: UUID
     display_name: str
     created_at: datetime
+    # `None` é o estado normal — a conta existe. Preenchido (CARD-051,
+    # ADR-0069) é a exclusão LÓGICA e imediata: `requesting_student_id` e o
+    # login passam a recusar a conta a partir deste instante, mesmo que o
+    # expurgo físico (varredura do worker) ainda não tenha rodado.
+    deleted_at: datetime | None = None
+
+    @property
+    def is_active(self) -> bool:
+        """Falso depois do pedido de exclusão — mesmo antes do expurgo físico."""
+        return self.deleted_at is None

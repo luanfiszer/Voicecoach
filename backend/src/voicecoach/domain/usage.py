@@ -136,7 +136,13 @@ class UsageEvent:
     """
 
     turn_id: UUID
-    student_id: UUID
+    # `None` é o estado pós-exclusão de conta (CARD-051, ADR-0069): o banco
+    # desliga o vínculo (`ON DELETE SET NULL`) no instante em que o `Student`
+    # é apagado, porque a linha sobrevive à conta — é ela que sustenta o
+    # custo já incorrido. Uma linha com `student_id` nulo não entra em
+    # nenhuma agregação POR aluno (não haveria aluno a somar); ela continua
+    # contando em qualquer agregação GLOBAL.
+    student_id: UUID | None
     occurred_at: datetime
 
     # -- LLM: a única parcela que custa dinheiro (análise de custo §2) --------

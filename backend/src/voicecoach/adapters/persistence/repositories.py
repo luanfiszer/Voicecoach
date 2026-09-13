@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 # primeira chamada real, invisível para mypy e para qualquer teste com fake.
 from uuid import UUID
 
-from sqlalchemy import case, func, select, update
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.orm import selectinload
 
 from voicecoach.adapters.persistence import mappers
@@ -79,6 +79,28 @@ class SqlAlchemyStudentRepository:
     async def get(self, student_id: UUID) -> Student | None:
         row = await self._session.get(StudentRow, student_id)
         return None if row is None else mappers.student_from_row(row)
+
+    async def mark_deleted(self, student_id: UUID, when: datetime) -> None:
+        stmt = (
+            update(StudentRow)
+            .where(StudentRow.id == student_id, StudentRow.deleted_at.is_(None))
+            .values(deleted_at=when)
+        )
+        await self._session.execute(stmt)
+
+    async def list_pending_purge(self, *, limit: int) -> list[UUID]:
+        stmt = (
+            select(StudentRow.id)
+            .where(StudentRow.deleted_at.isnot(None))
+            .order_by(StudentRow.deleted_at)
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def delete(self, student_id: UUID) -> None:
+        stmt = delete(StudentRow).where(StudentRow.id == student_id)
+        await self._session.execute(stmt)
 
 
 class SqlAlchemyCredentialRepository:
@@ -381,6 +403,17 @@ class SqlAlchemySessionRepository:
 
         return SessionSummary(spoken=spoken, turns=turns, corrections_by_type=por_tipo)
 
+    async def delete_all_for_student(self, student_id: UUID) -> int:
+        """Chamado depois de `TurnRepository.delete_all_for_student` (CARD-051,
+        ADR-0069) — `turns.session_id` não tem `ON DELETE CASCADE`, então uma
+        sessão com turn vivo bloquearia este `DELETE`."""
+        stmt = delete(SessionRow).where(SessionRow.student_id == student_id)
+        result = await self._session.execute(stmt)
+        # `Result[Any]` é o tipo genérico de `execute`; um `DELETE` sempre
+        # devolve o `CursorResult` concreto, que é quem tem `.rowcount`.
+        rowcount: int = result.rowcount  # type: ignore[attr-defined]
+        return rowcount
+
 
 class SqlAlchemyTurnRepository:
     """Implementa ``application.ports.repositories.TurnRepository``.
@@ -486,6 +519,17 @@ class SqlAlchemyTurnRepository:
             raise RowNotFoundError(message)
         discarded_at: datetime | None = resultado[0]
         return discarded_at
+
+    async def delete_all_for_student(self, student_id: UUID) -> int:
+        """Cascateia (`ON DELETE CASCADE`) para correção, trecho e tradução —
+        **não** para `usage_events`, cuja FK de `turn_id` o ADR-0069 removeu
+        exatamente para que o custo já incorrido sobreviva a este `DELETE`.
+        """
+        subquery = select(SessionRow.id).where(SessionRow.student_id == student_id)
+        stmt = delete(TurnRow).where(TurnRow.session_id.in_(subquery))
+        result = await self._session.execute(stmt)
+        rowcount: int = result.rowcount  # type: ignore[attr-defined]  # ver SessionRepository
+        return rowcount
 
     async def list_by_session(self, session_id: UUID, *, limit: int) -> list[Turn]:
         """Os últimos ``limit`` turnos concluídos da sessão, em ordem cronológica.

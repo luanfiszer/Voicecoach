@@ -101,6 +101,45 @@ class StudentRepository(Protocol):
 
     async def get(self, student_id: UUID) -> Student | None: ...
 
+    async def mark_deleted(self, student_id: UUID, when: datetime) -> None:
+        """A exclusão lógica e imediata (CARD-051, ADR-0069).
+
+        ``WHERE deleted_at IS NULL`` no `UPDATE`: idempotente por construção,
+        como o ``try_end`` do CARD-034 — a segunda chamada (retry do cliente,
+        ou o access token de 15 min que ainda não expirou tentando de novo)
+        não sobrescreve o instante original com um `when` mais tardio. Não
+        levanta se a conta não existir: quem chama já resolveu isso via
+        ``requesting_student_id``, e um `UPDATE` de zero linhas aqui não é bug
+        de orquestração, é a segunda chamada convergindo.
+        """
+        ...
+
+    async def list_pending_purge(self, *, limit: int) -> list[UUID]:
+        """Os alunos marcados para exclusão, ainda não expurgados (ADR-0069).
+
+        Devolve ids, não entidades — mesma razão do ``list_inactive`` e do
+        ``list_stale``: entre a listagem e o expurgo, o worker relê cada
+        conta fresca. ``limit`` é obrigatório pelo mesmo motivo dos outros
+        lotes: o expurgo compete pelo ``MAX_JOBS`` do worker com o aluno vivo.
+        """
+        ...
+
+    async def delete(self, student_id: UUID) -> None:
+        """O expurgo físico da linha — o fim da exclusão (CARD-051, ADR-0069).
+
+        Cascateia (`ON DELETE CASCADE`) para `credentials`, `refresh_tokens` e
+        os tokens de e-mail/senha, e desliga (`ON DELETE SET NULL`) o
+        `usage_events.student_id` que sobrar — é este `DELETE` que executa a
+        anonimização, não uma linha de código à parte.
+
+        **Idempotente por ser incondicional**: apagar uma linha que já não
+        existe é sucesso, zero linhas afetadas, sem exceção — o requisito do
+        card de que o job rode duas vezes sem erro. Só é chamado depois que o
+        conteúdo (turns/sessions) e o storage já foram limpos; chamá-lo antes
+        deixaria `sessions.student_id` (sem `CASCADE`) impedir o `DELETE`.
+        """
+        ...
+
 
 class SessionRepository(Protocol):
     """Acesso às conversas."""
@@ -177,6 +216,20 @@ class SessionRepository(Protocol):
         Duas queries agregadas no banco, não uma por turn — mesma disciplina
         do ``totals_for_student`` do CARD-014. Sessão sem nenhum turn devolve
         os zeros (RF5), nunca levanta.
+        """
+        ...
+
+    async def delete_all_for_student(self, student_id: UUID) -> int:
+        """Apaga todas as sessões do aluno — o expurgo de conta (CARD-051, ADR-0069).
+
+        Chamado **depois** de ``TurnRepository.delete_all_for_student``: uma
+        sessão com turn vivo não pode ser apagada (`turns.session_id` não tem
+        `ON DELETE CASCADE` — decisão deliberada, ao contrário de
+        `usage_events`, porque aqui não há nada para anonimizar, só ordem a
+        respeitar). Devolve a contagem, como `MediaStorage.delete_prefix`,
+        pelo mesmo motivo: tornar o efeito verificável e distinguir "apagou
+        zero porque não havia nada" de "apagou zero porque o filtro errou".
+        Idempotente: nenhuma linha a apagar é sucesso, não erro.
         """
         ...
 
@@ -280,6 +333,21 @@ class TurnRepository(Protocol):
         Levanta ``RowNotFoundError`` se o turn não existe — defesa em
         profundidade: quem chama já checou com ``get`` antes, pela mesma razão
         do ``EndSessionHandler`` (CARD-031).
+        """
+        ...
+
+    async def delete_all_for_student(self, student_id: UUID) -> int:
+        """Apaga todos os turns do aluno — o expurgo de conta (CARD-051, ADR-0069).
+
+        Cascateia (`ON DELETE CASCADE`, já existente) para correção, trecho de
+        áudio e tradução de cada turn — nenhum dos três precisa de um método
+        próprio de expurgo. **Não** cascateia para `usage_events`: o
+        ADR-0069 removeu a restrição de chave estrangeira de `turn_id`
+        exatamente para que o custo já incorrido sobreviva a este `DELETE`.
+        Chamado **antes** de `SessionRepository.delete_all_for_student`
+        (`sessions` não tem `ON DELETE CASCADE` para `turns`, de propósito —
+        ver o docstring daquele método). Idempotente pela mesma razão de
+        `MediaStorage.delete_prefix`: zero turns é sucesso, não erro.
         """
         ...
 

@@ -31,7 +31,7 @@ if TYPE_CHECKING:
         RefreshTokenRepository,
     )
     from voicecoach.application.ports.password_hasher import PasswordHasher
-    from voicecoach.application.ports.repositories import UnitOfWork
+    from voicecoach.application.ports.repositories import StudentRepository, UnitOfWork
 
 # Um hash ``argon2id`` válido de uma senha que ninguém tem — gerado uma vez,
 # offline (não é segredo: o valor não protege nada, só preenche o formato).
@@ -69,6 +69,7 @@ class LoginStudentHandler:
         self,
         *,
         credentials: CredentialRepository,
+        students: StudentRepository,
         refresh_tokens: RefreshTokenRepository,
         hasher: PasswordHasher,
         token_issuer: AccessTokenIssuer,
@@ -79,6 +80,7 @@ class LoginStudentHandler:
         refresh_token_ttl: timedelta,
     ) -> None:
         self._credentials = credentials
+        self._students = students
         self._refresh_tokens = refresh_tokens
         self._hasher = hasher
         self._token_issuer = token_issuer
@@ -98,6 +100,15 @@ class LoginStudentHandler:
         senha_confere = await self._hasher.verify(command.password, hash_a_comparar)
 
         if credential is None or not senha_confere:
+            return Err(InvalidCredentials())
+
+        # A conta pode estar marcada para exclusão (CARD-051, ADR-0069) sem
+        # que a credencial já tenha sido apagada — o expurgo é assíncrono. A
+        # mesma resposta de senha errada, pela mesma razão do
+        # `_HASH_DE_PREENCHIMENTO`: não vazar "esta conta existe, mas foi
+        # excluída" para quem tenta logar.
+        aluno = await self._students.get(credential.student_id)
+        if aluno is None or not aluno.is_active:
             return Err(InvalidCredentials())
 
         agora = self._clock()

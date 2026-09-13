@@ -589,6 +589,49 @@
         }
       }
     },
+    "/v1/students/me": {
+      "delete": {
+        "tags": [
+          "students"
+        ],
+        "summary": "Exclui a pr\u00f3pria conta \u2014 LGPD e Guideline 5.1.1(v) da App Store",
+        "description": "Marca a conta e revoga toda sess\u00e3o \u2014 imediato (CARD-051, ADR-0069).\n\n**N\u00e3o apaga nada aqui.** O expurgo f\u00edsico (\u00e1udio, transcri\u00e7\u00e3o, corre\u00e7\u00e3o,\nsess\u00e3o) \u00e9 ass\u00edncrono, feito pela varredura peri\u00f3dica do worker\n(`PurgeDeletedAccountsHandler`) \u2014 este endpoint s\u00f3 garante que, a partir\nda resposta, a conta n\u00e3o consegue mais entrar.",
+        "operationId": "excluir_conta_v1_students_me_delete",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/sessions/{session_id}/turns": {
       "post": {
         "tags": [

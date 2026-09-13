@@ -149,6 +149,17 @@ export type Cliente = {
   pedirRedefinicaoDeSenha(email: string, sinal?: AbortSignal): Promise<void>;
   /** Troca a senha e desloga TODAS as sessões do aluno (ADR-0007) — não só esta. */
   redefinirSenha(token: string, novaSenha: string, sinal?: AbortSignal): Promise<void>;
+  /**
+   * Exclui a própria conta (CARD-051, ADR-0069) — LGPD e Guideline 5.1.1(v).
+   *
+   * **Só marca e revoga, do lado do servidor; não apaga nada aqui.** É por
+   * isso que este método não devolve nada além de `void`: não há "o que
+   * restou" para o cliente ler, e é o próprio 204 que confirma "não
+   * consegue mais entrar, a partir de agora" — o critério de aceite do
+   * card. O `fetch` injetado é quem carrega o `Authorization`; este método
+   * não recebe token.
+   */
+  excluirConta(sinal?: AbortSignal): Promise<void>;
 };
 
 /**
@@ -486,6 +497,15 @@ export function criarCliente(opcoes: OpcoesDoCliente): Cliente {
         method: 'POST',
         headers: cabecalhos({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ token, new_password: novaSenha }),
+        signal: sinal ?? null,
+      });
+      if (!resposta.ok) await falhar(resposta);
+    },
+
+    async excluirConta(sinal?: AbortSignal): Promise<void> {
+      const resposta = await executar(`${base}/v1/students/me`, {
+        method: 'DELETE',
+        headers: cabecalhos(),
         signal: sinal ?? null,
       });
       if (!resposta.ok) await falhar(resposta);
