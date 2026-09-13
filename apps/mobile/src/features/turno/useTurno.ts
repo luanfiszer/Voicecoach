@@ -34,6 +34,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 
 import { config } from '@/config';
+import {
+  type ConteudoDeExcecao,
+  conteudoDoErro,
+  conteudoDoTravamento,
+} from '@/features/excecoes/conteudoDaExcecao';
 import { lerComoBlob } from '@/features/turno/arquivoLocal';
 import { intervalos, MARCOS_VAZIOS, type Marcos } from '@/features/turno/marcos';
 import {
@@ -129,6 +134,23 @@ export type Turno = {
    * Nunca é tela de erro fatal.
    */
   audioIndisponivel: boolean;
+  /**
+   * A tela de exceção que cobre a conversa agora (CARD-027), ou `null` quando
+   * nenhuma se aplica — o caminho comum. `estado` continua `'falhou'` nos
+   * casos de cota/pausado/rede: `excecao` não é um estado NOVO da máquina, é
+   * uma leitura adicional sobre o mesmo `'falhou'`, que decide qual overlay
+   * (se algum) a tela mostra por cima do texto genérico.
+   */
+  excecao: ConteudoDeExcecao | null;
+  /** "Descartar" (CARD-032): chama o servidor e volta ao estado ocioso. */
+  descartar: () => Promise<void>;
+  /**
+   * "Tentar enviar de novo" do artboard 14 (offline): reenvia a MESMA
+   * gravação, com uma `Idempotency-Key` NOVA — a original nunca chegou ao
+   * servidor (falha de transporte, não de aceite), então não há turn a
+   * duplicar.
+   */
+  tentarNovamente: () => void;
   enviar: (uri: string, pararEm: number) => Promise<void>;
   limpar: () => void;
 };
@@ -242,6 +264,7 @@ export function useTurno(): Turno {
   const [entregaParcial, setEntregaParcial] = useState(false);
   const [via, setVia] = useState<'sse' | 'polling' | null>(null);
   const [audioIndisponivel, setAudioIndisponivel] = useState(false);
+  const [excecao, setExcecao] = useState<ConteudoDeExcecao | null>(null);
 
   const abortador = useRef<AbortController | null>(null);
   const sessaoId = useRef<string | null>(null);
@@ -252,6 +275,38 @@ export function useTurno(): Turno {
   /** Espelha `correcoes` sem esperar o próximo render — mesmo padrão do `filaRef`. */
   const correcoesRef = useRef<Correcao[]>([]);
   correcoesRef.current = correcoes;
+  /** `{ uri, pararEm }` da última gravação — o que "tentar de novo" reenvia. */
+  const ultimaTentativa = useRef<{ uri: string; pararEm: number } | null>(null);
+  /** O relógio do artboard 16: dispara "travado" se ninguém encerrar antes. */
+  const travamentoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const desarmarTravamento = useCallback(() => {
+    if (travamentoTimer.current !== null) {
+      clearTimeout(travamentoTimer.current);
+      travamentoTimer.current = null;
+    }
+  }, []);
+
+  /**
+   * Arma o watchdog do artboard 16 — "a resposta não chegou em 30s".
+   *
+   * Conta a partir do UPLOAD concluído (`turnId` já existe), como o texto do
+   * artboard promete ("sua fala FOI ENVIADA, mas..."), não do início da
+   * gravação. Ao disparar, só age se o turn ainda não tiver terminado —
+   * `encerrado.current` é a MESMA flag que `aplicar`/`pollar` já mantêm, não
+   * um relógio próprio que poderia dessincronizar dos dois.
+   */
+  const armarTravamento = useCallback(
+    (id: string) => {
+      desarmarTravamento();
+      travamentoTimer.current = setTimeout(() => {
+        if (!encerrado.current) {
+          setExcecao(conteudoDoTravamento(id, config.respostaTravadaEmSegundos));
+        }
+      }, config.respostaTravadaEmSegundos * 1000);
+    },
+    [desarmarTravamento],
+  );
 
   const cancelar = useCallback(() => {
     abortador.current?.abort();
@@ -278,6 +333,7 @@ export function useTurno(): Turno {
 
   const limpar = useCallback(() => {
     cancelar();
+    desarmarTravamento();
     fila.limpar();
     encerrado.current = false;
     idsVistos.current.clear();
@@ -293,8 +349,9 @@ export function useTurno(): Turno {
     setEntregaParcial(false);
     setVia(null);
     setAudioIndisponivel(false);
+    setExcecao(null);
     jaRecuperados.current.clear();
-  }, [cancelar, fila]);
+  }, [cancelar, desarmarTravamento, fila]);
 
   const receberTrecho = useCallback(
     (trecho: Trecho) => {
@@ -338,11 +395,18 @@ export function useTurno(): Turno {
           break;
         case 'completed':
           encerrado.current = true;
+          desarmarTravamento();
+          // A resposta chegou depois do watchdog do artboard 16 disparar — o
+          // overlay "travado" não pode continuar cobrindo um turn que acabou
+          // de terminar bem.
+          setExcecao(null);
           setEstado('concluido');
           registrarNoResumo();
           break;
         case 'failed':
           encerrado.current = true;
+          desarmarTravamento();
+          setExcecao(null);
           // **Não apaga o que já foi ouvido** (ADR-0023 item 6).
           setEntregaParcial(evento.dados.delivered_partially);
           setErro(evento.dados.reason);
@@ -350,7 +414,7 @@ export function useTurno(): Turno {
           break;
       }
     },
-    [receberTrecho, registrarNoResumo],
+    [receberTrecho, registrarNoResumo, desarmarTravamento],
   );
 
   /** O contrato de recuo: `GET /v1/turns/{id}` com backoff (ADR-0026 item 4). */
@@ -381,12 +445,16 @@ export function useTurno(): Turno {
 
         if (turn.status === 'completed') {
           encerrado.current = true;
+          desarmarTravamento();
+          setExcecao(null);
           setEstado('concluido');
           registrarNoResumo();
           return;
         }
         if (turn.status === 'failed') {
           encerrado.current = true;
+          desarmarTravamento();
+          setExcecao(null);
           setEntregaParcial(turn.delivered_partially);
           setErro(turn.failure_reason ?? 'o turn falhou');
           setEstado('falhou');
@@ -398,7 +466,7 @@ export function useTurno(): Turno {
         await new Promise((r) => setTimeout(r, espera));
       }
     },
-    [cliente, receberTrecho, registrarNoResumo],
+    [cliente, receberTrecho, registrarNoResumo, desarmarTravamento],
   );
 
   /** O caminho principal: SSE, com queda para o polling se ele não se sustentar. */
@@ -435,6 +503,10 @@ export function useTurno(): Turno {
 
   const enviar = useCallback(
     async (uri: string, pararEm: number) => {
+      // Guardado ANTES de `limpar()` — que não mexe nesta ref — para que
+      // "tentar enviar de novo" (artboard 14) reenvie exatamente esta mesma
+      // gravação mesmo depois de uma falha de rede zerar o resto do estado.
+      ultimaTentativa.current = { uri, pararEm };
       limpar();
       // A chave nasce AQUI, uma vez. O retry, lá dentro, reusa esta mesma.
       const chave = novaChave();
@@ -465,6 +537,9 @@ export function useTurno(): Turno {
         setTurnId(aceito.turn_id);
         turnAtualRef.current = aceito.turn_id;
         setEstado('transcrevendo');
+        // O relógio do artboard 16 começa AGORA — "sua fala FOI ENVIADA, mas
+        // a resposta não chegou em 30s" — não no início da gravação.
+        armarTravamento(aceito.turn_id);
 
         await acompanhar(aceito.turn_id, controlador.signal);
       } catch (falha) {
@@ -475,10 +550,36 @@ export function useTurno(): Turno {
         console.error('[turno] falhou no envio:', falha);
         setErro(falha instanceof Error ? falha.message : String(falha));
         setEstado('falhou');
+        // CARD-027: cota/kill switch/offline ganham tela própria por cima do
+        // texto genérico acima — `conteudoDoErro` devolve `null` para
+        // qualquer outro erro, e o texto genérico continua sendo a resposta.
+        setExcecao(conteudoDoErro(falha));
       }
     },
-    [cliente, limpar, acompanhar],
+    [cliente, limpar, acompanhar, armarTravamento],
   );
+
+  /** "Descartar" (CARD-032): o servidor não apaga nada, só marca e some da tela. */
+  const descartar = useCallback(async () => {
+    const id = turnAtualRef.current;
+    if (id) {
+      try {
+        await cliente.descartarTurn(id);
+      } catch (falha) {
+        // Mesmo padrão do resto do arquivo: o log é o instrumento, e o aluno
+        // não fica preso esperando este `await` — o objetivo de "Descartar" é
+        // destravar a tela, não confirmar com o servidor antes de deixar.
+        console.error('[turno] descartar falhou:', falha);
+      }
+    }
+    limpar();
+  }, [cliente, limpar]);
+
+  /** "Tentar enviar de novo" do artboard 14: reenvia a última gravação. */
+  const tentarNovamente = useCallback(() => {
+    const tentativa = ultimaTentativa.current;
+    if (tentativa) void enviar(tentativa.uri, tentativa.pararEm);
+  }, [enviar]);
 
   /**
    * O turn fechou: registra os quatro intervalos e os gaps no log.
@@ -538,6 +639,7 @@ export function useTurno(): Turno {
   }, [acompanhar, cancelar]);
 
   useEffect(() => cancelar, [cancelar]);
+  useEffect(() => desarmarTravamento, [desarmarTravamento]);
 
   return {
     estado,
@@ -554,6 +656,9 @@ export function useTurno(): Turno {
     entregaParcial,
     via,
     audioIndisponivel,
+    excecao,
+    descartar,
+    tentarNovamente,
     enviar,
     limpar,
   };

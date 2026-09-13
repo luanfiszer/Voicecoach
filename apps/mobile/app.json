@@ -42,7 +42,8 @@
     },
     "extra": {
       "limiteGravacaoSegundos": 90,
-      "sseHabilitado": true
+      "sseHabilitado": true,
+      "respostaTravadaEmSegundos": 30
     }
   }
 }

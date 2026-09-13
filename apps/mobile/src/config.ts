@@ -30,6 +30,12 @@ type Extra = {
    * acha que funciona.
    */
   sseHabilitado: boolean;
+  /**
+   * O prazo do artboard 16 (CARD-027): "a resposta não chegou em 30s". Conta a
+   * partir do UPLOAD concluído (turn aceito), não do início da gravação — é aí
+   * que o artboard ancora a promessa ("sua fala FOI ENVIADA, mas...").
+   */
+  respostaTravadaEmSegundos: number;
 };
 
 /**
@@ -143,6 +149,15 @@ function lerExtra(): Extra {
     throw new Error(`extra.sseHabilitado inválido: ${String(sse)}`);
   }
 
+  const travamento = bruto.respostaTravadaEmSegundos;
+  if (
+    typeof travamento !== 'number' ||
+    !Number.isFinite(travamento) ||
+    travamento <= 0
+  ) {
+    throw new Error(`extra.respostaTravadaEmSegundos inválido: ${String(travamento)}`);
+  }
+
   // O critério de aceite do CARD-037 se lê no log de arranque: num aparelho
   // físico, a primeira pergunta é sempre "com quem esse app está falando?".
   console.info(`[config] apiBaseUrl=${api.url} (origem: ${api.origem})`);
@@ -151,6 +166,7 @@ function lerExtra(): Extra {
     limiteGravacaoSegundos: limite,
     apiBaseUrl: api.url,
     sseHabilitado: sse,
+    respostaTravadaEmSegundos: travamento,
   };
 }
 

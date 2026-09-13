@@ -97,6 +97,11 @@ export type Cliente = {
    * (a promessa da tela: "sessões anteriores a 30 dias vivem no app web").
    */
   listarSessoes(dias?: number, sinal?: AbortSignal): Promise<ListaDeSessoes>;
+  /**
+   * "Descartar" (CARD-032): o turn some da tela ativa, sem apagar nada no
+   * servidor. Idempotente — chamar duas vezes é `204` as duas.
+   */
+  descartarTurn(turnId: string, sinal?: AbortSignal): Promise<void>;
 };
 
 /**
@@ -104,16 +109,31 @@ export type Cliente = {
  *
  * Tem `status`: o servidor respondeu, e o que ele disse é para o aluno ler.
  * Contraste com `ErroDeRede`, logo abaixo.
+ *
+ * **`tipo` é a URN, e é ela — não `status` nem `titulo` — que o CARD-027 usa
+ * para discriminar telas.** `status` sozinho não distingue cota de kill
+ * switch (os dois são desfechos de negócio, `429`/`503`); `titulo`/`detalhe`
+ * são para o aluno ler, não para o código comparar (ADR-0040: "o `type` é a
+ * chave semântica, não o texto"). Antes deste card, `tipo` não existia aqui —
+ * o corpo do Problem Details era lido só até `title`/`detail`, e o chamador
+ * não tinha como saber SE ERA cota, kill switch, ou "algo deu errado".
  */
 export class ErroDaApi extends Error {
   readonly status: number;
   readonly detalhe: string | null;
+  readonly tipo: string | null;
 
-  constructor(status: number, titulo: string, detalhe: string | null) {
+  constructor(
+    status: number,
+    titulo: string,
+    detalhe: string | null,
+    tipo: string | null,
+  ) {
     super(titulo);
     this.name = 'ErroDaApi';
     this.status = status;
     this.detalhe = detalhe;
+    this.tipo = tipo;
   }
 }
 
@@ -220,14 +240,20 @@ export function criarCliente(opcoes: OpcoesDoCliente): Cliente {
     // mensagem, não de um `SyntaxError` por cima do erro original.
     let titulo = `HTTP ${resposta.status}`;
     let detalhe: string | null = null;
+    let tipo: string | null = null;
     try {
-      const corpo = (await resposta.json()) as { title?: string; detail?: string };
+      const corpo = (await resposta.json()) as {
+        title?: string;
+        detail?: string;
+        type?: string;
+      };
       if (corpo.title) titulo = corpo.title;
       if (corpo.detail) detalhe = corpo.detail;
+      if (corpo.type) tipo = corpo.type;
     } catch {
       detalhe = null;
     }
-    throw new ErroDaApi(resposta.status, titulo, detalhe);
+    throw new ErroDaApi(resposta.status, titulo, detalhe, tipo);
   }
 
   async function json<T>(resposta: Response): Promise<T> {
@@ -296,6 +322,17 @@ export function criarCliente(opcoes: OpcoesDoCliente): Cliente {
         signal: sinal ?? null,
       });
       return json<ListaDeSessoes>(resposta);
+    },
+
+    async descartarTurn(turnId: string, sinal?: AbortSignal): Promise<void> {
+      const resposta = await executar(`${base}/v1/turns/${turnId}/discard`, {
+        method: 'POST',
+        headers: cabecalhos(),
+        signal: sinal ?? null,
+      });
+      // `204 No Content`: nenhum corpo a ler. `!resposta.ok` cobre o 404/409
+      // que o CARD-032 define (turn de outro aluno ou já concluído).
+      if (!resposta.ok) await falhar(resposta);
     },
 
     async *acompanharTurn(

@@ -24,6 +24,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { OverlayDeExcecao } from '@/features/excecoes/OverlayDeExcecao';
 import { BotaoGravar } from '@/features/gravacao/BotaoGravar';
 import { OverlayPermissao } from '@/features/gravacao/OverlayPermissao';
 import { PlayerLocal } from '@/features/gravacao/PlayerLocal';
@@ -136,6 +137,13 @@ export function TelaConversa() {
       <OverlayPermissao
         visivel={precisaDeAjustes}
         aoFechar={() => setOverlayDispensado(true)}
+      />
+
+      <OverlayDeExcecao
+        conteudo={turno.excecao}
+        aoTentarDeNovo={turno.tentarNovamente}
+        aoDescartar={() => void turno.descartar()}
+        aoFechar={turno.limpar}
       />
     </SafeAreaView>
   );
