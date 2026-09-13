@@ -146,6 +146,8 @@ async def test_pipeline_real_entrega_o_primeiro_trecho_antes_de_replied_at() -> 
         llm_price=preco_do_modelo,
         stt_provider="faster_whisper",
         tts_provider="piper",
+        stt_min_confidence=-1.0,
+        stt_max_no_speech=0.6,
     )
 
     inicio = time.perf_counter()

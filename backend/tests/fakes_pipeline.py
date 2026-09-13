@@ -37,7 +37,7 @@ from uuid import UUID
 
 from voicecoach.application.ports.audio_encoder import EncodedAudio
 from voicecoach.application.ports.media_storage import MediaStorageError
-from voicecoach.application.ports.speech_to_text import AudioInput, Transcript
+from voicecoach.application.ports.speech_to_text import AudioInput, Segment, Transcript
 from voicecoach.application.ports.teacher_llm import TeacherEvent, Utterance
 from voicecoach.application.ports.text_to_speech import (
     BYTES_PER_SAMPLE,
@@ -245,22 +245,35 @@ class FakeStt:
         texto: str = "I think my job is stressful",
         *,
         erro: Exception | None = None,
+        language: str = "en",
+        confidence: float = -0.2,
+        no_speech: float = 0.0,
+        # Um segmento por padrão, não `()`: vazio significa "silêncio" para o
+        # caso de uso (CARD-040) e desviaria o caminho feliz para recusa.
+        segments: tuple[Segment, ...] | None = None,
     ) -> None:
         self.texto = texto
         self._erro = erro
+        self._language = language
+        self._confidence = confidence
+        self._no_speech = no_speech
+        self._segments = segments
         self.chamadas: list[bytes] = []
 
     async def transcribe(self, audio: AudioInput) -> Transcript:
         if self._erro is not None:
             raise self._erro
         self.chamadas.append(audio.data)
+        segments = self._segments
+        if segments is None:
+            segments = (Segment(start_seconds=0.0, end_seconds=4.0, text=self.texto),)
         return Transcript(
             text=self.texto,
-            language="en",
+            language=self._language,
             duration_seconds=4.0,
-            confidence=-0.2,
-            no_speech=0.0,
-            segments=(),
+            confidence=self._confidence,
+            no_speech=self._no_speech,
+            segments=segments,
         )
 
 

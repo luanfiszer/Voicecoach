@@ -164,6 +164,13 @@ class UsageEvent:
     # CARD-015, e ela roda no caminho de um request.
     stt_audio_duration: timedelta
     stt_provider: str
+    # ADR-0057/CARD-040: registrados em TODO turn, inclusive os aceitos — é o
+    # instrumento que permite recalibrar os limiares de recusa com a
+    # distribuição real em vez de adivinhar (o mesmo truque do ADR-0021, que
+    # mediu antes de decidir). Mesma escala do `Transcript` do ADR-0056: não é
+    # 0-1, é log-probabilidade crua.
+    stt_confidence: float
+    stt_no_speech: float
     # A soma de `len(texto)` das sentenças que foram sintetizadas. Volume, não
     # custo: o Piper roda local (ADR-0032). Existe para que a conta continue
     # verdadeira no dia em que o TTS virar API paga — sem ele, essa migração

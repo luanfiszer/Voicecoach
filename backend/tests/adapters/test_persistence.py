@@ -713,6 +713,8 @@ def _evento_de(
         llm_output_tokens=180,
         stt_audio_duration=falado,
         stt_provider="faster_whisper",
+        stt_confidence=-0.2,
+        stt_no_speech=0.01,
         tts_chars=91,
         tts_provider="piper",
         estimated_cost_usd=custo,

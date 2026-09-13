@@ -19,6 +19,7 @@ from voicecoach.application.ports.turn_events import (
     Completed,
     Failed,
     FeedbackAvailable,
+    Rejected,
     Transcribed,
 )
 from voicecoach.application.use_cases.process_turn import TurnNotFoundError
@@ -30,7 +31,7 @@ from voicecoach.application.use_cases.stream_turn_events import (
     posicao,
 )
 from voicecoach.domain.correction import Correction, CorrectionType, Severity
-from voicecoach.domain.turn import Turn, TurnStatus
+from voicecoach.domain.turn import RejectionReason, Turn, TurnStatus
 
 AGORA = datetime(2026, 8, 23, 12, 0, tzinfo=UTC)
 
@@ -181,6 +182,20 @@ def test_turn_que_falhou_depois_de_trechos_mantem_os_trechos_e_marca_parcial() -
     assert ids == ["transcribed", "chunk:0", "chunk:1", "failed"]
     assert isinstance(falha, Failed)
     assert falha.delivered_partially is True
+
+
+def test_o_historico_reconstroi_o_turn_recusado() -> None:
+    """CARD-040: um turn `nao_entendido` reconecta como `rejected`, não `failed`."""
+    turn = turn_em_processamento(transcript="")
+    turn.reject(RejectionReason.NO_SPEECH, AGORA)
+
+    entregas = list(historico(turn))
+    ids = [d.event_id for d in entregas]
+    recusa = entregas[-1].event
+
+    assert ids == ["transcribed", "rejected"]
+    assert isinstance(recusa, Rejected)
+    assert recusa.reason is RejectionReason.NO_SPEECH
 
 
 # --- retomada ---------------------------------------------------------------

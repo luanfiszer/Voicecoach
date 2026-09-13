@@ -24,6 +24,7 @@ from voicecoach.api.schemas.turns import (
 )
 from voicecoach.config import Settings
 from voicecoach.domain.correction import Correction, CorrectionType, Severity
+from voicecoach.domain.turn import RejectionReason
 
 CHAVE = {"Idempotency-Key": "chave-do-cliente-0001"}
 
@@ -181,6 +182,22 @@ async def test_get_projeta_a_etapa_do_dominio_sem_recalcular(
     assert corpo["stage"] == "speaking"
     assert corpo["reply_text"] is None
     assert corpo["delivered_partially"] is False
+
+
+async def test_get_de_turn_recusado_mostra_o_motivo_nao_uma_falha(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    """CARD-040: `nao_entendido` é `status == completed`, não `failed`."""
+    turn = turn_pronto(fakes, transcript="")
+    turn.reject(RejectionReason.NO_SPEECH, AGORA)
+
+    corpo = (await client.get(f"/v1/turns/{turn.id}")).json()
+
+    assert corpo["status"] == "completed"
+    assert corpo["stage"] == "not_understood"
+    assert corpo["rejection_reason"] == "no_speech"
+    assert corpo["failure_reason"] is None
+    assert corpo["reply_audio_url"] is None
 
 
 async def test_um_cliente_que_so_faz_polling_leva_o_turn_ate_o_fim(

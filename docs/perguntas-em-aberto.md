@@ -28,9 +28,8 @@ Regra em vigor:
 Uma só, pela regra nova: pergunta da sessão **imediatamente anterior** que ficou
 sem desfecho volta **uma** vez.
 
-**Nenhuma.** O CARD-039 (2026-09-13) teve as suas duas perguntas com desfecho
-registrado — uma dispensada e demonstrada assim mesmo, outra respondida pela
-própria implementação — nada fica pendente para a abertura seguinte.
+**Nenhuma.** O CARD-040 (2026-09-13) teve a sua pergunta registrada respondida
+pela própria execução — nada fica pendente para a abertura seguinte.
 
 > **CARD-037 (2026-09-09): duas perguntas, as duas conferidas rodando.**
 >
@@ -469,6 +468,27 @@ continua faltando, e é por isso que nenhuma está em "Fechadas".
 > `confidence` relativamente (margem de 0,3) em vez de contra o limiar fixo —
 > decisão registrada no CARD-039, não em ADR (é escolha local e reversível de
 > verificação, não decisão de fronteira/dependência/custo).
+
+> **CARD-040 (2026-09-13): a pergunta registrada foi respondida pela própria
+> execução, sem pausa para previsão prévia.** *"O `Result` ganha um caso novo
+> na união e você esquece de tratá-lo num `match`; o que quebra — o teste, o
+> `mypy`, ou nada?"* — aconteceu de verdade duas vezes: organicamente, ao
+> acrescentar `Rejected` a `TurnEvent` (3 arquivos quebraram no `mypy`,
+> `pytest` seguiu verde até os três `match` serem corrigidos); e formalmente,
+> com a injeção/reversão de um evento fictício (`_EventoDeTeste`) — mesmos 3
+> arquivos, `ruff`/`pytest` inertes. Não houve pausa para pedir a previsão do
+> desenvolvedor: a resposta já estava documentada no ADR-0039/ADR-0035 (mesmo
+> padrão do `wire_name`), e a demonstração foi efeito colateral necessário de
+> implementar o card, não experimento isolado.
+>
+> **Achado fora da fila, que virou decisão de produto no meio da sessão:** o
+> desenvolvedor, testando o CARD-039 no aparelho, pediu voltar o STT para
+> inglês fixo e recusar quando não for inglês. Medido antes de implementar:
+> com `en` fixo, uma fala inteira em português não dá confidence baixa — o
+> motor **traduz** silenciosamente com confidence **-0,33** (quase idêntica a
+> uma fala boa). Decisão final: detecção de idioma continua ligada;
+> `RejectionReason` ganhou um terceiro valor (`NOT_ENGLISH`), checado antes do
+> limiar numérico. Registrado como adenda ao ADR-0057, não em silêncio.
 
 ## Fechadas
 

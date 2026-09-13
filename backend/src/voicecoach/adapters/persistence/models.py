@@ -327,6 +327,12 @@ class UsageEventRow(Base):
     # caminho de um request.
     stt_audio_duration: Mapped[timedelta] = mapped_column(Interval)
     stt_provider: Mapped[str] = mapped_column(String(40))
+    # `Float` como `duration_seconds` acima: log-probabilidade crua (ADR-0056),
+    # não dinheiro — a proibição do ADR-0013 é para valores monetários.
+    # ADR-0057/CARD-040: registrados em TODO turn, para recalibrar os limiares
+    # de recusa com a distribuição real.
+    stt_confidence: Mapped[float] = mapped_column(Float)
+    stt_no_speech: Mapped[float] = mapped_column(Float)
     tts_chars: Mapped[int] = mapped_column(Integer)
     tts_provider: Mapped[str] = mapped_column(String(40))
 

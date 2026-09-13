@@ -33,10 +33,12 @@ from voicecoach.application.ports.turn_events import (
     Completed,
     Failed,
     FeedbackAvailable,
+    Rejected,
     Transcribed,
     TurnEventsError,
 )
 from voicecoach.domain.correction import Correction, CorrectionType, Severity
+from voicecoach.domain.turn import RejectionReason
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -71,6 +73,8 @@ def wire_name(event: TurnEvent) -> str:
             return "feedback"
         case Completed():
             return "completed"
+        case Rejected():
+            return "rejected"
         case Failed():
             return "failed"
         case _:  # pragma: no cover - inalcançável enquanto o mypy passar
@@ -122,6 +126,12 @@ def parse_wire(payload: str | bytes) -> TurnEvent:
             )
         case "completed":
             return Completed(**data)
+        case "rejected":
+            # `reason` viaja como `str` crua no JSON (um `StrEnum` É uma
+            # `str`, e o `json.dumps` o serializou assim) — precisa voltar a
+            # ser `RejectionReason` explicitamente, mesma razão da nota do
+            # `feedback` acima.
+            return Rejected(reason=RejectionReason(data["reason"]))
         case "failed":
             return Failed(**data)
         case _:

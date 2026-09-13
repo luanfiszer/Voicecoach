@@ -61,6 +61,7 @@ from voicecoach.application.ports.turn_events import (
     Completed,
     Failed,
     FeedbackAvailable,
+    Rejected,
     Transcribed,
     TurnEvents,
     TurnEventsError,
@@ -81,7 +82,7 @@ from voicecoach.application.use_cases.process_turn import (
 from voicecoach.config import preco_do_modelo
 from voicecoach.domain.correction import Correction, CorrectionType, Severity
 from voicecoach.domain.session import Session
-from voicecoach.domain.turn import Turn, TurnStatus
+from voicecoach.domain.turn import RejectionReason, Turn, TurnStage, TurnStatus
 
 STUDENT_ID = uuid4()
 SESSION_ID = uuid4()
@@ -184,6 +185,8 @@ class Montagem:
             llm_price=preco_do_modelo,
             stt_provider="faster_whisper",
             tts_provider="piper",
+            stt_min_confidence=-1.0,
+            stt_max_no_speech=0.6,
         )
 
     async def processar(self, *, final: bool = True) -> None:
@@ -858,3 +861,95 @@ async def test_provedor_que_cai_DEPOIS_de_falar_nao_apaga_o_que_o_aluno_ouviu() 
     assert m.turn.failure_reason == PROVEDOR_INDISPONIVEL
     assert m.turn.delivered_partially is True
     assert len(m.turn.audio_chunks) == 2
+
+
+# -- "não entendi" como desfecho do turn (ADR-0057, CARD-040) ----------------
+
+
+async def test_confidence_baixa_recusa_sem_chamar_o_professor() -> None:
+    """Critério de aceite do card: o corte acontece ANTES do LLM/TTS."""
+    stt = FakeStt(confidence=-2.0)  # bem abaixo do limiar default (-1.0)
+    m = Montagem(novo_turn(), stt=stt)
+
+    await m.processar()
+
+    assert m.turn.status is TurnStatus.COMPLETED
+    assert m.turn.rejection_reason is RejectionReason.LOW_CONFIDENCE
+    assert m.turn.stage is TurnStage.NOT_UNDERSTOOD
+    assert m.teacher.historicos == []
+    assert m.tts.chamadas == []
+
+
+async def test_turn_recusado_grava_usage_com_custo_llm_tts_zero_e_stt_nao_zero() -> (
+    None
+):
+    """O item 5 do card: confidence/no_speech registrados MESMO recusado."""
+    stt = FakeStt(confidence=-2.0, no_speech=0.05)
+    m = Montagem(novo_turn(), stt=stt)
+
+    await m.processar()
+
+    evento = await m.usage_events.get(m.turn.id)
+    assert evento is not None
+    assert evento.llm_input_tokens == 0
+    assert evento.llm_output_tokens == 0
+    assert evento.tts_chars == 0
+    assert evento.estimated_cost_usd == Decimal(0)
+    assert evento.stt_confidence == -2.0
+    assert evento.stt_no_speech == 0.05
+    assert evento.stt_audio_duration == m.turn.audio_duration
+
+
+async def test_silencio_recusa_com_motivo_distinto_de_confianca_baixa() -> None:
+    """Critério de aceite: `no_speech` alto tem motivo PRÓPRIO, não LOW_CONFIDENCE."""
+    stt = FakeStt(confidence=-0.1, no_speech=0.9)  # confidence BOA, mas é silêncio
+    m = Montagem(novo_turn(), stt=stt)
+
+    await m.processar()
+
+    assert m.turn.rejection_reason is RejectionReason.NO_SPEECH
+
+
+async def test_segmento_vazio_e_silencio_mesmo_com_confidence_zero() -> None:
+    """Achado do CARD-039/040: `segments=()` dá confidence/no_speech = 0.0, que
+    sozinhos passariam pelos dois limiares como se fosse fala perfeita — por
+    isso `segments` vazio é checado ANTES de qualquer número.
+    """
+    stt = FakeStt(confidence=0.0, no_speech=0.0, segments=())
+    m = Montagem(novo_turn(), stt=stt)
+
+    await m.processar()
+
+    assert m.turn.rejection_reason is RejectionReason.NO_SPEECH
+
+
+async def test_idioma_diferente_de_ingles_recusa_mesmo_com_confidence_boa() -> None:
+    """O aluno que fala só português é traduzido com confidence ALTA (medido);
+    só o idioma detectado revela que não foi inglês.
+    """
+    stt = FakeStt(language="pt", confidence=-0.2)
+    m = Montagem(novo_turn(), stt=stt)
+
+    await m.processar()
+
+    assert m.turn.rejection_reason is RejectionReason.NOT_ENGLISH
+
+
+async def test_transcricao_boa_segue_o_fluxo_normal_sem_regressao() -> None:
+    """Critério de aceite: o caminho feliz de hoje não regride."""
+    m = Montagem(novo_turn())
+
+    await m.processar()
+
+    assert m.turn.status is TurnStatus.COMPLETED
+    assert m.turn.rejection_reason is None
+    assert m.turn.reply_text is not None
+    assert m.teacher.historicos != []
+
+
+async def test_turn_recusado_publica_o_evento_rejected() -> None:
+    m = Montagem(novo_turn(), stt=FakeStt(confidence=-2.0))
+
+    await m.processar()
+
+    assert Rejected(reason=RejectionReason.LOW_CONFIDENCE) in m.events.eventos

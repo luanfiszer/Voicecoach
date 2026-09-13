@@ -50,6 +50,7 @@ from voicecoach.application.ports.turn_events import (
     Completed,
     Failed,
     FeedbackAvailable,
+    Rejected,
     Transcribed,
 )
 from voicecoach.application.use_cases.process_turn import TurnNotFoundError
@@ -69,12 +70,13 @@ logger = logging.getLogger(__name__)
 TRANSCRIBED_ID = "transcribed"
 FEEDBACK_ID = "feedback"
 COMPLETED_ID = "completed"
+REJECTED_ID = "rejected"
 FAILED_ID = "failed"
 CHUNK_PREFIX = "chunk:"
 
-# Os dois ids que fecham o stream. Depois deles não há mais nada a dizer sobre
+# Os ids que fecham o stream. Depois deles não há mais nada a dizer sobre
 # este turn, e manter a conexão aberta seria a "conexão vazando" do ADR-0026.
-TERMINAIS = frozenset({COMPLETED_ID, FAILED_ID})
+TERMINAIS = frozenset({COMPLETED_ID, REJECTED_ID, FAILED_ID})
 
 
 class MalformedEventIdError(ValueError):
@@ -115,6 +117,8 @@ def event_id_of(event: TurnEvent) -> str:
             return FEEDBACK_ID
         case Completed():
             return COMPLETED_ID
+        case Rejected():
+            return REJECTED_ID
         case Failed():
             return FAILED_ID
         case _:  # pragma: no cover - inalcançável enquanto o mypy passar
@@ -272,6 +276,8 @@ def historico(turn: Turn) -> Iterator[Delivery]:
 
     if turn.status is TurnStatus.COMPLETED and turn.reply_audio_ref is not None:
         yield Delivery(COMPLETED_ID, Completed(reply_audio_key=turn.reply_audio_ref))
+    elif turn.status is TurnStatus.COMPLETED and turn.rejection_reason is not None:
+        yield Delivery(REJECTED_ID, Rejected(reason=turn.rejection_reason))
     elif turn.status is TurnStatus.FAILED:
         yield Delivery(
             FAILED_ID,
