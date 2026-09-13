@@ -97,6 +97,7 @@ Escreva um ADR sempre que a decisão:
 | [0058](0058-o-aluno-cancela-o-turn-e-o-servidor-e-avisado.md) | O aluno cancela o turn, e o servidor é avisado | aceito (exerce o item 2 do 0003; toca 0028/0037/0041/0051) |
 | [0059](0059-o-prompt-do-professor-recebe-contexto-do-aluno.md) | O prompt do professor deixa de ser estático: ele recebe um bloco de contexto do aluno | aceito (muda a conta do 0021; preserva 0020 e 0022) |
 | [0060](0060-o-backend-sai-do-mac-e-a-latencia-paga-a-conta.md) | O backend sai do Mac para um VPS Linux, e a latência paga a conta | aceito (ajusta a parte de infra do 0010 e a Parte E da visão; **exerce** o 0027 em vez de contrariá-lo; substitui a escolha do CARD-038) |
+| [0061](0061-o-primeiro-teste-do-cliente-vitest-sobre-logica-extraida.md) | O primeiro teste do cliente: `vitest` sobre lógica extraída | aceito |
 
 ## ADRs pendentes de decisão de produto
 

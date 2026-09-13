@@ -83,6 +83,13 @@ export function TelaConversa() {
               });
               return;
             }
+            // **A ordem é invariante, não coincidência de escrita** (CARD-042).
+            // `limpar()` é SÍNCRONO e cala o professor antes de qualquer outra
+            // coisa acontecer; `iniciar()` é assíncrono — pede permissão e troca
+            // a categoria da sessão de áudio do iOS. Invertê-los deixaria o
+            // professor falando durante todo o `await`, e em modo avião ou com
+            // o diálogo de permissão aberto isso é tempo indeterminado.
+            // Silenciar é operação local: nada aqui pode esperar por rede.
             turno.limpar();
             void gravacao.iniciar();
           }}
@@ -96,7 +103,17 @@ export function TelaConversa() {
           <Pressable
             accessibilityRole="button"
             style={estilos.regravar}
-            onPress={gravacao.descartar}
+            onPress={() => {
+              // **"Regravar" é recomeçar, e recomeçar cala o professor**
+              // (CARD-042). Antes, este link só descartava a gravação local:
+              // o turn já tinha sido enviado ao parar de gravar, e a resposta
+              // dele seguia tocando por cima da tentativa nova — é muito
+              // provavelmente o gesto da queixa original do card. Mesma
+              // invariante do botão acima: silêncio síncrono primeiro. O turn
+              // continua no servidor até o CARD-043.
+              turno.limpar();
+              gravacao.descartar();
+            }}
           >
             <Text
               style={[texto.apoio, estilos.sublinhado, { color: cores.secundario }]}

@@ -4,3 +4,8 @@
 packages:
   - apps/*
   - packages/*
+# `vitest` traz o `esbuild`, que compila um binário nativo na instalação.
+# O pnpm bloqueia script de instalação por padrão (boa política) e exige que a
+# liberação seja explícita, pacote a pacote — ADR-0061.
+allowBuilds:
+  esbuild: true

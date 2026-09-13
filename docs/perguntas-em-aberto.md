@@ -387,6 +387,46 @@ continua faltando, e é por isso que nenhuma está em "Fechadas".
 > continua sendo a mesma desde o CARD-009 — decidir se a **regra** muda —, e ela
 > continua dependendo de uma decisão de uma frase, não de mais uma sessão.
 
+> **CARD-042 (2026-09-11): uma pergunta no ponto da decisão, e ela FECHOU.** Foi
+> feita **antes** de escrever a correção e **antes** de rodar o experimento —
+> depois de ler o Swift do `expo-audio` instalado, que é o que tornou a pergunta
+> precisa: *"`player.remove()` sem `pause()` antes: o som para na hora, para no
+> fim do buffer, ou não para?"*.
+>
+> **1ª resposta: "não sei dizer."** Demonstrada na hora, com seis execuções no
+> Simulador: `remove()` sozinho deixou o `currentTime` avançar **2300, 2194,
+> 2008 e 2019 ms** — o resto inteiro de um arquivo de 2,3 s; com `pause()` antes,
+> **1–2 ms** e zero amostras com `playing: true`. A resposta é **"não para"**, e
+> nem o card nem o agente a tinham como a mais provável: o card supunha "até o
+> buffer esvaziar", que teria sido um problema de margem.
+>
+> **Reformulada uma vez, na mesma sessão** — *"largando a última referência JS em
+> `players.current.clear()`, o som parava sozinho em algum momento?"* — e
+> **respondida corretamente: "as duas, o que vier primeiro"** (fim do arquivo ou
+> coleta de lixo). É a explicação de por que o bug era inconsistente. Virou o
+> LEARNING-0006, a regra nova do CLAUDE.md e cinco testes.
+>
+> **A Q7 foi reapresentada na abertura** por tocar a decisão deste card (o dublê
+> do player) e **não foi respondida nem dispensada** — segue na fila, com a
+> sétima demonstração agora do lado TypeScript: `PlayerSilenciavel` é satisfeito
+> por um objeto literal de quatro linhas, sem framework de mock, e quem reprova
+> um dublê desatualizado é o `tsc`, com o teste ainda verde.
+>
+> **Nota sobre a fila antiga:** Q13 e Q14 não tocavam este card (são sobre o
+> transporte SSE; silenciar é operação local) e **não** mantêm o item da DoD
+> vermelho (LEARNING-0005, regra 4). A pendência de topo segue sendo a mesma
+> desde o CARD-009 — decidir se a **regra** muda —, e segue dependendo de uma
+> decisão de uma frase.
+
+> **CARD-042, parte 2 — o iPhone (2026-09-12): sem pergunta de previsão, e o
+> motivo está escrito.** Esta parte fechou os três critérios que dependiam do
+> aparelho e não teve decisão de **implementação** não-óbvia: teve ambiente
+> (hotspot só IPv6, VPN, confiança do certificado, `-RCT_jsLocation` sem
+> recompilar) e duas decisões **do desenvolvedor**, que a regra manda perguntar e
+> não prever — o "regravar" passa a calar, e o achado vira LEARNING-0007 com
+> regra. Ambas **respondidas**. A pergunta da parte 1 segue fechada. A Q7 não foi
+> reapresentada: é o mesmo card da parte 1, onde ela já tinha sido.
+
 ## Fechadas
 
 | # | Pergunta | Fechada em | Como |

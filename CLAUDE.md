@@ -118,6 +118,17 @@ O que ainda é TBD está marcado como tal, com o card que resolve.
   separa os dois não é *"deu erro?"*, é **"quem chamou tem um bug?"**. Toda
   tradução para HTTP acontece num lugar só, em Problem Details
   ([ADR-0040](docs/adr/0040-formato-de-erro-da-api-problem-details.md)).
+- **Objeto nativo não se "solta", se desliga primeiro** (origem:
+  [LEARNING-0006]): antes de liberar um recurso do outro lado da ponte
+  JS↔nativo (player de áudio, gravador, câmera, socket), **pare-o
+  explicitamente** e só então solte a referência. `remove()`/`release()` **não
+  são `Dispose()`** — a liberação pode ser assíncrona, pode depender do coletor
+  de lixo, e o recurso do sistema continua vivo até alguém mandá-lo parar
+  (medido: `player.remove()` sozinho deixou o áudio tocar **2,0–2,3 s**). Quando
+  o comportamento de uma dependência nativa importar, **leia o código dela em
+  `node_modules` antes de supor**; se a invariante que sair daí for invisível
+  para lint, tipo e tela, ela precisa de teste
+  ([ADR-0061](docs/adr/0061-o-primeiro-teste-do-cliente-vitest-sobre-logica-extraida.md)).
 - **Não persistir o que se consegue derivar**
   ([ADR-0016](docs/adr/0016-ciclo-de-vida-do-turn-estado-grosso-e-etapa-derivada.md)):
   a etapa exibida de um `Turn` e o "sessão ativa?" são calculados, não colunas.
@@ -142,6 +153,12 @@ O que ainda é TBD está marcado como tal, com o card que resolve.
   dependem — em especial **o que é permanente vs. andaime** no sistema atual —
   e as confirma com o desenvolvedor antes de produzir o artefato. Premissa não
   confirmada é anotada como tal no próprio artefato.
+- **Bug relatado por uso se reproduz pelo gesto, não pelo código** (origem:
+  [LEARNING-0007]): antes de mapear o caminho de código de um relato ("ao tentar
+  recomeçar…"), liste **todo controle da tela que as palavras do relato podem
+  nomear** e reproduza cada um no ambiente onde o relato aconteceu. Reproduzir a
+  hipótese não é reproduzir o relato: um plano que começa numa linha de código já
+  escolheu o caminho.
 - **A skill de arquitetura é de consulta obrigatória** (CARD-004): antes de
   criar um módulo novo no `backend/`, decidir em que camada algo mora ou julgar
   se uma dependência pode entrar numa camada, carregue a skill

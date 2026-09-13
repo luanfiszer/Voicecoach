@@ -10,7 +10,7 @@ Regras **destiladas dos ADRs** (`docs/adr/`) e do design (`docs/design/`).
 reavaliá-la, está em [REFERENCE.md](REFERENCE.md).
 
 > **Cobertura desta skill:** ADRs 0001, 0002, 0003, 0007, 0008, 0010, 0023,
-> 0024, 0026, 0043, 0044, 0045, 0046, 0047, e o style guide de
+> 0024, 0026, 0043, 0044, 0045, 0046, 0047, 0061, e o style guide de
 > `docs/design/README.md`. Se a skill
 > contradisser um ADR, **o ADR ganha**.
 >
@@ -94,6 +94,14 @@ packages/api-client/src/
   (ADR-0007).
 - ❌ **Hex, tamanho de fonte ou `48`/`84` solto em `StyleSheet`.** Vai em
   `theme/tokens.ts`.
+- ❌ **Soltar um objeto nativo sem desligá-lo antes.** `player.remove()` do
+  `expo-audio` **não é `Dispose()`**: ele larga a referência do registro
+  (`registryQueue.async`) e **não pausa nada** — medido no CARD-042, o áudio
+  seguiu tocando **2,0–2,3 s**, o resto inteiro do trecho. Quem cala é
+  `teardownPlayer()`, que só roda no `release()` do JSI ou na coleta de lixo.
+  **`pause()` primeiro, `remove()` depois** — e a ordem tem teste
+  (`silencio.test.ts`), porque lint, tipo e tela não a enxergam (ADR-0061,
+  LEARNING-0006).
 - ❌ **Usar `expo-av`.** Descontinuado; é `expo-audio` (ADR-0002, ADR-0044). A
   API é **diferente**, não é renomeação — e o erro se disfarça de problema de
   permissão.
@@ -213,15 +221,21 @@ terceiro com o **artboard 13** (microcopy pronta: "Precisamos do microfone" →
 | Anel | O que roda |
 |---|---|
 | 1 — agente | `biome check --write <arquivo>` + `pnpm -r run typecheck` a cada edição de `.ts`/`.tsx` |
-| 2 — pre-commit | `biome check --write` em `^(apps\|packages)/` + `tsc` sobre o projeto inteiro |
-| 3 — CI | job `mobile`: `pnpm install --frozen-lockfile`, `pnpm run lint`, `pnpm run typecheck` |
+| 2 — pre-commit | `biome check --write` em `^(apps\|packages)/` + `tsc` + `vitest run`, os três com `pass_filenames: false` |
+| 3 — CI | job `mobile`: `pnpm install --frozen-lockfile`, `pnpm run lint`, `pnpm run typecheck`, `pnpm run test` |
 
-Da raiz: `pnpm run gates`. **Não há gate de teste no cliente** — adiado com
-gatilho escrito (ADR-0043 item 6); não invente um sem ADR.
+Da raiz: `pnpm run gates` = **lint + typecheck + `vitest run`**. O terceiro gate
+entrou no CARD-042 pelo gatilho que o ADR-0043 item 6 havia escrito
+(**ADR-0061**): o que vai a teste é **extraído para um módulo sem imports** e
+testado em Node puro — sem `jest-expo`, sem preset de RN, sem mock de módulo
+nativo. Precisou mockar módulo nativo? Quase sempre a resposta é *extrair mais*.
+
+> **Teste verde significa "a ordem das chamadas está certa", nunca "o som
+> parou"** (ADR-0061 item 6).
 
 ## Antes de fechar (checklist de PR)
 
-- [ ] `pnpm run gates` verde (Biome + `tsc --strict`)
+- [ ] `pnpm run gates` verde (Biome + `tsc --strict` + `vitest`)
 - [ ] Nenhum tipo de API escrito à mão; `schema.d.ts` regenerado se o backend
       mudou (ADR-0008)
 - [ ] Nenhum hex/tamanho/alvo fora de `theme/tokens.ts`

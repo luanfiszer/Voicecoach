@@ -76,6 +76,10 @@ conhecimento; o código é subproduto.
 
 ## 5. Durante a implementação
 
+- **Bug relatado por uso: reproduza o gesto, não a hipótese** (LEARNING-0007).
+  Antes de mapear código a partir de um relato, liste todo controle da tela
+  que as palavras do relato podem nomear e reproduza cada um no ambiente do
+  relato. Um plano que começa numa linha de código já escolheu o caminho.
 - **Contratos de arquitetura são lei** (ADR-0012). Dependência nova que não
   pode vazar para dentro entra na lista do contrato `forbidden` **no mesmo
   commit** que a adiciona. `uv run lint-imports` verde não é opcional.

@@ -12,10 +12,13 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "typecheck": "pnpm -r --if-present run typecheck",
-    "gates": "pnpm run lint && pnpm run typecheck"
+    "gates": "pnpm run lint && pnpm run typecheck && pnpm run test",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "license": "UNLICENSED",
   "devDependencies": {
-    "@biomejs/biome": "^2.5.10"
+    "@biomejs/biome": "^2.5.10",
+    "vitest": "^5.0.0"
   }
 }

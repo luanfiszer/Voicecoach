@@ -28,6 +28,8 @@ import type { Trecho } from '@voicecoach/api-client';
 import { type AudioPlayer, createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { silenciarELiberar } from '@/features/turno/silencio';
+
 export type EstadoDaFila = {
   /** O `index` do trecho tocando agora, ou `null` se nada toca. */
   tocando: number | null;
@@ -105,15 +107,32 @@ export function useFilaDePlayback(opcoes: OpcoesDaFila = {}): Fila {
   const fimDoAnterior = useRef<number | null>(null);
   const jaAudivel = useRef(new Set<number>());
   const vigia = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inscricoes = useRef(new Map<number, { remove: () => void }>());
+  /**
+   * A geração da fila. Sobe a cada `limpar()`.
+   *
+   * **Existe porque `remove()` não é `Dispose()`** (CARD-042): o player nativo
+   * sobrevive à chamada, e o listener dele continua disparando. Sem esta
+   * comparação, um trecho do turn ANTERIOR — cujo índice colide com o do turn
+   * novo — reentra na máquina e mexe em `proximo`/`gaps` de um turn que não é o
+   * dele. O sintoma é o professor falando por cima de si mesmo, intermitente.
+   */
+  const geracao = useRef(0);
 
   const soltarTudo = useCallback(() => {
-    for (const player of players.current.values()) {
+    // **A geração sobe ANTES de soltar** (CARD-042). Tudo o que já estava em
+    // voo — listener de player removido, `renovar` esperando a rede — nasce
+    // velho a partir daqui e é descartado ao chegar.
+    geracao.current += 1;
+    for (const inscricao of inscricoes.current.values()) {
       try {
-        player.remove();
+        inscricao.remove();
       } catch {
-        // Um player já removido lança; não é falha do produto.
+        // idem abaixo: soltar o que já foi solto não é falha do produto.
       }
     }
+    inscricoes.current.clear();
+    silenciarELiberar(players.current.values());
     if (vigia.current) clearTimeout(vigia.current);
     vigia.current = null;
     players.current.clear();
@@ -170,7 +189,13 @@ export function useFilaDePlayback(opcoes: OpcoesDaFila = {}): Fila {
       const player = createAudioPlayer({ uri: trecho.url }, { updateInterval: 50 });
       players.current.set(trecho.index, player);
 
-      player.addListener('playbackStatusUpdate', (status) => {
+      // A geração em que este player nasceu, capturada por closure. Comparar
+      // com `geracao.current` é o que impede um trecho do turn anterior de
+      // mexer no turn novo — os índices colidem, as gerações não.
+      const minhaGeracao = geracao.current;
+
+      const inscricao = player.addListener('playbackStatusUpdate', (status) => {
+        if (geracao.current !== minhaGeracao) return;
         if (tocandoAgora.current !== trecho.index) return;
 
         // O marco de "audível": o som saiu, e não apenas foi pedido.
@@ -205,6 +230,7 @@ export function useFilaDePlayback(opcoes: OpcoesDaFila = {}): Fila {
           tocarProximo();
         }
       });
+      inscricoes.current.set(trecho.index, inscricao);
 
       tocarProximo();
     },
@@ -222,11 +248,18 @@ export function useFilaDePlayback(opcoes: OpcoesDaFila = {}): Fila {
     (trecho: Trecho) => {
       const antigo = players.current.get(trecho.index);
       if (antigo) {
+        // Mesma ordem de `soltarTudo`, e pelo mesmo motivo: o player velho pode
+        // estar tocando, e `remove()` sozinho não o cala.
+        silenciarELiberar([antigo]);
+      }
+      const inscricaoAntiga = inscricoes.current.get(trecho.index);
+      if (inscricaoAntiga) {
         try {
-          antigo.remove();
+          inscricaoAntiga.remove();
         } catch {
           // idem `soltarTudo`
         }
+        inscricoes.current.delete(trecho.index);
       }
       players.current.delete(trecho.index);
       vistos.current.delete(trecho.index);
@@ -250,7 +283,9 @@ export function useFilaDePlayback(opcoes: OpcoesDaFila = {}): Fila {
       players.current.set(0, player);
       vistos.current.add(0);
       proximo.current = 0;
-      player.addListener('playbackStatusUpdate', (status) => {
+      const minhaGeracao = geracao.current;
+      const inscricao = player.addListener('playbackStatusUpdate', (status) => {
+        if (geracao.current !== minhaGeracao) return;
         if (status.playing && status.currentTime > 0 && !jaAudivel.current.has(0)) {
           jaAudivel.current.add(0);
           const agora = Date.now();
@@ -264,6 +299,7 @@ export function useFilaDePlayback(opcoes: OpcoesDaFila = {}): Fila {
           setEstado((atual) => ({ ...atual, tocando: null, concluidos: [0] }));
         }
       });
+      inscricoes.current.set(0, inscricao);
       tocandoAgora.current = 0;
       setEstado((atual) => ({ ...atual, tocando: 0 }));
       player.play();
