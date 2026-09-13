@@ -2,7 +2,7 @@
 
 - **ID:** CARD-028
 - **Épico:** Fase 2 — Domínio pedagógico (abre, porque o CARD-016 renderiza em cima disto)
-- **Plataforma:** mobile/design · **Esforço:** P · **Status:** backlog
+- **Plataforma:** mobile/design · **Esforço:** P · **Status:** concluído (2026-09-13)
 - **Dependências:** CARD-012 (concluído); ADR-0022, ADR-0023, ADR-0026, ADR-0028, ADR-0047
 
 ## Contexto
@@ -100,3 +100,54 @@ Como o `expo-av`/`expo-audio` expõe posição e duração de uma **fila** de
 áudios contra um arquivo só — e por que "duração total" é um valor que só existe
 no fim, o que em C# seria a diferença entre um `IEnumerable` que você já
 materializou e um `IAsyncEnumerable` que ainda está chegando.
+
+## Execução (2026-09-13, loop autônomo)
+
+**Achado antes de escrever qualquer coisa:** o CARD-012 (concluído
+2026-08-19+) já tinha implementado a máquina de estados e a UI corretas na
+prática — `TelaConversa.tsx`/`ListaDoTurno.tsx` já mostravam "Transcrevendo…"
+sem "Passo N de 3", já pulavam direto de `transcrevendo` para `ouvindo`
+("O professor está falando…") sem estado de "pensando", e já renderizavam o
+áudio antes da correção. O que faltava era só o **registro formal da
+decisão** — o `docs/design/README.md` ainda tratava a divergência como
+"aviso a reconciliar", não como veredito fechado. Este card não escreveu
+comportamento novo; fechou o registro e tornou a invariante testável.
+
+**Implementado:**
+
+1. **Veredito explícito, artboard a artboard (03–06)**, em
+   `docs/design/README.md` — o que vale, vale em parte ou morreu, com o
+   porquê. Substitui a linha "CARD-028 — decide o que sobrevive" por
+   "concluído" na tabela de varredura.
+2. **`subtitulo`/`rotulo` extraídos** de `TelaConversa.tsx` para
+   `apps/mobile/src/features/gravacao/rotulos.ts` — mesma lógica, sem
+   duplicação, e agora importável por teste (ADR-0061: lógica extraída fica
+   testável; a alternativa era testar através do componente React inteiro).
+3. **`rotulos.test.ts`, quatro testes**, cada um travando um critério de
+   aceite deste card em código, não só em prosa: nenhum `subtitulo` contém
+   "passo"; `ouvindo` tem texto próprio, distinto de `transcrevendo` e sem
+   vocabulário de spinner genérico; `gravando` sempre vence, para qualquer
+   estado anterior do turn; `rotulo('gravado')` continua descrevendo o
+   botão, não o player.
+
+**Verificado, não implementado (já correto):** nenhuma tela promete duração
+total antes do último trecho chegar — `PlayerLocal.tsx` é o player da
+gravação LOCAL do aluno (arquivo único, duração conhecida de antemão) e é
+explicitamente distinto do player de trechos do professor, que ainda não
+existe como componente (CARD-035). Não havia "duração total da fila" nenhuma
+para corrigir.
+
+**Evidência colada:**
+
+```
+$ pnpm run lint && pnpm run typecheck && pnpm run test
+biome check .            — Checked 31 files, no fixes needed
+tsc --noEmit (api-client e mobile) — Done, Done
+vitest run                — 2 files, 9 passed (5 silencio.test.ts + 4 rotulos.test.ts)
+```
+
+**O que não foi feito, por decisão de escopo explícita no próprio card
+(Riscos):** nenhum controle de player novo (transporte, `0.75×`, `repetir`,
+scrub) — isso é o CARD-035, e encostar nele aqui seria exatamente o risco que
+o card nomeia ("implementar só um pedacinho de controle de áudio de
+passagem").

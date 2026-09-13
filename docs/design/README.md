@@ -81,6 +81,25 @@ apresentação**, não UI do produto — é a premissa P2 de
 > **sequência de estados** é para reconciliar contra os ADRs — o design não
 > perdeu validade, ele foi desenhado sob outro orçamento de latência.
 
+### Veredito por artboard, 03 a 06 (CARD-028, 2026-09-13)
+
+**Fechado — decisão, não mais aviso.** Cada linha diz o que sobrevive, o que
+morre e por quê. O código já implementa a coluna "hoje" desde o CARD-012 —
+este card fecha o registro que faltava, não escreve comportamento novo.
+
+| # | Veredito | Por quê |
+|---|---|---|
+| **03** transcrevendo | **morreu** o "Passo 1 de 3" e a barra proporcional; **vale** o rótulo simples | Com o primeiro trecho de áudio saindo em 1,6 s, "guarde o telefone, avisamos com som" é uma instrução para um mundo que não existe mais. "Passo 1 de 3" expõe uma granularidade que o ADR-0028 decidiu **derivar**, nunca contar em passos fixos — e uma barra proporcional pressupõe uma duração total conhecida que a cascata não tem. O que sobrevive é só "Transcrevendo…", sem número e sem barra (`rotulos.ts`, `subtitulo`) |
+| **04** professor pensando | **morreu**, como estado próprio | A etapa entre a transcrição fechar e o primeiro trecho chegar dura ~0,8 s — curta demais para justificar tela dedicada; desenhá-la é piscar. O app pula direto de `transcrevendo` para `ouvindo`, e é o `ouvindo` que ganha texto próprio ("O professor está falando…"), não um "pensando" intermediário |
+| **05** texto primeiro | **morreu** a ordem | O ADR-0022/0023 decidiu o inverso do que este artboard promete: o áudio vem **primeiro**, em 3–6 trechos, e o texto da correção fecha **depois** do último. `ListaDoTurno.tsx` já renderiza nessa ordem — a bolha do professor (áudio/trechos) antes da bolha de correção. **O estado que o artboard 05 não tinha e o produto precisava** ("áudio tocando, feedback a caminho") é a consequência natural de `trechos.length > 0 && correcao === null`: já existe, sem tela nova, usando o style guide do artboard 17 |
+| **06** player | **vale em parte** — direção visual sim, mecânica não | Ícones e posicionamento do player seguem como referência. O que morre é "um player, uma duração": o produto toca 3–6 trechos em fila (gap < 150 ms, ADR-0047), e a duração total só existe depois que o último chega — nenhuma tela pode prometê-la antes. Scrub, `0.75×` e `repetir` sobre essa fila são o **CARD-035**; o `traduzir` é UI do CARD-016 e endpoint do CARD-036 |
+
+Critério de aceite verificado por teste, não só por leitura:
+`apps/mobile/src/features/gravacao/rotulos.test.ts` afirma que nenhum
+`subtitulo` de nenhum estado contém "passo", e que o estado `ouvindo` tem
+texto distinto de `transcrevendo` — as duas invariantes que este veredito
+depende para continuar verdadeiro.
+
 ## Varredura de 2026-08-27 — quem é dono de cada artboard
 
 Cruzamento dos 17 artboards com o backlog. **Cinco não tinham dono nenhum**, e o
@@ -90,8 +109,8 @@ que ninguém a recolhesse.
 | # | Dono |
 |---|---|
 | 01, 02 | CARD-011 — **implementado**. O chip *"12 min hoje"* do cabeçalho é backend do **CARD-033** |
-| 03, 04, 05 | **CARD-028** — decide o que sobrevive à cascata (ver aviso acima) |
-| 06 | **CARD-028** (o que a tela mostra) + **CARD-035** (`0.75×`, `repetir`, scrub sobre a fila) + **CARD-036** (o endpoint do `traduzir`) |
+| 03, 04, 05 | **CARD-028 — concluído.** Veredito por artboard na seção acima |
+| 06 | **CARD-028 — concluído** (o que a tela mostra) + **CARD-035** (`0.75×`, `repetir`, scrub sobre a fila) + **CARD-036** (o endpoint do `traduzir`) |
 | 07, 08 | CARD-016 |
 | 09 | CARD-016 (tela) + **CARD-031** (o "Encerrar" e o resumo, no servidor) + Fase 6 (completo) |
 | 10 | **CARD-029** (tela) + **CARD-030** (`GET /v1/sessions` agregado e a mídia expirada) |
@@ -101,9 +120,10 @@ que ninguém a recolhesse.
 | 14, 15, 16 | **CARD-027** (telas). Backend: **CARD-031** (fala atrasada em sessão encerrada), **CARD-032** ("Descartar"), **CARD-033** (quota e serviço pausado) |
 | 17 | `apps/mobile/src/theme/tokens.ts` — **implementado** |
 
-**O que o design NÃO cobre e o produto precisa** (entra pelo CARD-028): a tela de
-*"áudio tocando, feedback a caminho"* — o estado central da cascata, e o único
-sem desenho. O artboard 05 descreve o inverso dele.
+**O que o design NÃO cobre e o produto precisa** — fechado pelo **CARD-028**: a
+tela de *"áudio tocando, feedback a caminho"*, o estado central da cascata e o
+único sem desenho (o artboard 05 descreve o inverso dele). Ver o veredito por
+artboard, acima.
 
 **Toda tela tem os dois lados.** A varredura criou três cards de tela (027, 028,
 029), quatro de backend (030–033) e mais três depois que as decisões de produto
