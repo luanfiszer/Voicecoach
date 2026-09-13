@@ -514,6 +514,29 @@
         "title": "ReadinessResponse",
         "description": "Resposta de ``GET /health/ready``.\n\n``status`` \u00e9 redundante em rela\u00e7\u00e3o a ``checks`` de prop\u00f3sito: quem faz\nprobe l\u00ea s\u00f3 o c\u00f3digo HTTP, quem depura l\u00ea o mapa inteiro."
       },
+      "RejectedPayload": {
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/RejectionReason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "RejectedPayload",
+        "description": "Evento ``rejected`` (ADR-0057, CARD-040) \u2014 o turn terminou sem professor."
+      },
+      "RejectionReason": {
+        "type": "string",
+        "enum": [
+          "no_speech",
+          "not_english",
+          "low_confidence"
+        ],
+        "title": "RejectionReason",
+        "description": "Por que um turn terminou sem resposta (ADR-0057, CARD-040).\n\nTr\u00eas valores, n\u00e3o um s\u00f3: \"n\u00e3o ouvi nada\", \"voc\u00ea n\u00e3o falou ingl\u00eas\" e \"n\u00e3o\nentendi o que voc\u00ea disse\" s\u00e3o tr\u00eas mensagens diferentes ao aluno, mesmo\nos tr\u00eas encerrando o turn do mesmo jeito (sem chamar o professor).\n\n``NOT_ENGLISH`` chegou depois dos outros dois, numa decis\u00e3o de produto\nrevisada na pr\u00f3pria sess\u00e3o do CARD-040: o STT com o idioma FIXO em ingl\u00eas\n\"traduz\" silenciosamente uma fala inteira em portugu\u00eas com confian\u00e7a\nALTA (medido: -0,33, quase id\u00eantico a uma fala boa) \u2014 s\u00f3 a detec\u00e7\u00e3o real\nde idioma revela que o aluno n\u00e3o falou ingl\u00eas, e \u00e9 por isso que a\ndetec\u00e7\u00e3o permanece ligada (ADR-0055) mesmo depois deste card."
+      },
       "SessionResponse": {
         "properties": {
           "id": {
@@ -605,6 +628,9 @@
           "completed": {
             "$ref": "#/components/schemas/CompletedPayload"
           },
+          "rejected": {
+            "$ref": "#/components/schemas/RejectedPayload"
+          },
           "failed": {
             "$ref": "#/components/schemas/FailedPayload"
           }
@@ -615,10 +641,11 @@
           "chunk",
           "feedback",
           "completed",
+          "rejected",
           "failed"
         ],
         "title": "TurnEventPayloads",
-        "description": "**N\u00e3o \u00e9 resposta de rota nenhuma.** Existe para o OpenAPI enxergar o SSE.\n\nO ADR-0008 promete que mudan\u00e7a de contrato quebra o cliente **em build**. Essa\npromessa era **falsa para quatro dos cinco eventos**: a rota do stream devolve\n``EventSourceResponse``, que n\u00e3o \u00e9 modelo pydantic, ent\u00e3o os payloads nunca\nchegavam ao OpenAPI \u2014 e portanto nunca chegavam aos tipos gerados. S\u00f3\n``ChunkPayload`` escapava, por carona em ``TurnResponse.chunks``.\n\nDescoberto no CARD-012, ao escrever o primeiro consumidor. Este envelope \u00e9 a\ncorre\u00e7\u00e3o m\u00ednima: declarado no ``responses`` da rota, ele arrasta os cinco para\n``components.schemas``. Um campo renomeado em qualquer evento passa a virar\n``error TS2339`` no app, que \u00e9 o ponto inteiro do ADR-0008.\n\nOs nomes dos campos s\u00e3o os cinco nomes de evento do ADR-0026 \u2014 de prop\u00f3sito:\nquem ler o tipo gerado descobre o mapa ``event: \u2192 payload`` sem sair dele."
+        "description": "**N\u00e3o \u00e9 resposta de rota nenhuma.** Existe para o OpenAPI enxergar o SSE.\n\nO ADR-0008 promete que mudan\u00e7a de contrato quebra o cliente **em build**. Essa\npromessa era **falsa para quatro dos cinco eventos**: a rota do stream devolve\n``EventSourceResponse``, que n\u00e3o \u00e9 modelo pydantic, ent\u00e3o os payloads nunca\nchegavam ao OpenAPI \u2014 e portanto nunca chegavam aos tipos gerados. S\u00f3\n``ChunkPayload`` escapava, por carona em ``TurnResponse.chunks``.\n\nDescoberto no CARD-012, ao escrever o primeiro consumidor. Este envelope \u00e9 a\ncorre\u00e7\u00e3o m\u00ednima: declarado no ``responses`` da rota, ele arrasta os seis para\n``components.schemas``. Um campo renomeado em qualquer evento passa a virar\n``error TS2339`` no app, que \u00e9 o ponto inteiro do ADR-0008.\n\nOs nomes dos campos s\u00e3o os seis nomes de evento do ADR-0026/CARD-040 \u2014 de\nprop\u00f3sito: quem ler o tipo gerado descobre o mapa ``event: \u2192 payload`` sem\nsair dele."
       },
       "TurnResponse": {
         "properties": {
@@ -695,6 +722,17 @@
             ],
             "title": "Failure Reason"
           },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RejectionReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "N\u00e3o nulo quando o turn terminou sem chamar o professor (ADR-0057). Campo ADITIVO (ADR-0008)."
+          },
           "chunks": {
             "items": {
               "$ref": "#/components/schemas/ChunkPayload"
@@ -730,10 +768,11 @@
           "transcribing",
           "thinking",
           "speaking",
-          "completed"
+          "completed",
+          "not_understood"
         ],
         "title": "TurnStage",
-        "description": "Etapa exibida ao aluno \u2014 **derivada**, nunca persistida (ADR-0023).\n\nO vocabul\u00e1rio \u00e9 o mesmo do ADR-0016; o que mudou foi a ordem em que os\nartefatos aparecem. ``queued`` n\u00e3o est\u00e1 aqui de prop\u00f3sito: nenhuma tela\ndistingue \"na fila\" de \"transcrevendo\", e expor isso vazaria mec\u00e2nica de\ninfraestrutura no contrato."
+        "description": "Etapa exibida ao aluno \u2014 **derivada**, nunca persistida (ADR-0023).\n\nO vocabul\u00e1rio \u00e9 o mesmo do ADR-0016; o que mudou foi a ordem em que os\nartefatos aparecem. ``queued`` n\u00e3o est\u00e1 aqui de prop\u00f3sito: nenhuma tela\ndistingue \"na fila\" de \"transcrevendo\", e expor isso vazaria mec\u00e2nica de\ninfraestrutura no contrato.\n\n``NOT_UNDERSTOOD`` chegou no CARD-040 (ADR-0057): um turn pode terminar\nsem resposta do professor, por decis\u00e3o de produto \u2014 \"n\u00e3o deduzir\" custa\nmais barato que responder errado. \u00c9 um valor NOVO na enum, o que a\npr\u00f3pria enum permite por ser derivada (ADR-0028) \u2014 ao contr\u00e1rio de\n``TurnStatus``, que n\u00e3o pode crescer."
       },
       "TurnStatus": {
         "type": "string",

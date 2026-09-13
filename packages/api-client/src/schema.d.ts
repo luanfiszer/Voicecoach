@@ -338,6 +338,30 @@ export interface components {
             };
         };
         /**
+         * RejectedPayload
+         * @description Evento ``rejected`` (ADR-0057, CARD-040) — o turn terminou sem professor.
+         */
+        RejectedPayload: {
+            reason: components["schemas"]["RejectionReason"];
+        };
+        /**
+         * RejectionReason
+         * @description Por que um turn terminou sem resposta (ADR-0057, CARD-040).
+         *
+         *     Três valores, não um só: "não ouvi nada", "você não falou inglês" e "não
+         *     entendi o que você disse" são três mensagens diferentes ao aluno, mesmo
+         *     os três encerrando o turn do mesmo jeito (sem chamar o professor).
+         *
+         *     ``NOT_ENGLISH`` chegou depois dos outros dois, numa decisão de produto
+         *     revisada na própria sessão do CARD-040: o STT com o idioma FIXO em inglês
+         *     "traduz" silenciosamente uma fala inteira em português com confiança
+         *     ALTA (medido: -0,33, quase idêntico a uma fala boa) — só a detecção real
+         *     de idioma revela que o aluno não falou inglês, e é por isso que a
+         *     detecção permanece ligada (ADR-0055) mesmo depois deste card.
+         * @enum {string}
+         */
+        RejectionReason: "no_speech" | "not_english" | "low_confidence";
+        /**
          * SessionResponse
          * @description ``POST /v1/sessions`` — o mínimo para o cliente ter onde falar.
          */
@@ -412,18 +436,20 @@ export interface components {
          *     ``ChunkPayload`` escapava, por carona em ``TurnResponse.chunks``.
          *
          *     Descoberto no CARD-012, ao escrever o primeiro consumidor. Este envelope é a
-         *     correção mínima: declarado no ``responses`` da rota, ele arrasta os cinco para
+         *     correção mínima: declarado no ``responses`` da rota, ele arrasta os seis para
          *     ``components.schemas``. Um campo renomeado em qualquer evento passa a virar
          *     ``error TS2339`` no app, que é o ponto inteiro do ADR-0008.
          *
-         *     Os nomes dos campos são os cinco nomes de evento do ADR-0026 — de propósito:
-         *     quem ler o tipo gerado descobre o mapa ``event: → payload`` sem sair dele.
+         *     Os nomes dos campos são os seis nomes de evento do ADR-0026/CARD-040 — de
+         *     propósito: quem ler o tipo gerado descobre o mapa ``event: → payload`` sem
+         *     sair dele.
          */
         TurnEventPayloads: {
             transcribed: components["schemas"]["TranscribedPayload"];
             chunk: components["schemas"]["ChunkPayload"];
             feedback: components["schemas"]["FeedbackPayload"];
             completed: components["schemas"]["CompletedPayload"];
+            rejected: components["schemas"]["RejectedPayload"];
             failed: components["schemas"]["FailedPayload"];
         };
         /**
@@ -470,6 +496,8 @@ export interface components {
             delivered_partially: boolean;
             /** Failure Reason */
             failure_reason?: string | null;
+            /** @description Não nulo quando o turn terminou sem chamar o professor (ADR-0057). Campo ADITIVO (ADR-0008). */
+            rejection_reason?: components["schemas"]["RejectionReason"] | null;
             /**
              * Chunks
              * @description Campo ADITIVO (ADR-0008).
@@ -489,9 +517,15 @@ export interface components {
          *     artefatos aparecem. ``queued`` não está aqui de propósito: nenhuma tela
          *     distingue "na fila" de "transcrevendo", e expor isso vazaria mecânica de
          *     infraestrutura no contrato.
+         *
+         *     ``NOT_UNDERSTOOD`` chegou no CARD-040 (ADR-0057): um turn pode terminar
+         *     sem resposta do professor, por decisão de produto — "não deduzir" custa
+         *     mais barato que responder errado. É um valor NOVO na enum, o que a
+         *     própria enum permite por ser derivada (ADR-0028) — ao contrário de
+         *     ``TurnStatus``, que não pode crescer.
          * @enum {string}
          */
-        TurnStage: "transcribing" | "thinking" | "speaking" | "completed";
+        TurnStage: "transcribing" | "thinking" | "speaking" | "completed" | "not_understood";
         /**
          * TurnStatus
          * @description Estado de execução do Turn (ADR-0023).
