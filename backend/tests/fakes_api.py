@@ -28,10 +28,12 @@ from uuid import UUID, uuid4
 
 from fakes_pipeline import (
     FakeMediaStorage,
+    FakeServiceBudget,
     FakeSessionRepository,
     FakeTurnEvents,
     FakeTurnRepository,
     FakeUnitOfWork,
+    FakeUsageEventRepository,
 )
 from voicecoach.domain.session import Session
 from voicecoach.domain.turn import Turn
@@ -39,6 +41,21 @@ from voicecoach.domain.turn import Turn
 ALUNO = UUID("00000000-0000-0000-0000-000000000001")
 TURN_ID = UUID("22222222-2222-2222-2222-222222222222")
 AGORA = datetime(2026, 8, 23, 12, 0, tzinfo=UTC)
+
+
+class FakeRateLimiter:
+    """Permissivo por padrão (ADR-0063) — o teste que quiser o 429 troca
+    ``permitido`` para ``False`` depois de pegar o fake em ``Fakes``.
+    """
+
+    def __init__(self, *, permitido: bool = True) -> None:
+        self.permitido = permitido
+        self.chamadas: list[str] = []
+
+    async def hit(self, key: str, *, window: timedelta, limit: int) -> bool:
+        del window, limit
+        self.chamadas.append(key)
+        return self.permitido
 
 
 def wav_de(segundos: float, *, taxa: int = 16_000) -> bytes:
@@ -68,6 +85,11 @@ class Fakes:
         self.canal = FakeTurnEvents()
         self.uow = FakeUnitOfWork()
         self.enfileirados: list[UUID] = []
+        # ADR-0063 (CARD-015): permissivos por padrão, para não quebrar os
+        # testes que não são sobre cota/orçamento/rate limit.
+        self.usage_events = FakeUsageEventRepository()
+        self.budget = FakeServiceBudget()
+        self.rate_limiter = FakeRateLimiter()
 
     async def enqueue(self, turn_id: UUID) -> None:
         self.enfileirados.append(turn_id)

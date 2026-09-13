@@ -1,7 +1,7 @@
 # CARD-015 — Quotas + kill switch: bloqueante de lançamento comercial, com a unidade da cota decidida
 
 - **ID:** CARD-015 · **Épico:** Fase 2 — Proteção de margem
-- **Plataforma:** backend · **Esforço:** M · **Status:** backlog
+- **Plataforma:** backend · **Esforço:** M · **Status:** concluído (2026-09-13)
 - **Dependências:** CARD-010, CARD-014
 
 ## Contexto
@@ -135,3 +135,80 @@ número inicial é conservador **para cima**, e o `UsageEvent` diz depois se cab
 Padrões atômicos de Redis (`INCR`/`EXPIRE`, quando um script Lua é necessário) e
 a diferença entre rate limit, quota e budget — três mecanismos que o protótipo
 misturava num só módulo.
+
+## Execução (2026-09-13, loop autônomo)
+
+**ADR:** [ADR-0063](../adr/0063-cota-diaria-em-minutos-e-turns-e-kill-switch-global-por-custo.md).
+Critério 2 (o `Result` de `StartTurn` ganha dois desfechos novos, contrato de
+erro da API) e 3 (afeta custo recorrente) do `docs/adr/README.md`. A unidade
+da cota já estava decidida (minutos comunicados + teto de turns/dia); o ADR
+formaliza o desenho e resolve o `unpriced_turns` que o card deixou em aberto.
+
+**Implementado**, os três mecanismos do ADR:
+
+1. **Cota por student** (minutos + turns), verificada em `StartTurnHandler`
+   via `UsageEventRepository.totals_for_student` (já existia, CARD-014),
+   contra a janela `[meia-noite de hoje, meia-noite de amanhã)` em
+   `America/Sao_Paulo`. Novos desfechos `DailyQuotaExceeded`/
+   `ServiceBudgetExceeded` no `Result`, tratados no `match` da rota (`429`/
+   `503` em Problem Details, `reset_at` no primeiro).
+2. **Kill switch global por custo**: porta `ServiceBudget` +
+   `RedisServiceBudget` (centavos inteiros, `INCRBY`, chaves por
+   dia/mês — `daily_budget_usd`/`monthly_budget_usd` do `config.py`, que já
+   existiam sem nenhum código que os lesse). `ProcessTurnHandler` soma o
+   custo real ao fechar cada turn.
+3. **Rate limit por sessão e por IP**: porta `RateLimiter` +
+   `RedisRateLimiter` (script Lua `INCR`+`PEXPIRE` atômico), como dependência
+   do FastAPI na própria rota — nega antes de ler o upload.
+
+**Decisão autônoma (loop sem desenvolvedor, 2026-09-13):** o card pede rate
+limit "por conta"; este backend não tem autenticação (achado do CARD-043 /
+CARD-045, mesma sessão). Troquei "conta" por **`session_id`** — já vem no
+path, protege o mesmo padrão de abuso (loop de cliente contra uma sessão), e
+não força uma consulta ao banco só para negar cedo. **PENDENTE DE REVISÃO
+HUMANA**: confirmar que `session_id` é o substituto aceitável até o CARD-049
+existir, ou se o rate limit deveria esperar a autenticação em vez de usar um
+substituto.
+
+**Números iniciais (config nova ou reaproveitada), todos marcados no ADR como
+estimativa a recalibrar:** `daily_quota_turns_per_student=60` (novo),
+`turn_rate_limit_window=1min`, `turn_rate_limit_per_student=20`,
+`turn_rate_limit_per_ip=60` (novos) — `daily_audio_minutes_per_student=10`,
+`daily_budget_usd=1.00`, `monthly_budget_usd=10.00` já existiam no
+`config.py`, sem nenhum código que os lesse antes deste card.
+
+**`unpriced_turns` não pediu tratamento especial** — achado que fechou a
+questão em aberto do card: `totals_for_student` já conta turns/minutos
+**independente de preço**; só o kill switch em dólares fica cego a turns sem
+preço (mesmo limite já aceito pelo ADR-0051 para a soma de custo no banco).
+
+**Nenhuma migration.** Os três mecanismos vivem inteiramente em Redis
+(contadores) e na agregação já existente de `UsageEvent` — nenhuma coluna
+nova.
+
+**Evidência colada:**
+
+```
+$ uv run pytest --cov --cov-fail-under=80 -q
+421 passed, 13 deselected — cobertura total 93,52%
+adapters/quota/redis_rate_limiter.py      100%
+adapters/quota/redis_service_budget.py    100%
+application/use_cases/start_turn.py       100%
+
+$ uv run coverage report --include="*/domain/*,*/application/*" --fail-under=90
+TOTAL   99%
+
+$ uv run lint-imports
+Contracts: 4 kept, 0 broken.
+
+# teste de concorrência real, contra Redis (testcontainer):
+tests/adapters/test_quota_redis.py::test_dez_hits_concorrentes_contra_limite_cinco_deixam_passar_exatamente_cinco PASSED
+```
+
+Também verdes: `ruff format`, `ruff check`, `mypy --strict`, `pnpm lint`,
+`pnpm typecheck` (cliente, depois de regenerar `openapi.json` e
+`schema.d.ts` — só a docstring da rota mudou o contrato).
+
+**O que não foi feito, por decisão de escopo explícita no próprio card:**
+UI de cota restante e alertas externos (**Out**); entitlement por plano pago
+é o CARD-023, mecanismo diferente deste.

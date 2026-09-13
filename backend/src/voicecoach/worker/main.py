@@ -43,6 +43,7 @@ from voicecoach.adapters.persistence.repositories import (
     SqlAlchemyUsageEventRepository,
 )
 from voicecoach.adapters.queue.arq_turn_queue import PROCESS_TURN_TASK
+from voicecoach.adapters.quota.redis_service_budget import RedisServiceBudget
 from voicecoach.adapters.storage.s3_media_storage import create_media_storage
 from voicecoach.adapters.stt.factory import create_speech_to_text, resolve_stt_provider
 from voicecoach.adapters.tts.encoding import AacAudioEncoder
@@ -143,6 +144,13 @@ async def startup(ctx: dict[str, Any]) -> None:
     # `ctx["redis"]` é o pool que o próprio arq já abriu antes de nos chamar —
     # reusá-lo evita uma segunda conexão para publicar eventos e heartbeat.
     ctx["events"] = RedisTurnEvents(ctx["redis"])
+    # Kill switch global (ADR-0063): o mesmo redis, os mesmos dois tetos que a
+    # API já lê de `Settings` — um valor configurado, duas pontas que o leem.
+    ctx["service_budget"] = RedisServiceBudget(
+        ctx["redis"],
+        daily_cap_usd=settings.daily_budget_usd,
+        monthly_cap_usd=settings.monthly_budget_usd,
+    )
     readiness = WorkerReadiness(ctx["redis"])
     await readiness.start()
     ctx["readiness"] = readiness
@@ -208,6 +216,7 @@ async def process_turn(ctx: dict[str, Any], turn_id: str) -> None:
             tts_provider=ctx["settings"].tts_provider.value,
             stt_min_confidence=ctx["settings"].stt_min_confidence,
             stt_max_no_speech=ctx["settings"].stt_max_no_speech,
+            service_budget=ctx["service_budget"],
         )
         try:
             await handler.handle(

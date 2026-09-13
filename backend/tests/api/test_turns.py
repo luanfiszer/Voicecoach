@@ -9,6 +9,7 @@ Este arquivo é a metade do polling.
 from __future__ import annotations
 
 from datetime import timedelta
+from decimal import Decimal
 from typing import get_args
 from uuid import uuid4
 
@@ -25,6 +26,7 @@ from voicecoach.api.schemas.turns import (
 from voicecoach.config import Settings
 from voicecoach.domain.correction import Correction, CorrectionType, Severity
 from voicecoach.domain.turn import RejectionReason
+from voicecoach.domain.usage import UsageEvent
 
 CHAVE = {"Idempotency-Key": "chave-do-cliente-0001"}
 
@@ -163,6 +165,72 @@ async def test_sessao_encerrada_e_409(client: AsyncClient, fakes: Fakes) -> None
 
     assert resposta.status_code == 409
     assert resposta.json()["type"] == "urn:voicecoach:problem:invalid-state"
+
+
+async def test_cota_diaria_excedida_e_429_com_reset_at(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    """ADR-0063 (CARD-015): a cota é por student, verificada antes de criar o turn."""
+    for _ in range(1000):
+        fakes.usage_events.eventos[uuid4()] = UsageEvent(
+            turn_id=uuid4(),
+            student_id=fakes.sessao.student_id,
+            occurred_at=AGORA,
+            llm_model="claude-haiku-4-5-20251001",
+            llm_input_tokens=1,
+            llm_cache_creation_tokens=0,
+            llm_cache_read_tokens=0,
+            llm_output_tokens=1,
+            stt_audio_duration=timedelta(seconds=1),
+            stt_provider="faster_whisper",
+            stt_confidence=-0.1,
+            stt_no_speech=0.0,
+            tts_chars=1,
+            tts_provider="piper",
+            estimated_cost_usd=Decimal("0.001"),
+        )
+
+    resposta = await client.post(
+        f"/v1/sessions/{fakes.sessao.id}/turns", files=upload(), headers=CHAVE
+    )
+
+    corpo = resposta.json()
+    assert resposta.status_code == 429
+    assert corpo["type"] == "urn:voicecoach:problem:daily-quota-exceeded"
+    assert "reset_at" in corpo
+    assert fakes.turns.turns == {}
+
+
+async def test_orcamento_do_servico_excedido_e_503(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    fakes.budget.excedido = True
+
+    resposta = await client.post(
+        f"/v1/sessions/{fakes.sessao.id}/turns", files=upload(), headers=CHAVE
+    )
+
+    corpo = resposta.json()
+    assert resposta.status_code == 503
+    assert corpo["type"] == "urn:voicecoach:problem:service-budget-exceeded"
+    assert fakes.turns.turns == {}
+
+
+async def test_rate_limit_excedido_e_429_antes_de_ler_o_audio(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    """A dependência da rota nega antes do corpo — nenhum turn, nenhum objeto."""
+    fakes.rate_limiter.permitido = False
+
+    resposta = await client.post(
+        f"/v1/sessions/{fakes.sessao.id}/turns", files=upload(), headers=CHAVE
+    )
+
+    corpo = resposta.json()
+    assert resposta.status_code == 429
+    assert corpo["type"] == "urn:voicecoach:problem:rate-limited"
+    assert fakes.turns.turns == {}
+    assert fakes.storage.objetos == {}
 
 
 # --- GET: o contrato de recuo ----------------------------------------------

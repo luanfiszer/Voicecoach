@@ -13,9 +13,11 @@ import pytest
 
 from fakes_pipeline import (
     FakeMediaStorage,
+    FakeServiceBudget,
     FakeSessionRepository,
     FakeTurnRepository,
     FakeUnitOfWork,
+    FakeUsageEventRepository,
     RelogioFalso,
 )
 from voicecoach.application.ports.repositories import ConflictingWriteError
@@ -34,6 +36,10 @@ from voicecoach.domain.turn import Turn
 ALUNO = UUID("00000000-0000-0000-0000-000000000001")
 AUDIO = b"\x00" * 100
 CHAVE = "chave-de-idempotencia-1"
+# Generosos de propósito: os testes que não são sobre cota não podem esbarrar
+# nela por acidente. `test_start_turn_quotas.py` testa os limites de verdade.
+COTA_TURNS_FOLGADA = 1000
+COTA_MINUTOS_FOLGADA = timedelta(hours=1)
 
 
 class FilaFalsa:
@@ -81,20 +87,35 @@ def montar(
     storage: FakeMediaStorage | None = None,
     uow: FakeUnitOfWork | None = None,
     turn_id: UUID | None = None,
-) -> tuple[StartTurnHandler, FakeTurnRepository, FilaFalsa, FakeMediaStorage]:
+    usage_events: FakeUsageEventRepository | None = None,
+    budget: FakeServiceBudget | None = None,
+    daily_quota_turns: int = COTA_TURNS_FOLGADA,
+    daily_quota_spoken: timedelta = COTA_MINUTOS_FOLGADA,
+) -> tuple[
+    StartTurnHandler,
+    FakeTurnRepository,
+    FilaFalsa,
+    FakeMediaStorage,
+    FakeUsageEventRepository,
+]:
     turns = turns or FakeTurnRepository()
     fila = fila or FilaFalsa()
     storage = storage or FakeMediaStorage()
+    usage_events = usage_events or FakeUsageEventRepository()
     handler = StartTurnHandler(
         turns=turns,
         sessions=sessions,
+        usage_events=usage_events,
         unit_of_work=uow or FakeUnitOfWork(),
         storage=storage,
         queue=fila,
+        service_budget=budget or FakeServiceBudget(),
         clock=RelogioFalso(),
         new_turn_id=lambda: turn_id or UUID("11111111-1111-1111-1111-111111111111"),
+        daily_quota_turns=daily_quota_turns,
+        daily_quota_spoken=daily_quota_spoken,
     )
-    return handler, turns, fila, storage
+    return handler, turns, fila, storage, usage_events
 
 
 def sessao_ativa() -> Session:
@@ -116,7 +137,9 @@ def comando(session_id: UUID, *, key: str = CHAVE) -> StartTurn:
 
 async def test_aceita_o_turn_grava_o_audio_e_enfileira() -> None:
     session = sessao_ativa()
-    handler, turns, fila, storage = montar(sessions=FakeSessionRepository(session))
+    handler, turns, fila, storage, _usage = montar(
+        sessions=FakeSessionRepository(session)
+    )
 
     resultado = await handler.handle(comando(session.id))
 
@@ -141,7 +164,7 @@ async def test_o_audio_sobe_antes_de_o_turn_existir_no_repositorio() -> None:
     """
     session = sessao_ativa()
     storage = FakeMediaStorage(falhar_em=RuntimeError("storage fora"))
-    handler, turns, fila, _ = montar(
+    handler, turns, fila, _, _usage = montar(
         sessions=FakeSessionRepository(session), storage=storage
     )
 
@@ -155,7 +178,9 @@ async def test_o_audio_sobe_antes_de_o_turn_existir_no_repositorio() -> None:
 async def test_a_mesma_chave_devolve_o_mesmo_turn_e_nao_cria_outro() -> None:
     """O critério de aceite central da idempotência (CARD-010)."""
     session = sessao_ativa()
-    handler, turns, _fila, storage = montar(sessions=FakeSessionRepository(session))
+    handler, turns, _fila, storage, _usage = montar(
+        sessions=FakeSessionRepository(session)
+    )
 
     primeiro = await handler.handle(comando(session.id))
     segundo = await handler.handle(comando(session.id))
@@ -179,7 +204,7 @@ async def test_o_reenvio_enfileira_de_novo_e_cura_o_crash_entre_gravar_e_publica
     jobs (é contrato do adapter, verificado lá).
     """
     session = sessao_ativa()
-    handler, _, fila, _ = montar(sessions=FakeSessionRepository(session))
+    handler, _, fila, _, _usage = montar(sessions=FakeSessionRepository(session))
 
     await handler.handle(comando(session.id))
     await handler.handle(comando(session.id))
@@ -206,7 +231,7 @@ async def test_perder_a_corrida_pela_chave_devolve_o_turn_de_quem_chegou_antes()
         idempotency_key=CHAVE,
     )
     turns = FakeTurnRepository()
-    handler, turns, fila, _ = montar(
+    handler, turns, fila, _, _usage = montar(
         sessions=FakeSessionRepository(session),
         turns=turns,
         uow=UnitOfWorkQueColide(turns, vencedor),
@@ -226,7 +251,7 @@ async def test_sessao_inexistente_e_err_e_nao_excecao() -> None:
     O cliente guarda o id no aparelho; o banco pode ter sido recriado em
     desenvolvimento. Não há invariante violada — há um recurso que não existe.
     """
-    handler, _turns, fila, storage = montar(sessions=FakeSessionRepository())
+    handler, _turns, fila, storage, _usage = montar(sessions=FakeSessionRepository())
 
     resultado = await handler.handle(comando(uuid4()))
 
@@ -246,7 +271,7 @@ async def test_sessao_encerrada_levanta_porque_e_invariante_do_agregado() -> Non
     """
     session = sessao_ativa()
     session.end(datetime(2026, 8, 23, 23, 0, tzinfo=UTC))
-    handler, _, fila, _ = montar(sessions=FakeSessionRepository(session))
+    handler, _, fila, _, _usage = montar(sessions=FakeSessionRepository(session))
 
     with pytest.raises(InvalidStateTransitionError):
         await handler.handle(comando(session.id))
@@ -262,7 +287,9 @@ async def test_fila_fora_do_ar_atravessa_como_erro_de_porta() -> None:
     """
     session = sessao_ativa()
     fila = FilaFalsa(erro=TurnQueueError("redis fora"))
-    handler, turns, _, _ = montar(sessions=FakeSessionRepository(session), fila=fila)
+    handler, turns, _, _, _usage = montar(
+        sessions=FakeSessionRepository(session), fila=fila
+    )
 
     with pytest.raises(TurnQueueError):
         await handler.handle(comando(session.id))

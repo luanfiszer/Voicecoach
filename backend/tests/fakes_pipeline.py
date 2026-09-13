@@ -195,6 +195,27 @@ class FakeUsageEventRepository:
         )
 
 
+class FakeServiceBudget:
+    """O kill switch, programável por um `bool` — não por acumular de verdade.
+
+    O `add_cost` real soma em dois contadores Redis (diário/mensal); o fake só
+    registra o que foi somado, para o teste afirmar "o worker chamou com este
+    valor" sem precisar reconstruir a aritmética de centavos do adapter.
+    """
+
+    def __init__(self, *, excedido: bool = False) -> None:
+        self.excedido = excedido
+        self.somado: list[Decimal] = []
+
+    async def add_cost(self, usd: Decimal, *, when: datetime) -> None:
+        del when  # o fake não tem noção de dia/mês — quem testa isso é o adapter
+        self.somado.append(usd)
+
+    async def is_exceeded(self, *, when: datetime) -> bool:
+        del when
+        return self.excedido
+
+
 class FakeSessionRepository:
     def __init__(self, *sessions: Session) -> None:
         self.sessions: dict[UUID, Session] = {s.id: s for s in sessions}

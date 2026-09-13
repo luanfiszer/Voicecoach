@@ -64,6 +64,11 @@ def app(settings: Settings, fakes: Fakes) -> Iterator[FastAPI]:
             deps.turn_events: lambda: fakes.canal,
             deps.agora: lambda: AGORA,
             deps.novo_turn_id: lambda: TURN_ID,
+            # ADR-0063 (CARD-015): permissivos por padrão — os testes de
+            # cota/orçamento/rate limit ajustam o fake pego em `fakes`.
+            deps.usage_event_repository: lambda: fakes.usage_events,
+            deps.service_budget: lambda: fakes.budget,
+            deps.rate_limiter: lambda: fakes.rate_limiter,
         }
     )
     yield aplicacao
