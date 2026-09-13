@@ -1,7 +1,7 @@
 # CARD-019 — Spike: STT e TTS no aparelho do aluno (avaliação, sem compromisso de adoção)
 
 - **ID:** CARD-019 · **Épico:** Fase 2 — Proteção de margem
-- **Plataforma:** mobile/IA · **Esforço:** P · **Status:** backlog
+- **Plataforma:** mobile/IA · **Esforço:** P · **Status:** bloqueado (2026-09-13) — ver "Execução"
 - **Dependências:** CARD-012 (a fatia vertical precisa estar medida antes)
 
 ## Contexto
@@ -71,3 +71,27 @@ entrega: fecha uma alavanca que hoje fica voltando à mesa.
 
 O limite entre o que o Expo entrega e o que exige módulo nativo — e como se
 mede qualidade de voz sem cair em preferência estética.
+
+## Execução (2026-09-13, loop autônomo) — BLOQUEADO, dado externo em dobro
+
+**Não implementado — e este card não tem "parte que dá para fazer".** Os três
+critérios de aceite dependem de coisas que só existem fora deste ambiente:
+
+1. **"No aparelho" é literal.** O card pede medição em iPhone/Android físico
+   — não há simulador que meça latência de `AVSpeechSynthesizer`/Android TTS
+   contra hardware real, e eu não tenho acesso a um aparelho nesta sessão.
+2. **"Fala de aprendiz real"** é o mesmo tipo de dado que bloqueou o CARD-044
+   (escuta) e que a medição §3.4 já registrou como pendência 1 — voz real de
+   aluno, que só o desenvolvedor tem.
+3. **"Qualidade percebida" contra o Kokoro/Piper** é o critério que **decide**
+   o veredito do spike (não a latência) — preferência subjetiva de UX, o
+   segundo exemplo textual de `docs/prompt-loop-autonomo-backlog.md` para o
+   que o loop autônomo não deve julgar sozinho.
+
+Diferente do CARD-044 (onde o instrumento de escuta já existia e só faltava a
+audição), aqui **não há entregável parcial seguro**: o próprio card avisa que
+"spike vira implementação disfarçada" é o risco central, e qualquer código
+que eu escrevesse sem o hardware/dado para medir seria exatamente isso —
+"implementação disfarçada" sem a medição que a justificaria.
+
+**Seguindo para o próximo card da fila (CARD-028) sem tocar mais neste.**
