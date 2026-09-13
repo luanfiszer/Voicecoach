@@ -100,6 +100,7 @@ Escreva um ADR sempre que a decisão:
 | [0061](0061-o-primeiro-teste-do-cliente-vitest-sobre-logica-extraida.md) | O primeiro teste do cliente: `vitest` sobre lógica extraída | aceito |
 | [0062](0062-a-imagem-do-minio-migra-do-docker-hub-para-o-quay-io.md) | A imagem do MinIO migra do Docker Hub para o quay.io | aceito |
 | [0063](0063-cota-diaria-em-minutos-e-turns-e-kill-switch-global-por-custo.md) | Cota diária por student em minutos e turns, kill switch global por custo | aceito |
+| [0064](0064-leitura-de-cota-e-estado-do-servico-get-students-me-quota.md) | A leitura de cota vira `GET /v1/students/me/quota`, sem cache, com o motivo do bloqueio explícito | aceito |
 
 ## ADRs pendentes de decisão de produto
 

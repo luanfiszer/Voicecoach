@@ -55,6 +55,9 @@ from voicecoach.application.ports.service_budget import ServiceBudget
 from voicecoach.application.ports.turn_events import TurnEvents
 from voicecoach.application.ports.turn_queue import TurnQueue
 from voicecoach.application.use_cases.end_session import EndSessionHandler
+from voicecoach.application.use_cases.read_quota_status import (
+    ReadQuotaStatusHandler,
+)
 from voicecoach.application.use_cases.start_turn import StartTurnHandler
 from voicecoach.application.use_cases.stream_turn_events import (
     StreamTurnEventsHandler,
@@ -270,6 +273,21 @@ def end_session_handler(
         sessions=sessions,
         unit_of_work=uow,
         clock=lambda: clock,
+    )
+
+
+def read_quota_status_handler(
+    usage_events: Annotated[UsageEventRepository, Depends(usage_event_repository)],
+    budget: Annotated[ServiceBudget, Depends(service_budget)],
+    settings: Annotated[Settings, Depends(get_settings_from_app)],
+    clock: Annotated[datetime, Depends(agora)],
+) -> ReadQuotaStatusHandler:
+    return ReadQuotaStatusHandler(
+        usage_events=usage_events,
+        service_budget=budget,
+        clock=lambda: clock,
+        daily_quota_spoken=timedelta(minutes=settings.daily_audio_minutes_per_student),
+        daily_quota_turns=settings.daily_quota_turns_per_student,
     )
 
 

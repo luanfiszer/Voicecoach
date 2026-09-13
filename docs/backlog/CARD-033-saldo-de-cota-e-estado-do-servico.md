@@ -2,7 +2,7 @@
 
 - **ID:** CARD-033
 - **Épico:** Fase 3 — Proteção de margem (backend dos artboards 12, 15 e 16)
-- **Plataforma:** backend · **Esforço:** P · **Status:** backlog
+- **Plataforma:** backend · **Esforço:** P · **Status:** concluído (2026-09-13)
 - **Dependências:** CARD-015 (entrega o freio e o ADR da cota), CARD-014 (concluído)
 
 ## Contexto
@@ -127,3 +127,70 @@ O equivalente em .NET é `TimeZoneInfo` + `DateTimeOffset`; a diferença que mor
 é que em Python o `datetime` "ingênuo" (sem fuso) é um tipo **legítimo** que
 compara e soma normalmente, então o erro não aparece na compilação — aparece com
 três horas de diferença em produção.
+
+## Execução (2026-09-13, loop autônomo)
+
+**RF1/RF2** — `GET /v1/students/me/quota` (`api/routes/students.py`), servido
+por `ReadQuotaStatusHandler` novo (`application/use_cases/read_quota_status.py`).
+Devolve `spoken_seconds`, `quota_spoken_seconds` e `resets_at` — instante
+absoluto, calculado por `janela_diaria()`, extraída de `start_turn.py` para o
+módulo compartilhado `application/quota_window.py` (RNF3: o `POST` e este
+`GET` agora chamam a MESMA função, não duas cópias que podem divergir).
+
+**RF3/RF4** — `service_available: bool` e `blocked_reason` (união fechada:
+`daily_minutes` | `many_short_turns` | `service_paused` | `null`) resolvem os
+dois fatos distintos sem expor nenhum valor monetário — nenhum campo do
+schema carrega dólares.
+
+**RF5** — `blocked_reason=many_short_turns` quando o teto de turns morde com
+minutos sobrando; `spoken`/`quota_spoken` continuam corretos nesse caso (a
+barra nunca mente). Prioridade quando mais de um motivo morde ao mesmo tempo:
+`service_paused` > `daily_minutes` > `many_short_turns` — decisão registrada
+no ADR-0064 (o serviço pausado é o fato mais importante).
+
+**RF6** — satisfeito de graça: a mesma `totals_for_student` que o CARD-015 já
+soma inclui turns `queued`/`processing` (ela conta pela existência do
+`UsageEvent`, que o worker grava ao concluir — na prática, para a leitura,
+"consumiu" e "entrou na fila" convergem porque não há outro caminho de
+consumo).
+
+**RNF1** — a leitura nunca falha: `ReadQuotaStatusHandler.handle()` não
+devolve `Result`, é uma função que sempre informa. Kill switch ativo e cota
+estourada respondem `200`.
+
+**RNF2 (cache)** — decidido em ADR-0064: **sem cache**. As duas leituras
+subjacentes já são as que `POST /turns` paga em todo turn — nenhuma é
+varredura, e cachear introduziria uma terceira fonte para divergir da do
+freio (o risco que o RNF3 mais teme).
+
+**RNF3** — a mesma fonte do freio: `UsageEventRepository.totals_for_student` e
+`ServiceBudget.is_exceeded`, chamadas na mesma ordem que `StartTurnHandler`.
+Testado em `tests/api/test_students.py::test_a_mesma_leitura_que_o_post_de_turn_usa`.
+
+**RNF4/RNF5/RNF6** — `unpriced_turns` não entra nesta leitura (ela não expõe
+custo, RF4); nenhum `float` em caminho de dinheiro (não há dinheiro no
+contrato); custo de leitura é o mesmo que o `POST` já paga — sem agregação
+extra.
+
+**Decisão de contrato (registrada em ADR-0064, critério 2 e 5):** o recurso é
+`GET /v1/students/me/quota` — `students` como coleção nova, `me` resolvendo
+hoje para `DEV_STUDENT_ID` (mesma decisão de `POST /sessions`) e sobrevivendo
+à chegada da autenticação sem mudar a URL que o cliente chama.
+
+**Testes:** `tests/application/test_read_quota_status.py` (novo, 5 testes —
+inclusive o caso esquisito do RF5 e a prioridade de motivos), `tests/api/test_students.py`
+(novo, 4 testes de rota, incluindo o `200` com kill switch ativo e a
+ausência de campos monetários no corpo).
+
+**Contrato:** `openapi.json` e `packages/api-client/src/schema.d.ts`
+regenerados.
+
+**ADR novo:** [0064](../adr/0064-leitura-de-cota-e-estado-do-servico-get-students-me-quota.md)
+— critério 2 (novo recurso público) e 5 (nome caro de reverter, o próprio
+card já sinalizava isso no risco "Card pequeno com superfície de contrato
+nova").
+
+**Regra do explicador:** nenhuma pergunta de previsão coube nesta sessão — as
+três decisões com superfície de contrato (nome do recurso, cache, prioridade
+de `blocked_reason`) foram resolvidas com o que o card e o ADR-0063 já
+haviam decidido, sem ambiguidade de produto nova a abrir.
