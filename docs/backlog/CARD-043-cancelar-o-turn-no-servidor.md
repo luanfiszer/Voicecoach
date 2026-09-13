@@ -3,7 +3,7 @@
 - **ID:** CARD-043
 - **Épico:** Qualidade da conversa (briefing 2026-09-09, ponto 2 — lado do servidor)
 - **Esforço:** M
-- **Status:** backlog
+- **Status:** adiado (2026-09-13) — recuo do ADR-0058, alternativa A (ver "Execução")
 - **Dependências:** CARD-042, ADR-0058, ADR-0003, ADR-0037, ADR-0051
 
 ## Contexto
@@ -122,3 +122,62 @@ não mata task, e o que existe é uma flag observada entre etapas. A lição
 transfere de .NET (lá também o cancelamento é cooperativo e depende de alguém
 checar), mas o **ponto de checagem** aqui é decisão de desenho da cascata — e
 descobrir onde ele cabe, sem deixar trecho meio escrito no S3, é o card.
+
+## Execução (2026-09-13, loop autônomo) — ADIADO, recuo do ADR-0058
+
+**Não implementado.** Fiz o levantamento completo antes de escrever qualquer
+código (domínio, migration, portas, adapters Redis, uso pelo `ProcessTurn`,
+SSE, varredura, cliente) e cheguei à mesma pergunta que o próprio ADR-0058 já
+antecipou: *"e se isto se mostrar maior que uma sessão?"* — chegou a esse
+tamanho, e o ADR já escreve o recuo aceitável para esse caso (alternativa A):
+não implementar agora, aceitar o custo de US$ 0,0027/turn abandonado que o
+CARD-042 (já mesclado) deixa como teto. **Isto não é bloqueio por falta de
+dado** (como o CARD-041/044) — é julgamento de risco/escopo que a própria ADR
+pré-autorizou.
+
+**O levantamento que sustenta a decisão:**
+
+1. **Superfície real, não estimada:** domínio (`Turn.request_cancellation` +
+   `Turn.cancel`, novo `canceled_at`, `TurnStage.CANCELED`), migration nova,
+   uma porta+adapter Redis nova para a flag cooperativa (ADR pede
+   explicitamente Redis para a checagem barata entre sentenças, banco como
+   fonte da verdade), um caso de uso novo (`CancelTurn`), mudança no
+   `ProcessTurnHandler` (checkpoint antes da transcrição e dentro da cascata),
+   evento SSE novo (`Canceled`, `wire_name`/`parse_wire`), schema OpenAPI,
+   endpoint com o próprio wiring de composição, e o disparo no cliente
+   (mobile) — pelo menos 12 arquivos tocados, em toda camada.
+2. **Achado técnico concreto que eleva o risco, não só o tamanho:** o
+   checkpoint dentro da cascata (`process_turn.py:_cascata.sintetizar`) itera
+   o gerador assíncrono do professor com `async for evento in
+   self._teacher.respond_streaming(history):`. Um `break` nesse laço **não**
+   fecha o gerador (`aclose()`) sozinho — `async for` não chama `aclose()` em
+   saída antecipada, só quando o **próprio consumidor é cancelado** (o
+   mecanismo que o docstring do `AnthropicTeacher.respond_streaming` já
+   documenta e depende). Parar cooperativamente exigiria seguir chamando
+   `aclose()` explicitamente no gerador guardado à parte — exatamente o tipo
+   de sutileza que o [LEARNING-0006] existe para levar a sério (`remove()` não
+   é `Dispose()`; aqui, `break` não é `aclose()`). Fazer isso errado deixaria
+   o produto **pagando tokens da Anthropic depois do cancelamento** — o
+   oposto do que o card existe para economizar.
+3. **A varredura de travados (CARD-025) não precisa de código novo**, ao
+   contrário do que o escopo do card sugeria: como `cancel()` termina em
+   `TurnStatus.COMPLETED` (mesma régua do `reject()` — ninguém tem bug), o
+   `list_stale` já ignora turns cancelados de graça. Achado que **reduz** o
+   escopo real em relação ao que estava escrito, registrado aqui para quem
+   retomar não redescobrir.
+4. **Achado de arquitetura, à parte do tamanho:** este backend **não tem
+   nenhuma autenticação ainda** (`grep` em `api/` não encontra
+   `Authorization`/`current_user`/JWT em lugar nenhum) — é o CARD-049+, ainda
+   em backlog. O critério de aceite "o mesmo desfecho de 'não é seu' que o
+   resto de `/v1` já usa" pressupõe um mecanismo que **não existe em nenhuma
+   rota hoje**, não só nesta. Implementar autorização ad-hoc só para
+   `/cancel` seria inventar, fora de ordem, um pedaço do CARD-049 sem ADR
+   próprio. Quando este card for retomado, ele **não** tem autorização por
+   dono para reusar — herda a mesma lacuna de todo `/v1` atual, e ganha dono
+   quando o CARD-049 existir.
+
+**O que NÃO muda:** o CARD-042 (mesclado) já cala o cliente localmente — o
+produto não regride, só continua pagando o teto já conhecido e aceito em
+2026-09-09.
+
+**Seguindo para o próximo card da fila (CARD-045) sem tocar mais neste.**
