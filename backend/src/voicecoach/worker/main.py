@@ -39,6 +39,7 @@ from voicecoach.adapters.persistence.engine import (
 )
 from voicecoach.adapters.persistence.repositories import (
     SqlAlchemySessionRepository,
+    SqlAlchemyStudentRepository,
     SqlAlchemyTurnRepository,
     SqlAlchemyUsageEventRepository,
 )
@@ -52,6 +53,10 @@ from voicecoach.application.use_cases.process_turn import (
     ProcessTurn,
     ProcessTurnHandler,
     RetryableTurnFailureError,
+)
+from voicecoach.application.use_cases.purge_deleted_accounts import (
+    PurgeDeletedAccounts,
+    PurgeDeletedAccountsHandler,
 )
 from voicecoach.application.use_cases.sweep_inactive_sessions import (
     SweepInactiveSessions,
@@ -320,6 +325,32 @@ async def sweep_inactive_sessions(ctx: dict[str, Any]) -> None:
         await handler.handle(SweepInactiveSessions())
 
 
+async def purge_deleted_accounts(ctx: dict[str, Any]) -> None:
+    """O expurgo físico do delete de conta, disparado pelo `cron_jobs`
+    (CARD-051, ADR-0069).
+
+    Mesma mecânica de coordenação entre réplicas dos dois cron jobs acima
+    (`job_id` determinístico do `arq`). A diferença é que este job toca o
+    storage — a única etapa de rede de verdade das três varreduras — e por
+    isso é o único que pode falhar parcialmente por conta (ver o docstring
+    de `PurgeDeletedAccountsHandler`).
+    """
+    settings = ctx["settings"]
+    session_factory = ctx["session_factory"]
+
+    async with session_factory() as session:
+        handler = PurgeDeletedAccountsHandler(
+            students=SqlAlchemyStudentRepository(session),
+            sessions=SqlAlchemySessionRepository(session),
+            turns=SqlAlchemyTurnRepository(session),
+            storage=ctx["storage"],
+            unit_of_work=session,
+            clock=_agora,
+            batch_limit=settings.account_purge_batch_limit,
+        )
+        await handler.handle(PurgeDeletedAccounts())
+
+
 class WorkerSettings:
     """O que o `arq worker` lê. Uma classe usada como namespace, não instanciada.
 
@@ -352,9 +383,16 @@ class WorkerSettings:
     # `MAX_JOBS = 1` com quem está falando agora. No segundo 30 para não cair
     # junto com a varredura de turns (segundo 0) — duas varreduras no mesmo
     # instante são o dobro de tempo em que o aluno vivo espera.
+    # O expurgo de conta (CARD-051, ADR-0069) roda no mesmo ritmo de 5 min da
+    # varredura de sessões, e no segundo 45 — terceiro instante distinto, pela
+    # mesma razão das duas escolhas acima: nenhuma rodada compete com outra
+    # pelo `MAX_JOBS = 1`. Cinco minutos é "em seguida", não "instantâneo"
+    # (o card exige o primeiro, não o segundo) — a exclusão já é imediata
+    # desde o `DeleteAccountHandler`; isto é só o expurgo físico.
     cron_jobs = [  # noqa: RUF012 — contrato do arq, não é anotável
         cron(sweep_stale_turns, second=0),
         cron(sweep_inactive_sessions, minute=set(range(0, 60, 5)), second=30),
+        cron(purge_deleted_accounts, minute=set(range(0, 60, 5)), second=45),
     ]
     on_startup = startup
     on_shutdown = shutdown

@@ -123,9 +123,16 @@ class FakeUnitOfWork:
 class FakeTurnRepository:
     """Guarda Turns em memória, por id."""
 
-    def __init__(self, *turns: Turn) -> None:
+    def __init__(
+        self, *turns: Turn, sessions: FakeSessionRepository | None = None
+    ) -> None:
         self.turns: dict[UUID, Turn] = {t.id: t for t in turns}
         self.updates = 0
+        # Só usado por `delete_all_for_student` (CARD-051, ADR-0069): o fake
+        # não tem `session_id → student_id` embutido em `Turn`, então
+        # precisa da mesma referência cruzada que `FakeSessionRepository`
+        # já usa para `list_inactive`/`summary_for`.
+        self._sessions = sessions
 
     async def add(self, turn: Turn) -> None:
         self.turns[turn.id] = turn
@@ -179,6 +186,29 @@ class FakeTurnRepository:
         if turn.status is not TurnStatus.COMPLETED and turn.discarded_at is None:
             turn.discarded_at = now
         return turn.discarded_at
+
+    async def delete_all_for_student(self, student_id: UUID) -> int:
+        """Resolve as sessões do aluno via a referência cruzada de
+        `sessions` (construtor) e apaga os turns que pertencem a elas —
+        o que o `JOIN` faz no adapter real.
+        """
+        sessoes_do_aluno = (
+            {
+                s.id
+                for s in self._sessions.sessions.values()
+                if s.student_id == student_id
+            }
+            if self._sessions is not None
+            else set()
+        )
+        de_outro_aluno = {
+            tid: t
+            for tid, t in self.turns.items()
+            if t.session_id not in sessoes_do_aluno
+        }
+        removidos = len(self.turns) - len(de_outro_aluno)
+        self.turns = de_outro_aluno
+        return removidos
 
 
 class FakeUsageEventRepository:
@@ -340,6 +370,14 @@ class FakeSessionRepository:
             corrections_by_type=por_tipo,
         )
 
+    async def delete_all_for_student(self, student_id: UUID) -> int:
+        de_outro_aluno = {
+            sid: s for sid, s in self.sessions.items() if s.student_id != student_id
+        }
+        removidas = len(self.sessions) - len(de_outro_aluno)
+        self.sessions = de_outro_aluno
+        return removidas
+
 
 class FakeMediaStorage:
     """Um dicionário com cara de bucket."""
@@ -365,6 +403,8 @@ class FakeMediaStorage:
         return f"https://storage.test/{key}?expires={int(ttl.total_seconds())}"
 
     async def delete_prefix(self, prefix: str) -> int:
+        if self._falhar_em is not None:
+            raise self._falhar_em
         alvos = [k for k in self.objetos if k.startswith(prefix)]
         for k in alvos:
             del self.objetos[k]
@@ -604,16 +644,31 @@ class FakeTranslationRepository:
 
 
 class FakeStudentRepository:
-    """Guarda ``Student`` em memória, por id (CARD-049)."""
+    """Guarda ``Student`` em memória, por id (CARD-049; CARD-051/ADR-0069)."""
 
-    def __init__(self) -> None:
-        self.students: dict[UUID, Student] = {}
+    def __init__(self, *students: Student) -> None:
+        self.students: dict[UUID, Student] = {s.id: s for s in students}
 
     async def add(self, student: Student) -> None:
         self.students[student.id] = student
 
     async def get(self, student_id: UUID) -> Student | None:
         return self.students.get(student_id)
+
+    async def mark_deleted(self, student_id: UUID, when: datetime) -> None:
+        """Reproduz o ``WHERE deleted_at IS NULL`` do adapter — idempotente."""
+        aluno = self.students.get(student_id)
+        if aluno is not None and aluno.deleted_at is None:
+            aluno.deleted_at = when
+
+    async def list_pending_purge(self, *, limit: int) -> list[UUID]:
+        pendentes = [s for s in self.students.values() if s.deleted_at is not None]
+        pendentes.sort(key=lambda s: s.deleted_at)  # type: ignore[arg-type,return-value]
+        return [s.id for s in pendentes[:limit]]
+
+    async def delete(self, student_id: UUID) -> None:
+        """Incondicional — apagar quem já não existe é sucesso, não erro."""
+        self.students.pop(student_id, None)
 
 
 class FakeCredentialRepository:

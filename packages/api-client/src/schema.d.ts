@@ -267,6 +267,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/students/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Exclui a própria conta — LGPD e Guideline 5.1.1(v) da App Store
+         * @description Marca a conta e revoga toda sessão — imediato (CARD-051, ADR-0069).
+         *
+         *     **Não apaga nada aqui.** O expurgo físico (áudio, transcrição, correção,
+         *     sessão) é assíncrono, feito pela varredura periódica do worker
+         *     (`PurgeDeletedAccountsHandler`) — este endpoint só garante que, a partir
+         *     da resposta, a conta não consegue mais entrar.
+         */
+        delete: operations["excluir_conta_v1_students_me_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/turns": {
         parameters: {
             query?: never;
@@ -1468,6 +1493,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["QuotaStatusResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    excluir_conta_v1_students_me_delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -1,6 +1,10 @@
 /**
  * O botão cheio, acento sólido, do artboard 11 ("Criar conta"). Reusado nas
  * cinco telas de auth (CARD-050).
+ *
+ * `variante="destrutivo"` (CARD-051) troca só a cor de fundo para
+ * `cores.perigo` — a única ação irreversível do app (excluir a conta) é o
+ * primeiro a precisar dela.
  */
 
 import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
@@ -12,6 +16,7 @@ type Props = {
   aoTocar: () => void;
   carregando?: boolean;
   desabilitado?: boolean;
+  variante?: 'primario' | 'destrutivo';
 };
 
 export function BotaoPrimario({
@@ -19,6 +24,7 @@ export function BotaoPrimario({
   aoTocar,
   carregando = false,
   desabilitado = false,
+  variante = 'primario',
 }: Props) {
   const cores = useCores();
   const inativo = carregando || desabilitado;
@@ -32,7 +38,7 @@ export function BotaoPrimario({
       style={({ pressed }) => [
         estilos.botao,
         {
-          backgroundColor: cores.acento,
+          backgroundColor: variante === 'destrutivo' ? cores.perigo : cores.acento,
           opacity: inativo ? 0.6 : pressed ? 0.85 : 1,
         },
       ]}

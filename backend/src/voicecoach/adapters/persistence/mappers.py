@@ -61,6 +61,7 @@ def student_to_row(student: Student) -> StudentRow:
         id=student.id,
         display_name=student.display_name,
         created_at=student.created_at,
+        deleted_at=student.deleted_at,
     )
 
 
@@ -69,6 +70,7 @@ def student_from_row(row: StudentRow) -> Student:
         id=row.id,
         display_name=row.display_name,
         created_at=row.created_at,
+        deleted_at=row.deleted_at,
     )
 
 

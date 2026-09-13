@@ -600,6 +600,20 @@ class Settings(BaseSettings):
     register_rate_limit_window: timedelta = timedelta(hours=1)
     register_rate_limit_per_ip: int = Field(default=3, gt=0)
 
+    # --- Delete de conta (CARD-051, ADR-0069) ---------------------------------
+    # Teto baixo e janela longa, de propósito: é ação única e irreversível, não
+    # um formulário que se repete por engano. Ninguém exclui a própria conta
+    # três vezes numa hora sem que algo esteja errado no cliente, não na
+    # intenção do aluno.
+    delete_account_rate_limit_window: timedelta = timedelta(hours=1)
+    delete_account_rate_limit_per_student: int = Field(default=3, gt=0)
+
+    # Lote da varredura de expurgo (o `cron_job` do worker) — mesma disciplina
+    # de `inactive_session_batch_limit`: pequeno porque o worker roda com
+    # `MAX_JOBS = 1`, e cada conta expurgada é ao menos uma chamada de rede ao
+    # storage (o passo que pode ser lento de verdade).
+    account_purge_batch_limit: int = Field(default=20, gt=0)
+
     # --- E-mail transacional (ADR-0068) ---------------------------------------
     # `console` é o default de custo zero (ADR-0010): escreve o link no log do
     # processo. `resend` exige `RESEND_API_KEY` — sem ela, o boot recusa

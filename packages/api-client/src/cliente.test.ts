@@ -415,3 +415,28 @@ describe('redefinirSenha', () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 });
+
+describe('excluirConta', () => {
+  it('faz DELETE em /students/me, sem corpo', async () => {
+    const urls: string[] = [];
+    const metodos: string[] = [];
+    const fake: typeof fetch = async (url, init) => {
+      urls.push(String(url));
+      metodos.push(String(init?.method));
+      return new Response(null, { status: 204 });
+    };
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch: fake });
+
+    await cliente.excluirConta();
+
+    expect(urls).toEqual(['http://api.local/v1/students/me']);
+    expect(metodos).toEqual(['DELETE']);
+  });
+
+  it('limite de exclusões excedido vira ErroDaApi 429', async () => {
+    const { fetch } = fetchQueDevolve({ title: 'Muitas requisições' }, { status: 429 });
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch });
+
+    await expect(cliente.excluirConta()).rejects.toMatchObject({ status: 429 });
+  });
+});

@@ -463,6 +463,66 @@ def test_id_do_student_dev_e_estavel() -> None:
     assert UUID("00000000-0000-0000-0000-000000000001") == DEV_STUDENT_ID
 
 
+# -- delete de conta: exclusão lógica (CARD-051, ADR-0069) -------------------
+
+
+async def test_mark_deleted_e_idempotente_preserva_o_primeiro_instante(
+    db_session: AsyncSession,
+) -> None:
+    repository: StudentRepository = SqlAlchemyStudentRepository(db_session)
+    student = Student(id=uuid4(), display_name="Ana Souza", created_at=NOW)
+    await repository.add(student)
+    await db_session.commit()
+
+    primeiro = NOW
+    segundo = NOW + timedelta(minutes=5)
+    await repository.mark_deleted(student.id, primeiro)
+    await repository.mark_deleted(student.id, segundo)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    recarregado = await repository.get(student.id)
+    assert recarregado is not None
+    assert recarregado.deleted_at == primeiro
+
+
+async def test_list_pending_purge_lista_so_contas_marcadas(
+    db_session: AsyncSession,
+) -> None:
+    repository: StudentRepository = SqlAlchemyStudentRepository(db_session)
+    marcado = Student(id=uuid4(), display_name="Marcado", created_at=NOW)
+    ativo = Student(id=uuid4(), display_name="Ativo", created_at=NOW)
+    await repository.add(marcado)
+    await repository.add(ativo)
+    await db_session.commit()
+
+    await repository.mark_deleted(marcado.id, NOW)
+    await db_session.commit()
+
+    # `limit` alto, e a asserção é por pertencimento — não por lista exata: o
+    # container é de escopo de sessão (ver a nota em `aluno_isolado`) e outro
+    # teste deste arquivo pode ter marcado outra conta antes desta rodar.
+    pendentes = await repository.list_pending_purge(limit=1000)
+
+    assert marcado.id in pendentes
+    assert ativo.id not in pendentes
+
+
+async def test_delete_do_student_apaga_a_linha_e_e_idempotente(
+    db_session: AsyncSession,
+) -> None:
+    repository: StudentRepository = SqlAlchemyStudentRepository(db_session)
+    student = Student(id=uuid4(), display_name="Removido", created_at=NOW)
+    await repository.add(student)
+    await db_session.commit()
+
+    await repository.delete(student.id)
+    await repository.delete(student.id)  # segunda vez: zero linhas, sem erro
+    await db_session.commit()
+
+    assert await repository.get(student.id) is None
+
+
 # -- trechos de áudio da resposta (ADR-0023) ---------------------------------
 
 
@@ -1097,6 +1157,80 @@ async def test_um_turn_so_pode_ter_um_evento_de_custo(
 
     with pytest.raises(ConflictingWriteError):
         await uow.commit()
+
+
+# -- delete de conta: expurgo físico e o que sobrevive (CARD-051, ADR-0069) --
+
+
+async def test_delete_all_for_student_de_turns_preserva_o_usage_event(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """O núcleo do ADR-0069: apagar o turn não pode apagar o custo já incorrido.
+
+    Antes desta migration, `usage_events.turn_id` tinha `ON DELETE CASCADE` —
+    este teste é quem prova que a restrição foi mesmo removida, não só a
+    migration dizer que removeu.
+    """
+    student, sessao = aluno_isolado
+    turns: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    usage_events: UsageEventRepository = SqlAlchemyUsageEventRepository(db_session)
+    turn = await _turn_gravado(db_session, sessao)
+    evento = _evento_de(turn.id, student.id, quando=NOW)
+    await usage_events.add(evento)
+    await db_session.commit()
+
+    removidos = await turns.delete_all_for_student(student.id)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    assert removidos == 1
+    assert await turns.get(turn.id) is None
+    sobrevivente = await usage_events.get(turn.id)
+    assert sobrevivente is not None
+    assert sobrevivente.student_id == student.id
+
+
+async def test_delete_do_student_anonimiza_o_usage_event_via_set_null(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """O outro lado do ADR-0069: apagar a conta não apaga o custo, só desliga
+    o vínculo — o banco faz isso sozinho, via `ON DELETE SET NULL`.
+    """
+    student, sessao = aluno_isolado
+    turns: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    sessions: SessionRepository = SqlAlchemySessionRepository(db_session)
+    students: StudentRepository = SqlAlchemyStudentRepository(db_session)
+    usage_events: UsageEventRepository = SqlAlchemyUsageEventRepository(db_session)
+    turn = await _turn_gravado(db_session, sessao)
+    await usage_events.add(_evento_de(turn.id, student.id, quando=NOW))
+    await db_session.commit()
+
+    await turns.delete_all_for_student(student.id)
+    await sessions.delete_all_for_student(student.id)
+    await db_session.commit()
+    await students.delete(student.id)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    assert await students.get(student.id) is None
+    orfao = await usage_events.get(turn.id)
+    assert orfao is not None
+    assert orfao.student_id is None
+
+
+async def test_sessions_delete_all_for_student_e_bloqueado_por_turn_vivo(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """A ordem documentada nos dois repositórios não é opcional: `sessions`
+    não tem `ON DELETE CASCADE` para `turns`, de propósito (ver o docstring
+    de `SessionRepository.delete_all_for_student`).
+    """
+    student, sessao = aluno_isolado
+    sessions: SessionRepository = SqlAlchemySessionRepository(db_session)
+    await _turn_gravado(db_session, sessao)
+
+    with pytest.raises(IntegrityError):
+        await sessions.delete_all_for_student(student.id)
 
 
 async def test_agregacao_por_student_soma_em_minutos_e_em_turns(

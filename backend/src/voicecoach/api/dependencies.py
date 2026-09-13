@@ -83,6 +83,9 @@ from voicecoach.application.ports.service_budget import ServiceBudget
 from voicecoach.application.ports.translator import Translator
 from voicecoach.application.ports.turn_events import TurnEvents
 from voicecoach.application.ports.turn_queue import TurnQueue
+from voicecoach.application.use_cases.delete_account import (
+    DeleteAccountHandler,
+)
 from voicecoach.application.use_cases.discard_turn import DiscardTurnHandler
 from voicecoach.application.use_cases.email_verification import (
     ConfirmEmailHandler,
@@ -433,8 +436,13 @@ def reset_password_url(request: Request) -> Callable[[str], str]:
     return lambda token: f"{base}/v1/auth/reset-password?token={token}"
 
 
+def student_repository(session: Sessao) -> StudentRepository:
+    return SqlAlchemyStudentRepository(session)
+
+
 async def requesting_student_id(
     issuer: Annotated[AccessTokenIssuer, Depends(access_token_issuer)],
+    students: Annotated[StudentRepository, Depends(student_repository)],
     authorization: Annotated[str | None, Header()] = None,
 ) -> UUID:
     """O aluno da requisição, do ``Bearer`` do ``Authorization`` (ADR-0007, CARD-049).
@@ -443,6 +451,16 @@ async def requesting_student_id(
     exatamente a linha única que o comentário antigo previa: o token
     substitui a constante, e nenhuma rota que já dependia desta função
     mudou uma linha (CARD-032, CARD-036, listagem de sessões, saldo de cota).
+
+    **Desde o CARD-051/ADR-0069, esta função deixou de ser 100% stateless.**
+    Além de decodificar o JWT, ela busca o `Student` e recusa (`401`) se a
+    conta não existir ou tiver `deleted_at` preenchido. É o preço que o
+    delete de conta exige pagar: o access token stateless de 15 min (ADR-0007)
+    aceitava uma pequena janela pós-revogação como trade-off geral, mas o
+    próprio ADR-0007 já registrava que ela **não** é tolerável no caso da
+    exclusão — e este é o ponto único por onde toda rota autenticada passa,
+    então é aqui que a checagem mora, uma vez, para nenhuma rota (presente ou
+    futura) poder esquecê-la.
     """
     if authorization is None or not authorization.startswith("Bearer "):
         raise ProblemError(
@@ -454,7 +472,7 @@ async def requesting_student_id(
         )
     token = authorization.removeprefix("Bearer ").strip()
     try:
-        return issuer.decode(token)
+        student_id = issuer.decode(token)
     except InvalidAccessTokenError as exc:
         raise ProblemError(
             type_=TYPE_UNAUTHENTICATED,
@@ -462,6 +480,16 @@ async def requesting_student_id(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(exc),
         ) from exc
+
+    aluno = await students.get(student_id)
+    if aluno is None or not aluno.is_active:
+        raise ProblemError(
+            type_=TYPE_UNAUTHENTICATED,
+            title="Não autenticado",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Esta conta não existe mais.",
+        )
+    return student_id
 
 
 async def enforce_verified_email(
@@ -570,10 +598,6 @@ def stream_handler(
 # ---------------------------------------------------------------------------
 
 
-def student_repository(session: Sessao) -> StudentRepository:
-    return SqlAlchemyStudentRepository(session)
-
-
 async def enforce_register_rate_limit(
     request: Request,
     settings: Annotated[Settings, Depends(get_settings_from_app)],
@@ -662,6 +686,7 @@ def register_student_handler(
 
 def login_student_handler(
     credentials: Annotated[CredentialRepository, Depends(credential_repository)],
+    students: Annotated[StudentRepository, Depends(student_repository)],
     refresh_tokens: Annotated[
         RefreshTokenRepository, Depends(refresh_token_repository)
     ],
@@ -673,6 +698,7 @@ def login_student_handler(
 ) -> LoginStudentHandler:
     return LoginStudentHandler(
         credentials=credentials,
+        students=students,
         refresh_tokens=refresh_tokens,
         hasher=hasher,
         token_issuer=issuer,
@@ -829,6 +855,50 @@ def reset_password_handler(
         credentials=credentials,
         refresh_tokens=refresh_tokens,
         hasher=hasher,
+        unit_of_work=uow,
+        clock=lambda: clock,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Delete de conta (CARD-051, ADR-0069)
+# ---------------------------------------------------------------------------
+
+
+async def enforce_delete_account_rate_limit(
+    student_id: Annotated[UUID, Depends(requesting_student_id)],
+    settings: Annotated[Settings, Depends(get_settings_from_app)],
+    limiter: Annotated[RateLimiter, Depends(rate_limiter)],
+) -> None:
+    """Por conta, não por IP — é ação única e irreversível (CARD-051)."""
+    dentro = await limiter.hit(
+        f"delete-account:student:{student_id}",
+        window=settings.delete_account_rate_limit_window,
+        limit=settings.delete_account_rate_limit_per_student,
+    )
+    if not dentro:
+        raise ProblemError(
+            type_=TYPE_RATE_LIMITED,
+            title="Muitas requisições",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Limite de pedidos de exclusão de conta excedido.",
+            retry_after_seconds=int(
+                settings.delete_account_rate_limit_window.total_seconds()
+            ),
+        )
+
+
+def delete_account_handler(
+    students: Annotated[StudentRepository, Depends(student_repository)],
+    refresh_tokens: Annotated[
+        RefreshTokenRepository, Depends(refresh_token_repository)
+    ],
+    uow: Annotated[UnitOfWork, Depends(unit_of_work)],
+    clock: Annotated[datetime, Depends(agora)],
+) -> DeleteAccountHandler:
+    return DeleteAccountHandler(
+        students=students,
+        refresh_tokens=refresh_tokens,
         unit_of_work=uow,
         clock=lambda: clock,
     )

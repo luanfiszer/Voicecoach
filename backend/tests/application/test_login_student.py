@@ -12,6 +12,7 @@ from fakes_pipeline import (
     FakeCredentialRepository,
     FakePasswordHasher,
     FakeRefreshTokenRepository,
+    FakeStudentRepository,
     FakeUnitOfWork,
     RelogioFalso,
 )
@@ -22,6 +23,7 @@ from voicecoach.application.use_cases.login_student import (
     LoginStudentHandler,
 )
 from voicecoach.domain.auth import Credential
+from voicecoach.domain.student import Student
 
 INICIO = datetime(2026, 9, 13, 12, 0, tzinfo=UTC)
 NOVO_ID = UUID("22222222-2222-2222-2222-222222222222")
@@ -29,6 +31,8 @@ NOVO_ID = UUID("22222222-2222-2222-2222-222222222222")
 
 def montar(
     credencial: Credential | None,
+    *,
+    aluno_excluido: bool = False,
 ) -> tuple[
     LoginStudentHandler,
     FakeRefreshTokenRepository,
@@ -37,6 +41,22 @@ def montar(
     FakeUnitOfWork,
 ]:
     credentials = FakeCredentialRepository(*([credencial] if credencial else []))
+    # A conta existe e está ativa por padrão — só o teste de exclusão
+    # (CARD-051, ADR-0069) precisa de um `Student` marcado.
+    students = FakeStudentRepository(
+        *(
+            [
+                Student(
+                    id=credencial.student_id,
+                    display_name="Aluno",
+                    created_at=INICIO,
+                    deleted_at=INICIO if aluno_excluido else None,
+                )
+            ]
+            if credencial
+            else []
+        )
+    )
     refresh_tokens = FakeRefreshTokenRepository()
     hasher = FakePasswordHasher()
     issuer = FakeAccessTokenIssuer()
@@ -44,6 +64,7 @@ def montar(
     ids = iter([NOVO_ID, uuid4(), uuid4()])
     handler = LoginStudentHandler(
         credentials=credentials,
+        students=students,
         refresh_tokens=refresh_tokens,
         hasher=hasher,
         token_issuer=issuer,
@@ -110,3 +131,23 @@ async def test_email_inexistente_e_invalid_credentials_e_verify_roda_assim_mesmo
     assert isinstance(resultado, Err)
     assert isinstance(resultado.error, InvalidCredentials)
     assert hasher.chamadas_de_verify == 1
+
+
+async def test_conta_excluida_e_invalid_credentials_mesmo_com_senha_certa() -> None:
+    """CARD-051/ADR-0069: a credencial sobrevive até o expurgo, mas a conta
+    marcada não pode logar — mesma resposta de senha errada, para não vazar
+    "esta conta existe, mas foi excluída".
+    """
+    credencial = credencial_valida()
+    handler, refresh_tokens, _hasher, _issuer, uow = montar(
+        credencial, aluno_excluido=True
+    )
+
+    resultado = await handler.handle(
+        LoginStudent(email="aluno@example.com", password="senha-certa")
+    )
+
+    assert isinstance(resultado, Err)
+    assert isinstance(resultado.error, InvalidCredentials)
+    assert refresh_tokens.by_id == {}
+    assert uow.commits == 0

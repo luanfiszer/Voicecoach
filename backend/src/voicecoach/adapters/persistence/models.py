@@ -92,6 +92,9 @@ class StudentRow(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
     display_name: Mapped[str] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(_Timestamp)
+    # Nulo é o estado normal. Preenchido é a exclusão lógica e imediata do
+    # CARD-051/ADR-0069 — a linha em si só some depois, no expurgo físico.
+    deleted_at: Mapped[datetime | None] = mapped_column(_Timestamp, default=None)
 
 
 class CredentialRow(Base):
@@ -404,11 +407,17 @@ class UsageEventRow(Base):
         Index("ix_usage_events_student_occurred", "student_id", "occurred_at"),
     )
 
-    turn_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("turns.id", ondelete="CASCADE"), primary_key=True
-    )
-    student_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE")
+    # Sem `ForeignKey` aqui — ADR-0069 (CARD-051): o `Turn` que gerou esta
+    # linha pode ser apagado no delete de conta, e a linha precisa
+    # sobreviver a isso. A coluna continua sendo a chave primária; só deixa
+    # de ser *enforced* contra `turns.id` (a migration `f3a1c9e4b7d2` fez o
+    # mesmo no banco).
+    turn_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    # Nulável desde o ADR-0069: `ON DELETE SET NULL` desliga o vínculo no
+    # instante em que o `Student` é apagado — é a anonimização, feita pelo
+    # banco.
+    student_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("students.id", ondelete="SET NULL")
     )
     occurred_at: Mapped[datetime] = mapped_column(_Timestamp)
 

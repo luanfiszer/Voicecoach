@@ -45,6 +45,7 @@ from fakes_pipeline import (
 )
 from voicecoach.domain.auth import Credential
 from voicecoach.domain.session import Session
+from voicecoach.domain.student import Student
 from voicecoach.domain.turn import Turn
 
 ALUNO = UUID("00000000-0000-0000-0000-000000000001")
@@ -108,7 +109,13 @@ class Fakes:
         # credencial; os testes de `enforce_verified_email` desverificam
         # explicitamente. Mesma disciplina de "permissivo por padrão" do
         # `rate_limiter`/`budget` (ADR-0063).
-        self.students = FakeStudentRepository()
+        # CARD-051/ADR-0069: `requesting_student_id` agora consulta o
+        # `Student` a cada request — ativo por padrão, como o e-mail
+        # verificado acima. Os testes de delete de conta marcam
+        # `deleted_at` explicitamente pelo `fakes`.
+        self.students = FakeStudentRepository(
+            Student(id=ALUNO, display_name="Aluno de teste", created_at=AGORA)
+        )
         self.credentials = FakeCredentialRepository(
             Credential(
                 id=uuid4(),
