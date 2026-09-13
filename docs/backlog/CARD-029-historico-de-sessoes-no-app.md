@@ -2,7 +2,7 @@
 
 - **ID:** CARD-029
 - **Épico:** Fase 3 — Domínio pedagógico
-- **Plataforma:** backend/mobile · **Esforço:** M · **Status:** backlog
+- **Plataforma:** backend/mobile · **Esforço:** M · **Status:** concluído (2026-09-13)
 - **Dependências:** **CARD-030** (o backend desta tela), CARD-016; ADR-0008, ADR-0024
 
 ## Contexto
@@ -98,3 +98,87 @@ Roteamento por sistema de arquivos no `expo-router`: como `Tabs` e `Stack` se
 aninham, e como se mantém uma rota fora da navegação principal — o oposto do
 roteamento por configuração do React web e sem paralelo em .NET, onde a rota é
 atributo ou registro explícito, nunca o nome do arquivo.
+
+## Execução (2026-09-13, loop autônomo)
+
+**Verificado antes de codar: este card é testável sem simulador de áudio.**
+Ao contrário do CARD-035 (bloqueado na mesma sessão), nenhum critério de
+aceite aqui depende de ouvido — é navegação, agregação e texto. A lógica
+(rótulos de data/duração) foi extraída e testada com Vitest (ADR-0061); a
+estrutura (abas, integração com o backend real) foi verificada com o
+Simulador iOS **e** screenshot, algo que a sessão anterior (CARD-035) havia
+subestimado como completamente inacessível — não é: falta ouvido e gesto de
+toque automatizado, não falta a possibilidade de ver a tela.
+
+**`GET /v1/sessions` (o item 1 do Problema) já veio pronto do CARD-030**, que
+rodou antes na ordem de dependência. Este card só consome.
+
+**Abas (`expo-router`, o item 2).** `Stack` → grupo `(tabs)` com `Tabs`. As
+rotas de ferramenta (`medicao`, `diagnostico-silencio`) ficam **irmãs** de
+`(tabs)` dentro de `app/`, não dentro dele — é o parêntese do expo-router que
+tira o segmento da URL sem tirar a rota da árvore. Verificado no Simulador via
+deep link (`voicecoach://medicao`): a rota abre **sem** barra de abas, exatamente
+o critério de aceite.
+
+**Perfil é uma aba real com tela placeholder**, não uma aba ausente. O
+critério de aceite pede as TRÊS abas presentes; a tela de Perfil de verdade
+(artboard 12, saldo de cota, conta) depende da auth da Fase 3 (CARD-049/050),
+que está fora do escopo deste card e do produto hoje. Isto não é
+implementação pela metade — é a aba certa, com o conteúdo certo para o que
+existe: "Em breve — depende de login (Fase 3)".
+
+**Ícone das abas: nenhum, e é decisão, não omissão.** O artboard 10 desenha um
+círculo vazio sobre cada rótulo — nenhum glifo específico (casa/relógio/pessoa)
+foi desenhado, o que indica placeholder de design, não requisito. O projeto
+não tem biblioteca de ícones (nenhuma dependência nova sem ADR — critério 1 de
+`docs/adr/README.md`). A escolha foi `tabBarIcon: () => null` — texto puro —
+em vez do triângulo de fallback do React Navigation, que pareceria um ícone
+quebrado. Verificado visualmente: sem o `null`, o simulador mostrava um
+triângulo cinza sob cada rótulo.
+
+**O item 3 do Problema ("áudio expirado ≠ turn inválido nunca foi
+exercitado")** agora tem tela: `reply_media_available: false` renderiza
+"Áudio expirado — transcrição e correções permanecem", sem esconder a sessão
+nem quebrar o card. Não pôde ser fotografado com dado real nesta sessão (a
+única sessão existente no banco de testes é de hoje, `reply_media_available:
+true`) — coberto pelo teste unitário do componente/rótulos e pela leitura do
+código; ver Riscos.
+
+**Verificação end-to-end real, não só typecheck.** Subida a infra local
+(Postgres/Redis/MinIO via `docker-compose.yml`, migrations, `uvicorn` com o
+código atual — havia um servidor de desenvolvimento **desatualizado** rodando
+há 7h, de antes do CARD-030, que respondia `405` para `GET /v1/sessions`;
+substituído), o app rodado de verdade no Simulador (`expo run:ios`) e
+navegado por deep link (`voicecoach://historico`, `voicecoach://perfil`,
+`voicecoach://medicao` — o mesmo mecanismo que `app/medicao.tsx` já usa,
+necessário porque não há automação de toque disponível nesta máquina, CARD-011).
+A tela de Histórico renderizou uma sessão real (13 turnos, 2 correções, 1:47
+falados) batendo campo a campo com o artboard. Screenshots capturados com
+`xcrun simctl io booted screenshot`.
+
+**Nenhum ADR novo.** Nenhum critério de `docs/adr/README.md` se aplica:
+nenhuma dependência nova (Tabs já vem do `expo-router` já instalado); a
+mudança de navegação é estrutura de cliente, não contrato de API nem formato
+de dado persistido; não afeta custo nem segurança; é trivialmente reversível
+(voltar a `Stack` é uma troca de arquivo). Os dois tokens de cor novos
+(`acentoSuave`, `chip`) são derivação visual pequena, documentada como tal no
+próprio `tokens.ts` — não uma decisão de arquitetura.
+
+**Testes:** `apps/mobile/src/features/historico/rotulosDoHistorico.test.ts`
+(10, cada um mapeado a um pedaço do artboard 10 — inclusive o caso "23h50 de
+ontem vista logo após a meia-noite" continuar sendo 'Ontem'),
+`packages/api-client/src/cliente.test.ts` (5, novo — o primeiro teste deste
+pacote, usando a mesma costura de `fetch` injetável do ADR-0046 para provar
+URL/query, envelope tipado, `ErroDaApi` e `ErroDeRede`).
+
+**Dívida declarada (ADR-0048/skill do cliente):** o Simulador não prova
+microfone nem latência real — irrelevante aqui, este card não toca áudio. O
+que o Simulador **não** provou e fica em aberto: o aviso de áudio expirado
+com dado de verdade (não havia sessão antiga no banco de teste) e o
+comportamento de toque real no `RefreshControl` (puxar-para-atualizar) —
+verificado por leitura de código e pela mesma API que `useHistorico` já usa,
+não por gesto.
+
+**Regra do explicador:** nenhuma pergunta de previsão coube — a única decisão
+de produto em aberto (ícone das abas) tinha uma direção conservadora óbvia
+(nenhuma dependência nova) e foi tomada e registrada, não perguntada.

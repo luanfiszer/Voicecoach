@@ -26,6 +26,14 @@ export const cores = {
     // botão cheio", e ele continua claro nos dois esquemas porque os dois
     // acentos são escuros o bastante para isso.
     sobreAcento: '#FFFFFF',
+    // O fundo do chip de correções do artboard 10 (histórico) — um tom do
+    // acento bem clareado. O style guide não nomeia este papel; derivado por
+    // olho da imagem do artboard, e registrado como tal (CARD-029), não valor
+    // extraído de um arquivo de design.
+    acentoSuave: '#F5DDD5',
+    // O fundo do chip neutro ("N turnos") do mesmo artboard — um cinza mais
+    // claro que `superficie`. Mesma origem e mesma ressalva do papel acima.
+    chip: '#EDEAE5',
   },
   dark: {
     fundo: '#121211',
@@ -37,6 +45,11 @@ export const cores = {
     secundario: '#8F8B83',
     acento: '#E4795C',
     sobreAcento: '#1A1918',
+    // Mesma ressalva de `light.acentoSuave`/`light.chip`: o artboard 10 só
+    // existe no esquema claro, e estes dois são a extrapolação para o escuro,
+    // não um valor do designer (CARD-029).
+    acentoSuave: '#3A2A24',
+    chip: '#232220',
   },
 } as const;
 
