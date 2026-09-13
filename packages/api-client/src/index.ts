@@ -18,6 +18,7 @@ export {
   type EventoDoTurn,
   type ListaDeSessoes,
   type OpcoesDoCliente,
+  type ParDeTokens,
   type Sessao,
   type SessaoDoHistorico,
   type Trecho,

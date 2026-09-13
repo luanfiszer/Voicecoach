@@ -18,6 +18,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { config } from '@/config';
+import { useSessao } from '@/features/auth/useSessao';
 
 export type EstadoDoHistorico =
   | { tipo: 'carregando' }
@@ -44,9 +45,11 @@ function mensagemDeErro(erro: unknown): string {
 }
 
 export function useHistorico(cliente?: Cliente): Historico {
+  const { fetchAutenticado } = useSessao();
   const clienteEfetivo = useMemo(
-    () => cliente ?? criarCliente({ baseUrl: config.apiBaseUrl }),
-    [cliente],
+    () =>
+      cliente ?? criarCliente({ baseUrl: config.apiBaseUrl, fetch: fetchAutenticado }),
+    [cliente, fetchAutenticado],
   );
   const [estado, setEstado] = useState<EstadoDoHistorico>({ tipo: 'carregando' });
   const controlador = useRef<AbortController | null>(null);
