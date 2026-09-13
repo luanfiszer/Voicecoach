@@ -30,6 +30,7 @@ import { PlayerLocal } from '@/features/gravacao/PlayerLocal';
 import { rotulo, subtitulo } from '@/features/gravacao/rotulos';
 import { useGravacao } from '@/features/gravacao/useGravacao';
 import { ListaDoTurno } from '@/features/turno/ListaDoTurno';
+import { formatarResumo } from '@/features/turno/rotulosDeCorrecao';
 import { useTurno } from '@/features/turno/useTurno';
 import { alvo, espaco, texto, useCores } from '@/theme/tokens';
 
@@ -41,6 +42,10 @@ export function TelaConversa() {
 
   const precisaDeAjustes =
     gravacao.permissao === 'negada-permanentemente' && !overlayDispensado;
+  // Fundação do resumo pós-sessão da Fase 6 (CARD-016): `null` enquanto
+  // nenhuma correção aconteceu ainda — sem linha de "0 correções" poluindo
+  // uma sessão que só teve acertos.
+  const resumo = formatarResumo(turno.resumo);
 
   return (
     <SafeAreaView style={[estilos.tela, { backgroundColor: cores.fundo }]}>
@@ -49,6 +54,9 @@ export function TelaConversa() {
         <Text style={[texto.apoio, { color: cores.secundario }]}>
           {subtitulo(gravacao.estado === 'gravando', turno.estado)}
         </Text>
+        {resumo ? (
+          <Text style={[texto.apoio, { color: cores.secundario }]}>{resumo}</Text>
+        ) : null}
       </View>
 
       <ScrollView style={estilos.centro} contentContainerStyle={estilos.conteudo}>

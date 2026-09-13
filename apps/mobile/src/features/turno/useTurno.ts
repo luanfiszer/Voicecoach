@@ -24,6 +24,7 @@
 
 import {
   type Cliente,
+  type components,
   criarCliente,
   type EventoDoTurn,
   type Trecho,
@@ -35,6 +36,12 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { config } from '@/config';
 import { lerComoBlob } from '@/features/turno/arquivoLocal';
 import { intervalos, MARCOS_VAZIOS, type Marcos } from '@/features/turno/marcos';
+import {
+  RESUMO_VAZIO,
+  type ResumoDaSessao,
+  type Severidade,
+  type TipoDeCorrecao,
+} from '@/features/turno/rotulosDeCorrecao';
 import {
   prepararParaTocar,
   useFilaDePlayback,
@@ -48,18 +55,52 @@ export type EstadoDoTurn =
   | 'concluido'
   | 'falhou';
 
+/**
+ * Uma correção tipada (CARD-016/CARD-013) — não mais os quatro campos
+ * legados. Os nomes em pt-BR espelham `CorrectionPayload`, campo a campo:
+ * `tipo`←`type`, `corrigido`←`corrected_form`, `explicacao`←`explanation`,
+ * `severidade`←`severity`. `original`/`index` já eram pt-BR-compatíveis.
+ */
 export type Correcao = {
-  has_mistakes: boolean;
+  index: number;
+  tipo: TipoDeCorrecao;
   original: string;
-  corrected: string;
-  tip: string;
+  corrigido: string;
+  explicacao: string;
+  severidade: Severidade;
 };
+
+function mapearCorrecoes(
+  payload: components['schemas']['CorrectionPayload'][] | undefined,
+): Correcao[] {
+  return (payload ?? []).map((c) => ({
+    index: c.index,
+    tipo: c.type,
+    original: c.original_excerpt,
+    corrigido: c.corrected_form,
+    explicacao: c.explanation,
+    severidade: c.severity,
+  }));
+}
 
 export type Turno = {
   estado: EstadoDoTurn;
   turnId: string | null;
   transcricao: string | null;
-  correcao: Correcao | null;
+  /**
+   * As correções do turn ATUAL — zeradas por `limpar()`, como o resto.
+   *
+   * Vazio cobre os dois casos "ainda não sei" e "não há nenhuma", e os dois
+   * renderizam igual: nada (CARD-016, diagnóstico §5 — sem correção, sem
+   * card, nem uma de afirmação positiva). Não há distinção a fazer.
+   */
+  correcoes: Correcao[];
+  /**
+   * A contagem por tipo desde que o app abriu (CARD-016 — fundação do resumo
+   * completo da Fase 6). **Sobrevive a `limpar()`**: é da SESSÃO, não do
+   * turn — zerar a cada gravação nova apagaria o que acabou de acontecer.
+   */
+  resumo: ResumoDaSessao;
   /** Os trechos conhecidos, em ordem de `index`. */
   trechos: Trecho[];
   /** Qual trecho está tocando agora. */
@@ -193,7 +234,8 @@ export function useTurno(): Turno {
   const [estado, setEstado] = useState<EstadoDoTurn>('ocioso');
   const [turnId, setTurnId] = useState<string | null>(null);
   const [transcricao, setTranscricao] = useState<string | null>(null);
-  const [correcao, setCorrecao] = useState<Correcao | null>(null);
+  const [correcoes, setCorrecoes] = useState<Correcao[]>([]);
+  const [resumo, setResumo] = useState<ResumoDaSessao>(RESUMO_VAZIO);
   const [trechos, setTrechos] = useState<Trecho[]>([]);
   const [marcos, setMarcos] = useState<Marcos>(MARCOS_VAZIOS);
   const [erro, setErro] = useState<string | null>(null);
@@ -207,10 +249,31 @@ export function useTurno(): Turno {
   const idsVistos = useRef(new Set<string>());
   const ultimoEventoId = useRef<string | null>(null);
   const encerrado = useRef(false);
+  /** Espelha `correcoes` sem esperar o próximo render — mesmo padrão do `filaRef`. */
+  const correcoesRef = useRef<Correcao[]>([]);
+  correcoesRef.current = correcoes;
 
   const cancelar = useCallback(() => {
     abortador.current?.abort();
     abortador.current = null;
+  }, []);
+
+  /**
+   * Soma as correções do turn que acabou de fechar ao resumo da SESSÃO.
+   *
+   * Chamado uma vez por turn concluído (SSE ou polling), nunca por
+   * `limpar()`: o resumo é a fundação do resumo pós-sessão da Fase 6, e
+   * zerá-lo a cada gravação nova apagaria exatamente o que ele existe para
+   * lembrar.
+   */
+  const registrarNoResumo = useCallback(() => {
+    const atuais = correcoesRef.current;
+    if (atuais.length === 0) return;
+    setResumo((atual) => {
+      const porTipo = { ...atual.porTipo };
+      for (const c of atuais) porTipo[c.tipo] = (porTipo[c.tipo] ?? 0) + 1;
+      return { total: atual.total + atuais.length, porTipo };
+    });
   }, []);
 
   const limpar = useCallback(() => {
@@ -223,7 +286,7 @@ export function useTurno(): Turno {
     setEstado('ocioso');
     setTurnId(null);
     setTranscricao(null);
-    setCorrecao(null);
+    setCorrecoes([]);
     setTrechos([]);
     setMarcos(MARCOS_VAZIOS);
     setErro(null);
@@ -271,11 +334,12 @@ export function useTurno(): Turno {
           receberTrecho(evento.dados);
           break;
         case 'feedback':
-          setCorrecao(evento.dados);
+          setCorrecoes(mapearCorrecoes(evento.dados.corrections));
           break;
         case 'completed':
           encerrado.current = true;
           setEstado('concluido');
+          registrarNoResumo();
           break;
         case 'failed':
           encerrado.current = true;
@@ -286,7 +350,7 @@ export function useTurno(): Turno {
           break;
       }
     },
-    [receberTrecho],
+    [receberTrecho, registrarNoResumo],
   );
 
   /** O contrato de recuo: `GET /v1/turns/{id}` com backoff (ADR-0026 item 4). */
@@ -306,10 +370,19 @@ export function useTurno(): Turno {
 
         if (turn.transcript) setTranscricao(turn.transcript);
         for (const trecho of ordenarPorIndice(turn.chunks ?? [])) receberTrecho(trecho);
+        // O recuo não tinha isto antes do CARD-016: `corrections` chega no
+        // MESMO `GET` que já é chamado a cada passo, então não é uma
+        // segunda chamada — é ler um campo que já estava na resposta. Antes
+        // do professor fechar, `corrections` vem `[]` (é
+        // `default_factory=list` no domínio, nunca ausente) — e vazio
+        // renderiza igual a "nada ainda" ou "nada mesmo" (CARD-016): não há
+        // distinção que a tela precise fazer.
+        setCorrecoes(mapearCorrecoes(turn.corrections));
 
         if (turn.status === 'completed') {
           encerrado.current = true;
           setEstado('concluido');
+          registrarNoResumo();
           return;
         }
         if (turn.status === 'failed') {
@@ -325,7 +398,7 @@ export function useTurno(): Turno {
         await new Promise((r) => setTimeout(r, espera));
       }
     },
-    [cliente, receberTrecho],
+    [cliente, receberTrecho, registrarNoResumo],
   );
 
   /** O caminho principal: SSE, com queda para o polling se ele não se sustentar. */
@@ -444,9 +517,12 @@ export function useTurno(): Turno {
    * Voltar do background reconecta a partir do último evento recebido.
    *
    * **`Last-Event-ID` fora do esquema é 400**, não "comece do começo" (ADR-0041
-   * item 4) — por isso o valor é sempre o último id REAL, ou nenhum. E o
-   * `feedback` não volta na retomada (item 5): uma UI que o espere para sair do
-   * carregamento trava para sempre, e é por isso que nada aqui depende dele.
+   * item 4) — por isso o valor é sempre o último id REAL, ou nenhum. O
+   * `feedback` **já volta** na retomada desde o CARD-013 (`turn.corrections`
+   * persistido tirou o motivo do ADR-0041 item 5 de existir) — mas nenhuma
+   * tela pode depender dele para sair de um estado de espera: um turn sem
+   * nenhuma correção nunca dispara esse evento de novo com conteúdo
+   * observável diferente do que o `GET` de recuo já traz.
    */
   useEffect(() => {
     const aoMudar = (situacao: AppStateStatus) => {
@@ -467,7 +543,8 @@ export function useTurno(): Turno {
     estado,
     turnId,
     transcricao,
-    correcao,
+    correcoes,
+    resumo,
     trechos,
     tocando: fila.tocando,
     gaps: fila.gaps,
