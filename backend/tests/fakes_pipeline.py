@@ -37,6 +37,7 @@ from uuid import UUID
 
 from voicecoach.application.ports.audio_encoder import EncodedAudio
 from voicecoach.application.ports.media_storage import MediaStorageError
+from voicecoach.application.ports.repositories import RowNotFoundError
 from voicecoach.application.ports.speech_to_text import AudioInput, Segment, Transcript
 from voicecoach.application.ports.teacher_llm import (
     TeacherEvent,
@@ -254,12 +255,36 @@ class FakeSessionRepository:
     async def update(self, session: Session) -> None:
         self.sessions[session.id] = session
 
+    async def list_inactive(self, *, before: datetime, limit: int) -> list[UUID]:
+        """Reproduz o `HAVING` do adapter, inclusive a exclusão do RF3."""
+        from voicecoach.domain.turn import TurnStatus
+
+        candidatas = []
+        for sessao in self.sessions.values():
+            if sessao.ended_at is not None:
+                continue
+            turnos = [
+                t for t in self._turns.turns.values() if t.session_id == sessao.id
+            ]
+            if any(
+                t.status in (TurnStatus.QUEUED, TurnStatus.PROCESSING) for t in turnos
+            ):
+                continue
+            marco = max((t.created_at for t in turnos), default=sessao.started_at)
+            if marco < before:
+                candidatas.append((marco, sessao.id))
+        candidatas.sort()
+        return [session_id for _, session_id in candidatas[:limit]]
+
     async def try_end(self, session_id: UUID, now: datetime) -> datetime:
         """Reproduz o `COALESCE` do adapter: só escreve se ainda estiver nulo."""
         sessao = self.sessions.get(session_id)
         if sessao is None:
+            # A MESMA exceção do adapter, não um `LookupError` genérico: o
+            # `except` do `SweepInactiveSessionsHandler` é por tipo, e um fake
+            # que levantasse a mãe deixaria o caminho de captura sem teste.
             message = f"Session {session_id} não existe."
-            raise LookupError(message)
+            raise RowNotFoundError(message)
         if sessao.ended_at is None:
             sessao.ended_at = now
         return sessao.ended_at
