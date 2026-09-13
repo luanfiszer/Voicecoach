@@ -149,3 +149,62 @@ describe('descartarTurn', () => {
     });
   });
 });
+
+describe('traduzirTexto', () => {
+  it('faz POST em /turns/{id}/translations com o alvo e o índice no corpo', async () => {
+    const urls: string[] = [];
+    const corpos: string[] = [];
+    const fake: typeof fetch = async (url, init) => {
+      urls.push(String(url));
+      corpos.push(String(init?.body));
+      return new Response(JSON.stringify({ text: 'Olá, aluno.', cached: false }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch: fake });
+
+    const traducao = await cliente.traduzirTexto(
+      '11111111-1111-1111-1111-111111111111',
+      'reply',
+    );
+
+    expect(urls).toEqual([
+      'http://api.local/v1/turns/11111111-1111-1111-1111-111111111111/translations',
+    ]);
+    expect(JSON.parse(corpos[0] ?? '')).toEqual({ target: 'reply', index: 0 });
+    expect(traducao).toEqual({ text: 'Olá, aluno.', cached: false });
+  });
+
+  it('manda o índice explícito para uma correção', async () => {
+    const corpos: string[] = [];
+    const fake: typeof fetch = async (_url, init) => {
+      corpos.push(String(init?.body));
+      return new Response(
+        JSON.stringify({ text: 'Correção em português.', cached: true }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      );
+    };
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch: fake });
+
+    await cliente.traduzirTexto('id-do-turn', 'correction', 2);
+
+    expect(JSON.parse(corpos[0] ?? '')).toEqual({ target: 'correction', index: 2 });
+  });
+
+  it('endpoint indisponível vira ErroDaApi com o `detail` do Problem Details', async () => {
+    const { fetch } = fetchQueDevolve(
+      { title: 'Não encontrado', detail: 'turn sem resposta ainda' },
+      { status: 404 },
+    );
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch });
+
+    await expect(cliente.traduzirTexto('id', 'reply')).rejects.toMatchObject({
+      status: 404,
+      detalhe: 'turn sem resposta ainda',
+    });
+  });
+});

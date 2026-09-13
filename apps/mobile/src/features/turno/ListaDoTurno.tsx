@@ -14,7 +14,8 @@
  * ouviu.
  */
 
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { rotuloDoBotaoDeTraduzir } from '@/features/turno/rotuloDaTraducao';
 import { rotuloDaSeveridade, rotuloDoTipo } from '@/features/turno/rotulosDeCorrecao';
 import type { Turno } from '@/features/turno/useTurno';
 import { espaco, texto, useCores } from '@/theme/tokens';
@@ -55,6 +56,30 @@ export function ListaDoTurno({ turno }: { turno: Turno }) {
               {trecho.text}
             </Text>
           ))}
+
+          {/* O botão `traduzir` (CARD-058): só quando há resposta a
+              traduzir, nunca antes do turn concluir. */}
+          {turno.estado === 'concluido' ? (
+            <View style={estilos.traducao}>
+              {turno.traducao.fase === 'traduzido' && turno.traducao.texto ? (
+                <Text style={[texto.apoio, { color: cores.secundario }]}>
+                  {turno.traducao.texto}
+                </Text>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Traduzir"
+                  disabled={turno.traducao.fase === 'traduzindo'}
+                  onPress={() => void turno.traduzir()}
+                  hitSlop={espaco.sm}
+                >
+                  <Text style={[texto.rotulo, { color: cores.acento }]}>
+                    {rotuloDoBotaoDeTraduzir(turno.traducao.fase)}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -138,6 +163,9 @@ const estilos = StyleSheet.create({
   },
   correcao: {
     borderLeftWidth: 3,
+  },
+  traducao: {
+    marginTop: espaco.xs,
   },
   riscado: {
     textDecorationLine: 'line-through',

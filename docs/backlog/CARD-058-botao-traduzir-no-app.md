@@ -2,7 +2,7 @@
 
 - **ID:** CARD-058
 - **Épico:** Fase 3 — Domínio pedagógico (artboard 06)
-- **Plataforma:** mobile · **Esforço:** P · **Status:** backlog
+- **Plataforma:** mobile · **Esforço:** P · **Status:** concluído (2026-09-13)
 - **Dependências:** CARD-016 (concluído), CARD-036 (concluído — o endpoint já existe)
 
 ## Contexto
@@ -85,3 +85,53 @@ Nenhum novo — este card reusa o padrão de estado local por turn que
 testar sem mock nativo). O ganho aqui é de disciplina de escopo: fechar uma
 dívida registrada há duas sessões, sem inflar o card com nada que o artboard
 não pede.
+
+## Execução (2026-09-13, loop autônomo)
+
+**Premissa de escopo, confirmada pelo próprio texto do card:** o alvo da
+tradução é sempre `reply` (a resposta do professor) — o card e os critérios
+de aceite falam o tempo todo de "resposta do professor", nunca de correção
+individual. Traduzir uma `Correction` específica (o outro valor de
+`AlvoDeTraducao`) não está nos critérios de aceite nem no "In"; fica de fora
+por leitura literal do card, não por suposição nova.
+
+- **`packages/api-client`**: implementado `traduzirTexto` em `cliente.ts`
+  (a assinatura já estava declarada no tipo `Cliente`, sem corpo — achado ao
+  abrir a sessão, provavelmente início de uma sessão anterior). `POST
+  /v1/turns/{turn_id}/translations` com `{ target, index }` no corpo,
+  seguindo o contrato do `schema.d.ts` gerado a partir do `openapi.json` do
+  CARD-036. Três testes novos em `cliente.test.ts` (corpo montado
+  corretamente para `reply` e para `correction` com índice explícito; 404
+  vira `ErroDaApi` com `detail`).
+- **`apps/mobile`**: estado `EstadoDeTraducao` (`fase` + `texto`) adicionado a
+  `useTurno.ts`, no mesmo padrão de `correcoes`/`transcricao` — zerado por
+  `limpar()`. Função `traduzir()` chama o endpoint só quando `fase` é
+  `ocioso` ou `falhou`; `traduzido`/`traduzindo` são no-op, o que implementa
+  o critério de aceite "não é feita uma segunda chamada ao servidor" sem
+  cache próprio (RNF6 do CARD-036 — quem cacheia é o servidor, o cliente só
+  não insiste).
+- **UI**: botão dentro da bolha "PROFESSOR" de `ListaDoTurno.tsx`, abaixo do
+  texto dos trechos e antes das correções — visível só com `estado ===
+  'concluido'`. Ao traduzir, o texto aparece junto (nunca substitui o
+  original, critério de aceite). Rótulo do botão extraído para
+  `rotuloDaTraducao.ts` (testável sem `Pressable`/`Text` nativos, mesmo
+  padrão de `rotulosDeCorrecao.ts` — ADR-0061), com teste próprio.
+- **Decisão técnica (posição do botão), registrada porque o "Riscos" do card
+  pedia isso explicitamente:** o CARD-035 ainda não rodou nesta sessão (ver
+  `docs/loop-autonomo-2026-09-13-resumo.md`), então não havia layout de
+  controles (`0.75×`/`repetir`) para encaixar. O botão foi colocado dentro da
+  própria bolha da resposta, não numa barra de controles separada — decisão
+  local e reversível, não uma escolha de produto. Quem rodar o CARD-035 é
+  quem decide se migra para uma barra única.
+- **Gates** (`pnpm run gates`, raiz do monorepo cliente): `biome check .`,
+  `tsc --noEmit` (api-client e mobile) e `vitest run` — todos verdes, 49
+  testes.
+- **ADR:** nenhum critério de `docs/adr/README.md` § "Quando um ADR é
+  OBRIGATÓRIO" se aplica — não há dependência nova, a fronteira (contrato do
+  endpoint) já existia do CARD-036, não há mudança de custo recorrente nem de
+  segurança, a decisão é trivial de reverter, e nada contraria convenção
+  estabelecida.
+- **Regra do explicador (modo autônomo):** nenhuma pergunta de previsão coube
+  aqui — as duas decisões não-óbvias (alvo `reply`-only e posição do botão)
+  já estavam resolvidas pelo próprio texto do card, não são decisão de
+  produto nova.
