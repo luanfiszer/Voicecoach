@@ -151,8 +151,11 @@ async def test_sessao_inexistente_e_404_com_o_id_no_corpo(
     assert corpo["session_id"] == str(ausente)
 
 
-async def test_sessao_encerrada_e_409(client: AsyncClient, fakes: Fakes) -> None:
-    """Invariante de domínio traduzida na borda (ADR-0017), e o 409 é o certo.
+async def test_sessao_encerrada_e_409_com_urn_propria(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    """RF3 (CARD-031): distinto de ``invalid-state`` — o app precisa dizer "sua
+    fala não entrou porque a sessão fechou", não "algo deu errado".
 
     A requisição está bem formada — é o **estado** que não permite. É o caso real
     da fala gravada offline que chega depois de a sessão ter sido encerrada.
@@ -163,8 +166,10 @@ async def test_sessao_encerrada_e_409(client: AsyncClient, fakes: Fakes) -> None
         f"/v1/sessions/{fakes.sessao.id}/turns", files=upload(), headers=CHAVE
     )
 
+    corpo = resposta.json()
     assert resposta.status_code == 409
-    assert resposta.json()["type"] == "urn:voicecoach:problem:invalid-state"
+    assert corpo["type"] == "urn:voicecoach:problem:session-ended"
+    assert corpo["session_id"] == str(fakes.sessao.id)
 
 
 async def test_cota_diaria_excedida_e_429_com_reset_at(
@@ -440,3 +445,57 @@ async def test_turn_sem_erro_nenhum_devolve_corrections_vazio(
     corpo = (await client.get(f"/v1/turns/{turn.id}")).json()
 
     assert corpo["corrections"] == []
+
+
+# --- POST /v1/sessions/{id}/end (CARD-031) ---------------------------------
+
+
+async def test_encerrar_sessao_devolve_o_resumo(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    turn = turn_pronto(fakes, trechos=1, transcript="hi")
+    turn.attach_reply("Nice.", AGORA)
+    turn.attach_corrections(CORRECOES)
+
+    resposta = await client.post(f"/v1/sessions/{fakes.sessao.id}/end")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["turns"] == 1
+    assert corpo["spoken_seconds"] == pytest.approx(2.0)
+    assert corpo["corrections_by_type"] == {"vocabulary": 1, "word_order": 1}
+    assert fakes.sessions.sessions[fakes.sessao.id].ended_at is not None
+
+
+async def test_encerrar_sessao_sem_turn_nenhum_devolve_resumo_vazio(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    resposta = await client.post(f"/v1/sessions/{fakes.sessao.id}/end")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo == {"turns": 0, "spoken_seconds": 0.0, "corrections_by_type": {}}
+
+
+async def test_encerrar_sessao_duas_vezes_e_idempotente(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    """RF2: a segunda chamada devolve o mesmo resumo, não erro."""
+    url = f"/v1/sessions/{fakes.sessao.id}/end"
+
+    primeira = await client.post(url)
+    segunda = await client.post(url)
+
+    assert primeira.status_code == segunda.status_code == 200
+    assert primeira.json() == segunda.json()
+
+
+async def test_encerrar_sessao_inexistente_e_404(client: AsyncClient) -> None:
+    ausente = uuid4()
+
+    resposta = await client.post(f"/v1/sessions/{ausente}/end")
+
+    corpo = resposta.json()
+    assert resposta.status_code == 404
+    assert corpo["type"] == "urn:voicecoach:problem:session-not-found"
+    assert corpo["session_id"] == str(ausente)

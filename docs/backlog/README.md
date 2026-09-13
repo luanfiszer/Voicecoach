@@ -48,7 +48,7 @@ O diagnóstico card a card, a ordem e as decisões estão em
 | [027](CARD-027-telas-de-excecao-do-app.md) | **Telas de exceção: offline, quota, pausado, timeout** | 3 | mobile | M | 015, 025, 026 | backlog |
 | [029](CARD-029-historico-de-sessoes-no-app.md) | **Histórico de sessões no app** (+ `GET /v1/sessions` e abas) | 3 | backend/mobile | M | 013, 016, 017 | backlog |
 | [030](CARD-030-consulta-de-sessoes-listagem-agregada.md) | Backend do histórico: `GET /v1/sessions` agregado + mídia expirada | 3 | backend | M | 013, 017 | backlog |
-| [031](CARD-031-ciclo-de-vida-da-sessao-na-borda.md) | Backend do encerrar/offline: `end` na borda + sessão encerrada como `Err` | 3 | backend | M | 010, 013 | backlog |
+| [031](CARD-031-ciclo-de-vida-da-sessao-na-borda.md) | Backend do encerrar/offline: `end` na borda + sessão encerrada como `Err` | 3 | backend | M | 010, 013 | **concluído** |
 | [032](CARD-032-descartar-turn-travado.md) | Backend do "Descartar" — **pode morrer no plano**: decidido que não apaga nada | 3 | backend | P | 025 | backlog |
 | [033](CARD-033-saldo-de-cota-e-estado-do-servico.md) | Backend do saldo de cota e do serviço pausado (leitura) | 3 | backend | P | 015 | backlog |
 | [034](CARD-034-encerramento-automatico-por-inatividade.md) | Encerramento automático da sessão por inatividade (job do arq) | 3 | backend | P | 031, 025 | backlog |

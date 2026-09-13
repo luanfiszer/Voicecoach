@@ -80,6 +80,50 @@
         }
       }
     },
+    "/v1/sessions/{session_id}/end": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Encerra a sess\u00e3o e devolve o resumo p\u00f3s-sess\u00e3o",
+        "description": "Idempotente (RF2): chamar de novo numa sess\u00e3o j\u00e1 encerrada devolve o\nmesmo resumo, n\u00e3o um erro \u2014 ver o docstring de ``EndSessionHandler``.",
+        "operationId": "encerrar_sessao_v1_sessions__session_id__end_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionSummaryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/sessions/{session_id}/turns": {
       "post": {
         "tags": [
@@ -568,6 +612,38 @@
         ],
         "title": "SessionResponse",
         "description": "``POST /v1/sessions`` \u2014 o m\u00ednimo para o cliente ter onde falar."
+      },
+      "SessionSummaryResponse": {
+        "properties": {
+          "spoken_seconds": {
+            "type": "number",
+            "title": "Spoken Seconds",
+            "description": "Soma de audio_duration dos turns."
+          },
+          "turns": {
+            "type": "integer",
+            "title": "Turns"
+          },
+          "corrections_by_type": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/CorrectionType"
+            },
+            "type": "object",
+            "title": "Corrections By Type",
+            "description": "S\u00f3 os tipos que ocorreram; vazio \u00e9 'nenhuma corre\u00e7\u00e3o'."
+          }
+        },
+        "type": "object",
+        "required": [
+          "spoken_seconds",
+          "turns",
+          "corrections_by_type"
+        ],
+        "title": "SessionSummaryResponse",
+        "description": "``POST /v1/sessions/{id}/end`` \u2014 o resumo p\u00f3s-sess\u00e3o (CARD-031)."
       },
       "Severity": {
         "type": "string",

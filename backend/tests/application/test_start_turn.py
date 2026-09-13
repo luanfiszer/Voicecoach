@@ -24,12 +24,12 @@ from voicecoach.application.ports.repositories import ConflictingWriteError
 from voicecoach.application.ports.turn_queue import TurnQueueError
 from voicecoach.application.result import Err, Ok
 from voicecoach.application.use_cases.start_turn import (
+    SessionEnded,
     SessionNotFound,
     StartTurn,
     StartTurnHandler,
     TurnAccepted,
 )
-from voicecoach.domain.errors import InvalidStateTransitionError
 from voicecoach.domain.session import Session
 from voicecoach.domain.turn import Turn
 
@@ -262,20 +262,27 @@ async def test_sessao_inexistente_e_err_e_nao_excecao() -> None:
     assert fila.enfileirados == []
 
 
-async def test_sessao_encerrada_levanta_porque_e_invariante_do_agregado() -> None:
-    """O outro lado da fronteira do ADR-0017, no mesmo caso de uso.
+async def test_sessao_encerrada_e_err_tipado_nao_excecao() -> None:
+    """RF3/RNF2 (CARD-031): fala atrasada numa sessão encerrada é desfecho
+    esperado do negócio, não bug de quem chamou — o app precisa distinguir
+    "sua fala não entrou porque a sessão fechou" de um 500 genérico.
 
-    ``Session.start_turn`` recusa porque só quem conhece o próprio estado pode
-    decidir se aceita mais um turno. Isso é invariante, não desfecho — e é a
-    borda que traduz para 409.
+    A invariante continua existindo em ``Session.start_turn`` (defesa em
+    profundidade), mas o `handle()` a antecipa e nunca chega a chamá-la aqui.
     """
     session = sessao_ativa()
     session.end(datetime(2026, 8, 23, 23, 0, tzinfo=UTC))
-    handler, _, fila, _, _usage = montar(sessions=FakeSessionRepository(session))
+    handler, turns, fila, storage, _usage = montar(
+        sessions=FakeSessionRepository(session)
+    )
 
-    with pytest.raises(InvalidStateTransitionError):
-        await handler.handle(comando(session.id))
+    resultado = await handler.handle(comando(session.id))
 
+    assert isinstance(resultado, Err)
+    assert isinstance(resultado.error, SessionEnded)
+    assert resultado.error.session_id == session.id
+    assert turns.turns == {}
+    assert storage.objetos == {}
     assert fila.enfileirados == []
 
 

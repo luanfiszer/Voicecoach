@@ -16,16 +16,19 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import selectinload
 
 from voicecoach.adapters.persistence import mappers
 from voicecoach.adapters.persistence.models import (
+    CorrectionRow,
     SessionRow,
     StudentRow,
     TurnRow,
     UsageEventRow,
 )
+from voicecoach.domain.correction import CorrectionType
+from voicecoach.domain.session import SessionSummary
 from voicecoach.domain.turn import TurnStatus
 from voicecoach.domain.usage import StudentUsageTotals
 
@@ -83,6 +86,57 @@ class SqlAlchemySessionRepository:
             message = f"Session {session.id} não existe."
             raise RowNotFoundError(message)
         mappers.apply_session(session, row)
+
+    async def try_end(self, session_id: UUID, now: datetime) -> datetime:
+        """`UPDATE` condicional, atômico — a resolução real do RNF4.
+
+        `COALESCE(ended_at, :now)` só troca o valor se ele ainda for nulo;
+        senão mantém o que já estava lá. Não há leitura-depois-escrita: é UM
+        `UPDATE`, e o Postgres serializa dois `UPDATE` concorrentes na MESMA
+        linha por construção (o segundo espera o primeiro comitar e só então
+        aplica o seu `COALESCE` — que a essa altura já vê o valor definitivo).
+        Não existe forma de dois processos, cada um numa conexão própria,
+        produzirem `ended_at` diferentes por esta via.
+        """
+        stmt = (
+            update(SessionRow)
+            .where(SessionRow.id == session_id)
+            .values(ended_at=func.coalesce(SessionRow.ended_at, now))
+            .returning(SessionRow.ended_at)
+        )
+        resultado = (await self._session.execute(stmt)).one_or_none()
+        if resultado is None:
+            message = f"Session {session_id} não existe."
+            raise RowNotFoundError(message)
+        ended_at: datetime = resultado[0]
+        return ended_at
+
+    async def summary_for(self, session_id: UUID) -> SessionSummary:
+        """Duas queries agregadas — nunca uma por turn (mesma disciplina do
+        `totals_for_student`, CARD-014)."""
+        turnos = (
+            await self._session.execute(
+                select(
+                    func.count(),
+                    func.coalesce(func.sum(TurnRow.audio_duration), timedelta(0)),
+                ).where(TurnRow.session_id == session_id)
+            )
+        ).one()
+        turns, spoken = turnos
+
+        correcoes = await self._session.execute(
+            select(CorrectionRow.type, func.count())
+            .select_from(CorrectionRow)
+            .join(TurnRow, TurnRow.id == CorrectionRow.turn_id)
+            .where(TurnRow.session_id == session_id)
+            .group_by(CorrectionRow.type)
+        )
+        # `.tuples()` e não `.all()`: um `Row` do SQLAlchemy é iterável em
+        # runtime mas não é um `tuple` para o mypy — `.tuples()` é quem
+        # devolve o tipo que o `dict()` abaixo consegue verificar.
+        por_tipo = dict[CorrectionType, int](correcoes.tuples().all())
+
+        return SessionSummary(spoken=spoken, turns=turns, corrections_by_type=por_tipo)
 
 
 class SqlAlchemyTurnRepository:

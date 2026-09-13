@@ -11,6 +11,7 @@ reprova a suíte.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -316,6 +317,115 @@ async def test_encerrar_sessao_persiste(
 
     assert recarregada is not None
     assert not recarregada.is_active
+
+
+async def test_try_end_encerra_e_e_idempotente(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """A segunda chamada não pisa no `ended_at` da primeira (`COALESCE`)."""
+    repository: SessionRepository = SqlAlchemySessionRepository(db_session)
+
+    primeiro = await repository.try_end(
+        sessao_persistida.id, NOW + timedelta(minutes=8)
+    )
+    await db_session.commit()
+    segundo = await repository.try_end(sessao_persistida.id, NOW + timedelta(hours=1))
+    await db_session.commit()
+
+    assert primeiro == NOW + timedelta(minutes=8)
+    assert segundo == primeiro  # o segundo instante NUNCA sobrescreve o primeiro
+
+
+async def test_try_end_de_sessao_inexistente_e_erro_de_adapter(
+    db_session: AsyncSession,
+) -> None:
+    repository: SessionRepository = SqlAlchemySessionRepository(db_session)
+
+    with pytest.raises(RowNotFoundError):
+        await repository.try_end(uuid4(), NOW)
+
+
+async def test_duas_conexoes_concorrentes_nunca_produzem_dois_ended_at(
+    database_url: str, sessao_persistida: Session
+) -> None:
+    """RNF4: a garantia real, contra duas conexões de banco DIFERENTES.
+
+    `db_session` sozinho não prova nada aqui — as duas chamadas compartilhariam
+    a mesma conexão e o mesmo snapshot de transação. O teste que importa é este:
+    dois `AsyncSession` distintos, cada um vendo o outro só depois do commit, é
+    o cenário real de dois `POST /end` concorrentes.
+    """
+
+    engine_a = create_engine(database_url)
+    engine_b = create_engine(database_url)
+    fabrica_a = create_session_factory(engine_a)
+    fabrica_b = create_session_factory(engine_b)
+
+    async def encerrar_em(fabrica: object, instante: datetime) -> datetime:
+        async with fabrica() as sessao_db:  # type: ignore[operator]
+            repository: SessionRepository = SqlAlchemySessionRepository(sessao_db)
+            resultado = await repository.try_end(sessao_persistida.id, instante)
+            await sessao_db.commit()
+            return resultado
+
+    resultado_a, resultado_b = await asyncio.gather(
+        encerrar_em(fabrica_a, NOW + timedelta(minutes=1)),
+        encerrar_em(fabrica_b, NOW + timedelta(minutes=2)),
+    )
+
+    await engine_a.dispose()
+    await engine_b.dispose()
+
+    assert resultado_a == resultado_b
+    assert resultado_a in (NOW + timedelta(minutes=1), NOW + timedelta(minutes=2))
+
+
+async def test_summary_for_soma_turns_e_agrupa_correcoes_por_tipo(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    repository: SessionRepository = SqlAlchemySessionRepository(db_session)
+    turns: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    um = sessao_persistida.start_turn(
+        turn_id=uuid4(),
+        input_audio_ref="dev/1.m4a",
+        audio_duration=timedelta(seconds=10),
+        now=NOW,
+    )
+    um.start_processing(NOW)
+    um.attach_corrections([_correcao(0), _correcao(1)])
+    dois = sessao_persistida.start_turn(
+        turn_id=uuid4(),
+        input_audio_ref="dev/2.m4a",
+        audio_duration=timedelta(seconds=8),
+        now=NOW,
+    )
+    dois.start_processing(NOW)
+    dois.attach_corrections([_correcao(0)])
+    await turns.add(um)
+    await turns.add(dois)
+    await db_session.commit()
+
+    resumo = await repository.summary_for(sessao_persistida.id)
+
+    assert resumo.turns == 2
+    assert resumo.spoken == timedelta(seconds=18)
+    assert resumo.corrections_by_type == {
+        CorrectionType.GRAMMAR: 2,
+        CorrectionType.PREPOSITION: 1,
+    }
+
+
+async def test_summary_for_sem_turn_nenhum_devolve_zeros(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    """RF5: zero é dado, não ausência — a mesma régua do ADR-0021/0051."""
+    repository: SessionRepository = SqlAlchemySessionRepository(db_session)
+
+    resumo = await repository.summary_for(sessao_persistida.id)
+
+    assert resumo.turns == 0
+    assert resumo.spoken == timedelta(0)
+    assert resumo.corrections_by_type == {}
 
 
 async def test_student_novo_faz_roundtrip(db_session: AsyncSession) -> None:

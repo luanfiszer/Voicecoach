@@ -44,7 +44,8 @@ from voicecoach.application.ports.text_to_speech import (
     SynthesizedAudio,
 )
 from voicecoach.application.ports.turn_events import TurnEvent
-from voicecoach.domain.session import Session
+from voicecoach.domain.correction import CorrectionType
+from voicecoach.domain.session import Session, SessionSummary
 from voicecoach.domain.turn import Turn
 from voicecoach.domain.usage import StudentUsageTotals, UsageEvent
 
@@ -217,8 +218,15 @@ class FakeServiceBudget:
 
 
 class FakeSessionRepository:
-    def __init__(self, *sessions: Session) -> None:
+    """``turns`` é opcional e serve só a `summary_for` (CARD-031) — os testes
+    de `StartTurn`/`ProcessTurn` que não mexem com resumo nunca o passam.
+    """
+
+    def __init__(
+        self, *sessions: Session, turns: FakeTurnRepository | None = None
+    ) -> None:
         self.sessions: dict[UUID, Session] = {s.id: s for s in sessions}
+        self._turns = turns or FakeTurnRepository()
 
     async def add(self, session: Session) -> None:
         self.sessions[session.id] = session
@@ -228,6 +236,28 @@ class FakeSessionRepository:
 
     async def update(self, session: Session) -> None:
         self.sessions[session.id] = session
+
+    async def try_end(self, session_id: UUID, now: datetime) -> datetime:
+        """Reproduz o `COALESCE` do adapter: só escreve se ainda estiver nulo."""
+        sessao = self.sessions.get(session_id)
+        if sessao is None:
+            message = f"Session {session_id} não existe."
+            raise LookupError(message)
+        if sessao.ended_at is None:
+            sessao.ended_at = now
+        return sessao.ended_at
+
+    async def summary_for(self, session_id: UUID) -> SessionSummary:
+        turnos = [t for t in self._turns.turns.values() if t.session_id == session_id]
+        por_tipo: dict[CorrectionType, int] = {}
+        for turno in turnos:
+            for correcao in turno.corrections:
+                por_tipo[correcao.type] = por_tipo.get(correcao.type, 0) + 1
+        return SessionSummary(
+            spoken=sum((t.audio_duration for t in turnos), timedelta(0)),
+            turns=len(turnos),
+            corrections_by_type=por_tipo,
+        )
 
 
 class FakeMediaStorage:

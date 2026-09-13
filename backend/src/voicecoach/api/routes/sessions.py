@@ -14,14 +14,27 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, status
 
 from voicecoach.adapters.persistence.seed import DEV_STUDENT_ID
-from voicecoach.api.dependencies import agora, session_repository, unit_of_work
-from voicecoach.api.schemas.turns import SessionResponse
+from voicecoach.api.dependencies import (
+    agora,
+    end_session_handler,
+    session_repository,
+    unit_of_work,
+)
+from voicecoach.api.errors import ProblemError
+from voicecoach.api.schemas.problem import TYPE_SESSION_NOT_FOUND
+from voicecoach.api.schemas.turns import SessionResponse, SessionSummaryResponse
 from voicecoach.application.ports.repositories import SessionRepository, UnitOfWork
+from voicecoach.application.result import Err, Ok
+from voicecoach.application.use_cases.end_session import (
+    EndSession,
+    EndSessionHandler,
+    SessionNotFound,
+)
 from voicecoach.domain.session import Session
 
 router = APIRouter(tags=["sessions"])
@@ -46,3 +59,28 @@ async def criar_sessao(
         started_at=session.started_at,
         is_active=session.is_active,
     )
+
+
+@router.post(
+    "/sessions/{session_id}/end",
+    summary="Encerra a sessão e devolve o resumo pós-sessão",
+)
+async def encerrar_sessao(
+    session_id: UUID,
+    handler: Annotated[EndSessionHandler, Depends(end_session_handler)],
+) -> SessionSummaryResponse:
+    """Idempotente (RF2): chamar de novo numa sessão já encerrada devolve o
+    mesmo resumo, não um erro — ver o docstring de ``EndSessionHandler``.
+    """
+    resultado = await handler.handle(EndSession(session_id=session_id))
+    match resultado:
+        case Ok(value=resumo):
+            return SessionSummaryResponse.de_resumo(resumo)
+        case Err(error=SessionNotFound(session_id=inexistente)):
+            raise ProblemError(
+                type_=TYPE_SESSION_NOT_FOUND,
+                title="Sessão não encontrada",
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Nenhuma sessão com este id.",
+                session_id=str(inexistente),
+            )

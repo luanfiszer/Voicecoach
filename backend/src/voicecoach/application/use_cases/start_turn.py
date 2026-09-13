@@ -169,11 +169,29 @@ class ServiceBudgetExceeded:
     """
 
 
+@dataclass(frozen=True, slots=True)
+class SessionEnded:
+    """A sessão já foi encerrada — a fala chegou atrasada (CARD-031, RF3).
+
+    **Não é um bug de quem chamou.** Uma fala gravada offline pode chegar ao
+    servidor depois de o aluno ter encerrado a sessão no meio do caminho —
+    o próprio `Session.start_turn` documenta o cenário. Antes deste card, o
+    mesmo fato virava `InvalidStateTransitionError` → 409 `invalid-state`,
+    indistinguível de qualquer outra violação de estado. Agora tem URN
+    própria: o app consegue dizer "sua fala de ontem não entrou porque a
+    sessão fechou", em vez de "algo deu errado".
+    """
+
+    session_id: UUID
+
+
 # União fechada do que a borda faz da API de fora de "aceito" (`TurnAccepted`).
 # `match` + `assert_never` na rota é o que garante que acrescentar um motivo
 # aqui sem tratá-lo lá quebre no mypy, não em produção (mesmo padrão do
 # `TeacherEvent`/`RejectionReason`).
-type StartTurnRejection = SessionNotFound | DailyQuotaExceeded | ServiceBudgetExceeded
+type StartTurnRejection = (
+    SessionNotFound | DailyQuotaExceeded | ServiceBudgetExceeded | SessionEnded
+)
 
 
 class StartTurnHandler:
@@ -241,6 +259,13 @@ class StartTurnHandler:
         ):
             return Err(DailyQuotaExceeded(reset_at=inicio_de_amanha))
 
+        # RF3/RNF2 (CARD-031): quem pergunta antes é a aplicação — a invariante
+        # continua morando em `Session.start_turn` (chamado abaixo, que também
+        # recusaria), mas aqui ela vira `Err` tipado ANTES de qualquer efeito
+        # colateral (nada sobe ao storage por uma sessão que já terminou).
+        if not session.is_active:
+            return Err(SessionEnded(session.id))
+
         turn_id = self._new_turn_id()
         chave = input_key(session.student_id, session.id, turn_id, command.extension)
         # Storage ANTES do banco: a mesma ordem do `_gravar_trecho` do worker, e
@@ -248,9 +273,11 @@ class StartTurnHandler:
         # um 404 na mão do aluno; o inverso é lixo com retenção de 7 dias.
         await self._storage.put(chave, command.audio, command.content_type)
 
-        # A fábrica é da `Session` e não um construtor de `Turn`: só quem conhece
-        # o próprio estado pode recusar mais um turno. Sessão encerrada levanta
-        # `InvalidStateTransitionError` — invariante, não desfecho (ADR-0017).
+        # A fábrica é da `Session`, e a checagem de `is_active` já aconteceu
+        # acima — esta chamada nunca deveria recusar na prática. Ela continua
+        # aqui como defesa em profundidade do agregado (RNF2): se um dia outro
+        # caminho de código chamar `start_turn` sem checar antes, a invariante
+        # ainda protege, só que como exceção (bug de orquestração), não `Err`.
         turn = session.start_turn(
             turn_id=turn_id,
             input_audio_ref=chave,

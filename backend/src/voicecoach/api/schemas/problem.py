@@ -38,6 +38,9 @@ TYPE_DEPENDENCY_UNAVAILABLE = f"{BASE}:dependency-unavailable"
 TYPE_RATE_LIMITED = f"{BASE}:rate-limited"
 TYPE_DAILY_QUOTA_EXCEEDED = f"{BASE}:daily-quota-exceeded"
 TYPE_SERVICE_BUDGET_EXCEEDED = f"{BASE}:service-budget-exceeded"
+# CARD-031: distinto de TYPE_INVALID_STATE (409 genérico) — o app precisa
+# dizer "sua fala não entrou porque a sessão fechou", não "algo deu errado".
+TYPE_SESSION_ENDED = f"{BASE}:session-ended"
 
 
 class ProblemDetails(BaseModel):
