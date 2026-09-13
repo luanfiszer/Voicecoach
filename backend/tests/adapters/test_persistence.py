@@ -581,6 +581,119 @@ async def test_gravar_sobre_estado_defasado_e_erro_de_adapter(
         await repository.update(defasado)
 
 
+# --- "Descartar" (CARD-032) -------------------------------------------------
+
+
+async def test_try_discard_marca_e_e_idempotente(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    turn = await _turn_em_processamento(repository, sessao_persistida)
+    await db_session.commit()
+
+    primeiro = await repository.try_discard(turn.id, NOW)
+    await db_session.commit()
+    segundo = await repository.try_discard(turn.id, NOW + timedelta(hours=1))
+    await db_session.commit()
+
+    assert primeiro == NOW
+    assert segundo == primeiro  # RNF1: a segunda chamada não move o instante
+
+
+async def test_try_discard_recusa_turn_completo(
+    db_session: AsyncSession, sessao_persistida: Session
+) -> None:
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    turn = await _turn_em_processamento(repository, sessao_persistida)
+    turn.attach_transcript("I go to the beach", NOW)
+    turn.attach_reply("Nice!", NOW)
+    turn.attach_reply_audio("dev/resposta.mp3", NOW)
+    turn.complete(NOW)
+    await repository.update(turn)
+    await db_session.commit()
+
+    resultado = await repository.try_discard(turn.id, NOW)
+
+    assert resultado is None
+
+
+async def test_try_discard_de_turn_inexistente_e_erro_de_adapter(
+    db_session: AsyncSession,
+) -> None:
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+
+    with pytest.raises(RowNotFoundError):
+        await repository.try_discard(uuid4(), NOW)
+
+
+async def test_descarte_concorrente_com_a_conclusao_nunca_perde_nenhum_dos_dois(
+    database_url: str, sessao_persistida: Session
+) -> None:
+    """RNF6: a corrida real, em conexões DIFERENTES — não sequencial disfarçada.
+
+    Os dois desfechos legítimos dependem de QUEM o Postgres serializa
+    primeiro (as duas `UPDATE` na mesma linha disputam o lock de linha):
+
+    - o descarte comita enquanto o turn ainda não é `completed` → os dois
+      fatos convivem (RF6: "descartado e completo ao mesmo tempo");
+    - a conclusão comita primeiro → o descarte, ao rodar depois, vê
+      ``status == completed`` e é recusado (RF2), como se tivesse chegado
+      atrasado.
+
+    O que NUNCA pode acontecer, e é o que este teste prova: a conclusão do
+    worker **nunca se perde** (ela não depende de nada que o descarte
+    escreva), e um descarte que **teve sucesso** nunca é apagado pela escrita
+    do worker — que é exatamente o que `apply_turn` (ver o docstring)
+    garante ao nunca copiar ``discarded_at`` de volta de uma entidade
+    carregada antes do descarte acontecer.
+    """
+    engine_a = create_engine(database_url)
+    engine_b = create_engine(database_url)
+    fabrica_a = create_session_factory(engine_a)
+    fabrica_b = create_session_factory(engine_b)
+
+    async with fabrica_a() as sessao_a:
+        repo_a: TurnRepository = SqlAlchemyTurnRepository(sessao_a)
+        turn = await _turn_em_processamento(repo_a, sessao_persistida)
+        await sessao_a.commit()
+
+    async def descartar() -> datetime | None:
+        async with fabrica_a() as sessao_db:
+            repo: TurnRepository = SqlAlchemyTurnRepository(sessao_db)
+            resultado = await repo.try_discard(turn.id, NOW)
+            await sessao_db.commit()
+            return resultado
+
+    async def concluir() -> None:
+        async with fabrica_b() as sessao_db:
+            repo: TurnRepository = SqlAlchemyTurnRepository(sessao_db)
+            # Carrega o turn ANTES do descarte poder ter acontecido — é o
+            # cenário em que um `apply_turn` ingênuo apagaria o descarte.
+            fresco = await repo.get(turn.id)
+            assert fresco is not None
+            fresco.attach_transcript("I go to the beach", NOW)
+            fresco.attach_reply("Nice!", NOW)
+            fresco.attach_reply_audio("dev/resposta.mp3", NOW)
+            fresco.complete(NOW)
+            await repo.update(fresco)
+            await sessao_db.commit()
+
+    resultado_do_descarte, _ = await asyncio.gather(descartar(), concluir())
+
+    await engine_a.dispose()
+    await engine_b.dispose()
+
+    async with fabrica_a() as verificacao:
+        final = await SqlAlchemyTurnRepository(verificacao).get(turn.id)
+
+    assert final is not None
+    # A conclusão do worker NUNCA se perde, não importa quem venceu a corrida.
+    assert final.status is TurnStatus.COMPLETED
+    # Um descarte que teve sucesso nunca é apagado pela escrita do worker.
+    if resultado_do_descarte is not None:
+        assert final.discarded_at == resultado_do_descarte
+
+
 # --- idempotência do POST contra o banco de verdade (ADR-0042) --------------
 
 

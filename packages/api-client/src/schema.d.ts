@@ -158,6 +158,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/turns/{turn_id}/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 'Descartar': o turn some da tela ativa, sem apagar nada (CARD-032)
+         * @description Idempotente (RNF1): descartar duas vezes é o mesmo que uma, `204` as duas.
+         *
+         *     Nada é apagado (RF1/RF4) — o turn continua no histórico e nas agregações
+         *     (RNF4/RNF5). O único efeito é ``discarded_at`` marcado, para o cliente
+         *     parar de mostrá-lo como turn ativo.
+         */
+        post: operations["descartar_turn_v1_turns__turn_id__discard_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/turns/{turn_id}/events": {
         parameters: {
             query?: never;
@@ -613,6 +637,11 @@ export interface components {
              * @description Correções tipadas e persistidas (CARD-013). Campo ADITIVO.
              */
             corrections?: components["schemas"]["CorrectionPayload"][];
+            /**
+             * Discarded At
+             * @description O aluno pediu 'Descartar' (CARD-032). NÃO significa apagado — o turn continua aqui inteiro; é o cliente quem decide não mostrá-lo na tela ativa. Campo ADITIVO.
+             */
+            discarded_at?: string | null;
         };
         /**
          * TurnStage
@@ -847,6 +876,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TurnResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    descartar_turn_v1_turns__turn_id__discard_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                turn_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

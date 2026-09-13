@@ -16,7 +16,7 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import selectinload
 
 from voicecoach.adapters.persistence import mappers
@@ -212,6 +212,37 @@ class SqlAlchemyTurnRepository:
             message = f"Turn {turn.id} não existe."
             raise RowNotFoundError(message)
         mappers.apply_turn(turn, row)
+
+    async def try_discard(self, turn_id: UUID, now: datetime) -> datetime | None:
+        """`CASE` atômico: as duas condições do RF2 num só `UPDATE` (CARD-032).
+
+        Quando ``status != completed``: `COALESCE(discarded_at, now)` — marca
+        se ainda não estava marcado, mantém se já estava (RNF1). Quando
+        ``status == completed``: mantém ``discarded_at`` como está — que é
+        `None` se nunca foi descartado (RF2 recusa) ou o instante antigo se
+        JÁ tinha sido descartado antes de completar (RF6: o desfecho é
+        "descartado e completo ao mesmo tempo", não uma corrida com vencedor
+        arbitrário).
+        """
+        novo_valor = case(
+            (
+                TurnRow.status != TurnStatus.COMPLETED.value,
+                func.coalesce(TurnRow.discarded_at, now),
+            ),
+            else_=TurnRow.discarded_at,
+        )
+        stmt = (
+            update(TurnRow)
+            .where(TurnRow.id == turn_id)
+            .values(discarded_at=novo_valor)
+            .returning(TurnRow.discarded_at)
+        )
+        resultado = (await self._session.execute(stmt)).one_or_none()
+        if resultado is None:
+            message = f"Turn {turn_id} não existe."
+            raise RowNotFoundError(message)
+        discarded_at: datetime | None = resultado[0]
+        return discarded_at
 
     async def list_by_session(self, session_id: UUID, *, limit: int) -> list[Turn]:
         """Os últimos ``limit`` turnos concluídos da sessão, em ordem cronológica.

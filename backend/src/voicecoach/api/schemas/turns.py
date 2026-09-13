@@ -142,6 +142,12 @@ class TurnResponse(BaseModel):
         default_factory=list,
         description="Correções tipadas e persistidas (CARD-013). Campo ADITIVO.",
     )
+    discarded_at: datetime | None = Field(
+        default=None,
+        description="O aluno pediu 'Descartar' (CARD-032). NÃO significa "
+        "apagado — o turn continua aqui inteiro; é o cliente quem decide "
+        "não mostrá-lo na tela ativa. Campo ADITIVO.",
+    )
 
     @classmethod
     def de_turn(
@@ -176,6 +182,7 @@ class TurnResponse(BaseModel):
                 for chunk, url in zip(turn.audio_chunks, chunk_urls, strict=True)
             ],
             corrections=[CorrectionPayload.de_correcao(c) for c in turn.corrections],
+            discarded_at=turn.discarded_at,
         )
 
 

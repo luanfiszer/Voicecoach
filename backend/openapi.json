@@ -257,6 +257,43 @@
         }
       }
     },
+    "/v1/turns/{turn_id}/discard": {
+      "post": {
+        "tags": [
+          "turns"
+        ],
+        "summary": "'Descartar': o turn some da tela ativa, sem apagar nada (CARD-032)",
+        "description": "Idempotente (RNF1): descartar duas vezes \u00e9 o mesmo que uma, `204` as duas.\n\nNada \u00e9 apagado (RF1/RF4) \u2014 o turn continua no hist\u00f3rico e nas agrega\u00e7\u00f5es\n(RNF4/RNF5). O \u00fanico efeito \u00e9 ``discarded_at`` marcado, para o cliente\nparar de mostr\u00e1-lo como turn ativo.",
+        "operationId": "descartar_turn_v1_turns__turn_id__discard_post",
+        "parameters": [
+          {
+            "name": "turn_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Turn Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/turns/{turn_id}/events": {
       "get": {
         "tags": [
@@ -900,6 +937,19 @@
             "type": "array",
             "title": "Corrections",
             "description": "Corre\u00e7\u00f5es tipadas e persistidas (CARD-013). Campo ADITIVO."
+          },
+          "discarded_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discarded At",
+            "description": "O aluno pediu 'Descartar' (CARD-032). N\u00c3O significa apagado \u2014 o turn continua aqui inteiro; \u00e9 o cliente quem decide n\u00e3o mostr\u00e1-lo na tela ativa. Campo ADITIVO."
           }
         },
         "type": "object",

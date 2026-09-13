@@ -25,6 +25,7 @@ from voicecoach.api.schemas.turns import (
 )
 from voicecoach.config import Settings
 from voicecoach.domain.correction import Correction, CorrectionType, Severity
+from voicecoach.domain.session import Session
 from voicecoach.domain.turn import RejectionReason
 from voicecoach.domain.usage import UsageEvent
 
@@ -499,3 +500,82 @@ async def test_encerrar_sessao_inexistente_e_404(client: AsyncClient) -> None:
     assert resposta.status_code == 404
     assert corpo["type"] == "urn:voicecoach:problem:session-not-found"
     assert corpo["session_id"] == str(ausente)
+
+
+# --- POST /v1/turns/{id}/discard (CARD-032) --------------------------------
+
+
+async def test_descartar_turn_processando_devolve_204(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    turn = turn_pronto(fakes, trechos=1, transcript="hi")
+
+    resposta = await client.post(f"/v1/turns/{turn.id}/discard")
+
+    assert resposta.status_code == 204
+    assert fakes.turns.turns[turn.id].discarded_at is not None
+
+
+async def test_descartar_nao_apaga_nada_o_get_continua_completo(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    """RF1/RF3/RF4: o turn continua no histórico, com tudo que já tinha."""
+    turn = turn_pronto(fakes, trechos=1, transcript="hi")
+
+    await client.post(f"/v1/turns/{turn.id}/discard")
+    corpo = (await client.get(f"/v1/turns/{turn.id}")).json()
+
+    assert corpo["transcript"] == "hi"
+    assert len(corpo["chunks"]) == 1
+    assert corpo["discarded_at"] is not None
+
+
+async def test_descartar_duas_vezes_e_204_as_duas(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    turn = turn_pronto(fakes, trechos=1, transcript="hi")
+    url = f"/v1/turns/{turn.id}/discard"
+
+    primeira = await client.post(url)
+    segunda = await client.post(url)
+
+    assert primeira.status_code == segunda.status_code == 204
+
+
+async def test_descartar_turn_completo_e_409(client: AsyncClient, fakes: Fakes) -> None:
+    turn = turn_pronto(fakes, trechos=1, transcript="hi")
+    turn.attach_reply("Nice.", AGORA)
+    turn.attach_reply_audio("dev/resposta.mp3", AGORA)
+    turn.complete(AGORA)
+
+    resposta = await client.post(f"/v1/turns/{turn.id}/discard")
+
+    corpo = resposta.json()
+    assert resposta.status_code == 409
+    assert corpo["type"] == "urn:voicecoach:problem:turn-already-completed"
+    assert fakes.turns.turns[turn.id].discarded_at is None
+
+
+async def test_descartar_turn_inexistente_e_404(client: AsyncClient) -> None:
+    resposta = await client.post(f"/v1/turns/{uuid4()}/discard")
+
+    assert resposta.status_code == 404
+    assert resposta.json()["type"] == "urn:voicecoach:problem:turn-not-found"
+
+
+async def test_descartar_turn_de_outro_aluno_e_404_como_inexistente(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    """RNF2: mesmo 404 de um id que não existe — sem oráculo de posse."""
+
+    outro_aluno = uuid4()
+    outra_sessao = Session(id=uuid4(), student_id=outro_aluno, started_at=AGORA)
+    fakes.sessions.sessions[outra_sessao.id] = outra_sessao
+    turn = turn_pronto(fakes, trechos=1, transcript="hi")
+    turn.session_id = outra_sessao.id
+
+    resposta = await client.post(f"/v1/turns/{turn.id}/discard")
+
+    assert resposta.status_code == 404
+    assert resposta.json()["type"] == "urn:voicecoach:problem:turn-not-found"
+    assert fakes.turns.turns[turn.id].discarded_at is None

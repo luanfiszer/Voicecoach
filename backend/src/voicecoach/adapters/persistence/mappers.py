@@ -102,6 +102,7 @@ def turn_to_row(turn: Turn) -> TurnRow:
         failed_at=turn.failed_at,
         started_processing_at=turn.started_processing_at,
         completed_at=turn.completed_at,
+        discarded_at=turn.discarded_at,
         audio_chunks=[chunk_to_row(turn.id, chunk) for chunk in turn.audio_chunks],
         corrections=[
             correction_to_row(turn.id, correction) for correction in turn.corrections
@@ -128,6 +129,7 @@ def turn_from_row(row: TurnRow) -> Turn:
         failed_at=row.failed_at,
         started_processing_at=row.started_processing_at,
         completed_at=row.completed_at,
+        discarded_at=row.discarded_at,
         # O `order_by` do relationship já entrega ordenado por `index`; a
         # entidade herda a ordem de playback sem reordenar aqui.
         audio_chunks=[chunk_from_row(chunk) for chunk in row.audio_chunks],
@@ -144,6 +146,15 @@ def apply_turn(turn: Turn, row: TurnRow) -> None:
     ``created_at`` e ``idempotency_key`` ficam de fora de propósito: são
     imutáveis depois que o Turn nasce, e reescrevê-los aqui esconderia um bug em
     vez de deixá-lo estourar.
+
+    ``discarded_at`` também fica de fora, por um motivo diferente (CARD-032,
+    RNF6): é escrito só por ``TurnRepository.try_discard``, nunca pelo
+    pipeline do worker. Se esta função o copiasse de volta, o `UPDATE` do
+    worker (que carrega o Turn ANTES de um descarte concorrente) sobrescreveria
+    um descarte que aconteceu depois — a mesma classe de bug que o
+    ``get-then-set`` sempre produz. Excluir o campo daqui é o que torna as duas
+    escritas concorrentes seguras: elas tocam colunas disjuntas, e nenhuma lê o
+    valor da outra para decidir o que escrever.
     """
     row.status = turn.status
     row.transcript = turn.transcript

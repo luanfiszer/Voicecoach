@@ -220,6 +220,13 @@ class Turn:
     # "não tenho confiança nisto".
     rejection_reason: RejectionReason | None = None
 
+    # O aluno pediu "Descartar" no artboard 16 (CARD-032). Não nulo NÃO
+    # significa que o Turn deixou de existir — RF1 decidiu que descartar é
+    # aditivo: nada é apagado, o Turn continua no histórico e nas agregações
+    # (RNF4/RNF5). O campo só diz "o aluno não quer mais ver isto na tela
+    # ATIVA" — a projeção HTTP é quem traduz isso em "não mostrar".
+    discarded_at: datetime | None = None
+
     def __post_init__(self) -> None:
         """Valida o que precisa valer desde o instante zero.
 
@@ -458,6 +465,33 @@ class Turn:
         self.status = TurnStatus.FAILED
         self.failure_reason = reason
         self.failed_at = now
+
+    def discard(self, now: datetime) -> None:
+        """O aluno pediu para não ver mais este Turn (CARD-032, RF1/RF2).
+
+        **Recusa só ``completed``** — o aluno já recebeu o que pediu, e
+        descartar uma resposta entregue é outra conversa (direito de
+        exclusão, CARD-017). Aceito a partir de ``queued``, ``processing`` e
+        ``failed``: é exatamente o conjunto de estados em que o artboard 16
+        ("demorou mais que o normal") aparece.
+
+        **Idempotente por construção** (RNF1): chamar duas vezes não levanta
+        na segunda — só a primeira grava ``now``. Isso importa menos aqui do
+        que na garantia real, que é do banco: dois processos concorrentes têm
+        cada um sua própria cópia em memória e nenhum vê a escrita do outro
+        antes de comitar, o mesmo argumento do docstring de ``Session.end()``.
+        A garantia de verdade contra ``complete()`` concorrente do worker
+        (RNF6) é ``TurnRepository.try_discard`` — um `CASE` atômico no banco —
+        e o fato de `apply_turn` nunca copiar ``discarded_at`` de volta: os
+        dois escritores tocam colunas disjuntas, então a ordem de chegada não
+        importa para o resultado final.
+        """
+        if self.status is TurnStatus.COMPLETED:
+            raise InvalidStateTransitionError(
+                entity="Turn", action="discard", state=self.status.value
+            )
+        if self.discarded_at is None:
+            self.discarded_at = now
 
     # -- interno ------------------------------------------------------------
 

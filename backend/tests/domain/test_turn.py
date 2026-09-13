@@ -7,6 +7,7 @@ biblioteca nenhuma.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -405,3 +406,68 @@ def test_turn_recusado_nao_e_entrega_parcial() -> None:
     turn.reject(RejectionReason.NO_SPEECH, NOW)
 
     assert not turn.delivered_partially
+
+
+# --- "Descartar" (CARD-032) --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "turn_em",
+    [make_turn, make_processing_turn, lambda: _turn_falho()],
+)
+def test_discard_aceita_queued_processing_e_failed(
+    turn_em: Callable[[], Turn],
+) -> None:
+    """RF2: só `completed` é recusado — os três outros estados são o caso do
+    artboard 16 ("demorou mais que o normal")."""
+    turn = turn_em()
+
+    turn.discard(NOW)
+
+    assert turn.discarded_at == NOW
+
+
+def test_discard_recusa_turn_completo() -> None:
+    """RF2: a resposta já foi entregue — descartá-la é outra conversa."""
+    turn = make_processing_turn()
+    turn.attach_transcript("I go to the beach", NOW)
+    turn.attach_reply("Which beach?", NOW)
+    turn.attach_reply_audio("dev/resposta.mp3", NOW)
+    turn.complete(NOW)
+
+    with pytest.raises(InvalidStateTransitionError) as erro:
+        turn.discard(NOW)
+
+    assert erro.value.state == "completed"
+    assert erro.value.action == "discard"
+
+
+def test_discard_e_idempotente() -> None:
+    """RNF1: a segunda chamada não sobrescreve o instante da primeira."""
+    turn = make_processing_turn()
+
+    turn.discard(NOW)
+    turn.discard(NOW + timedelta(minutes=5))
+
+    assert turn.discarded_at == NOW
+
+
+def test_discard_nao_apaga_nada() -> None:
+    """RF1/RF3/RF4: trechos, transcrição e o resto do turn continuam intactos."""
+    turn = make_processing_turn()
+    turn.attach_transcript("I go to the beach", NOW)
+    turn.append_audio_chunk(
+        index=0, storage_key="s3/0.mp3", duration_seconds=1.0, text="Which", now=NOW
+    )
+
+    turn.discard(NOW)
+
+    assert turn.status is TurnStatus.PROCESSING
+    assert turn.transcript == "I go to the beach"
+    assert len(turn.audio_chunks) == 1
+
+
+def _turn_falho() -> Turn:
+    turn = make_processing_turn()
+    turn.fail("tts timeout", NOW)
+    return turn
