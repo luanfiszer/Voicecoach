@@ -3,7 +3,7 @@
 - **ID:** CARD-045
 - **Épico:** Qualidade da conversa (briefing 2026-09-09, ponto 5 — feature 1 de 3)
 - **Esforço:** M
-- **Status:** backlog
+- **Status:** bloqueado (2026-09-13) — ver "Execução" abaixo
 - **Dependências:** CARD-041 (o mecanismo do contexto), ADR-0059
 
 ## Contexto
@@ -120,3 +120,44 @@ implícito, e a consequência prática é que **renomear um membro quebra dados*
 enquanto reordenar não quebra nada — o inverso exato da armadilha do C#, onde
 reordenar é que corrompe. Onde a conversão para o banco acontece (e por que
 `StrEnum` a torna quase invisível no SQLAlchemy) é a parte que transfere.
+
+## Execução (2026-09-13, loop autônomo) — BLOQUEADO, duas causas independentes
+
+**Não implementado.** Duas dependências reais deste card não existem, e
+nenhuma das duas é dado que eu deva inventar:
+
+1. **O mecanismo do ADR-0059 (`StudentContext`, o bloco anexado ao prompt)
+   nunca foi construído.** O CARD-041, que este card cita como pré-requisito
+   ("o mecanismo é o do ADR-0059, criado pelo CARD-041"), ficou **bloqueado**
+   nesta mesma sessão por um conflito de produto não resolvido (ver a
+   "Execução" do CARD-041) — a peça que este card diz só precisar "acrescentar
+   um campo" a ela simplesmente não existe ainda.
+2. **`GET`/`PATCH /v1/students/me` não tem como ser implementado hoje.** O
+   próprio nome da rota (`me`) pressupõe identidade do chamador, e este
+   backend **não tem nenhuma autenticação** (achado já registrado na
+   "Execução" do CARD-043, mesma sessão) — não é lacuna nova, é o mesmo
+   CARD-049 ainda em backlog. Diferente do "só o dono cancela" do CARD-043
+   (onde a autorização era um reforço sobre um endpoint já definível sem
+   ela), aqui a rota **não tem definição** sem saber quem é "eu": não há
+   `student_id` a aceitar do corpo (a regra de aceite proíbe isso
+   explicitamente) nem sessão para resolvê-lo sozinho.
+
+**Efeito em cascata, registrado para quem retomar:** o CARD-046 já está
+marcado no backlog como "quebrar antes de começar" (ADR pendente, sem
+evidência) e depende deste card; o CARD-047 já está marcado "mapeado, sem
+data" por decisão do próprio desenvolvedor. Nenhum dos dois precisou de nota
+nova — já refletem corretamente que não são para agora.
+
+**O que destrava isto:** o CARD-041 resolvido (nas duas alternativas
+possíveis, ver o card) destrava o item 5 da proposta técnica (nível no
+`StudentContext`); o CARD-049 (autenticação) destrava o `GET`/`PATCH`. Sem os
+dois, este card não tem por onde começar de verdade — não é um caso de
+"comece pela parte que dá".
+
+**Com isto, a lista de cinco pontos do loop (041 → 044 → 043 → 045 → 046 →
+047) chega ao fim desta sessão.** Nenhum dos seis foi implementado — cada um
+foi bloqueado ou adiado por um motivo registrado e verificável (conflito com
+o CARD-040, escuta humana pendente, escopo/risco do próprio ADR-0058, ou
+dependência não construída), nunca por adivinhação. O único item da lista de
+prioridade que saiu implementado nesta sessão foi o CARD-057, que veio antes
+por ser urgente e destravar o CI.
