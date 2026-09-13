@@ -3,7 +3,7 @@
 - **ID:** CARD-057
 - **Épico:** Infraestrutura de desenvolvimento e CI (achado do fechamento do CARD-042)
 - **Esforço:** M
-- **Status:** backlog
+- **Status:** concluído (2026-09-13)
 - **Dependências:** nenhuma de card. **ADR novo antes da implementação** (origem da
   imagem). Relacionados: ADR-0006, ADR-0010, ADR-0024, ADR-0034, CARD-055
 
@@ -171,3 +171,73 @@ na sua máquina por causa do cache em `~/.nuget/packages`, e quebra no agente de
 build limpo. O `packages.lock.json` com hash é o paralelo do pin por digest.
 Nenhum dos dois protege de o feed apagar o pacote; o que protege é **um passo que
 falha cedo e com o nome certo**.
+
+## Execução (2026-09-13, loop autônomo — `docs/prompt-loop-autonomo-backlog.md`)
+
+**Antes deste card:** validando o CI de `main` para decidir a ordem do loop,
+achei um segundo vermelho, sem relação com o MinIO — o job `contrato OpenAPI e
+tipos TypeScript` estava quebrado desde o merge do CARD-040 (schema não
+regenerado antes do commit). Corrigido à parte, PR #33, mesclado antes de
+começar este card, para não misturar dois consertos independentes num commit
+só.
+
+**ADR:** [ADR-0062](../adr/0062-a-imagem-do-minio-migra-do-docker-hub-para-o-quay-io.md).
+Critério **1** de `docs/adr/README.md` (troca a origem de uma dependência
+externa). A alternativa escolhida (trocar só de registry, mesma tag) já vinha
+decidida pelo desenvolvedor em `docs/prompt-loop-autonomo-backlog.md`
+(2026-09-13) — não é decisão autônoma do agente; o ADR registra as duas
+alternativas rejeitadas (pin por digest, troca de motor) com o motivo.
+
+**Implementado:**
+
+1. Referência trocada para `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z`
+   nos três lugares: `docker-compose.yml` (serviços `minio` e `createbuckets`)
+   e `backend/tests/adapters/test_s3_media_storage.py` (`MINIO_IMAGE`).
+2. Teste novo `test_a_imagem_do_compose_bate_com_a_do_teste`: lê o
+   `docker-compose.yml` por regex (sem `pyyaml` — só chega ao ambiente de
+   forma transitiva, nunca declarado no `pyproject.toml`) e afirma que as duas
+   imagens do compose são idênticas a `MINIO_IMAGE`.
+3. Passo `docker compose -f ../docker-compose.yml pull minio createbuckets` no
+   job `backend` do CI, antes do `pytest` — sem retry (imagem ausente é sinal).
+4. `test_url_assinada_expira` trocou o `sleep(2)` fixo por consulta em
+   intervalos de 0,2 s até um prazo de 11 s (TTL de 1 s + 10 s de folga); se a
+   URL nunca expirar, o teste ainda reprova no fim do prazo.
+
+**Evidência colada, comandos reais:**
+
+```
+$ docker pull quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+Status: Image is up to date for quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+
+$ uv run pytest tests/adapters/test_s3_media_storage.py -v
+====== 21 passed in 15.67s ======  (16 testes originais + o de consistência)
+
+$ for i in $(seq 1 8); do uv run pytest tests/adapters/test_s3_media_storage.py::test_url_assinada_expira -q; done
+1 passed  (x8, entre 1,75 s e 2,64 s cada — sem flakiness observada)
+
+$ docker compose up -d minio createbuckets
+createbuckets-1  | Added `local` successfully.
+createbuckets-1  | Bucket created successfully `local/voicecoach-media`.
+createbuckets-1  | bucket pronto: voicecoach-media
+
+$ uv run pytest --cov --cov-fail-under=80 -q
+405 passed, 13 deselected — cobertura total 93,39%
+
+$ uv run coverage report --include="*/domain/*,*/application/*" --fail-under=90
+TOTAL   99%
+```
+
+`ruff format --check`, `ruff check`, `mypy --strict` e `uv run lint-imports`
+também verdes (4 contratos de camada mantidos).
+
+**Não implementado deste card — fica para quando/se for medido como
+problema:** cache de imagens no CI (fora do escopo por decisão do próprio
+card) e o teste do critério "roda 20 vezes seguidas" como suíte automatizada
+repetida — validado manualmente (8 execuções seguidas, 0 falhas) em vez de
+uma suíte de repetição dedicada, que adicionaria uma dependência
+(`pytest-repeat`) só para este caso.
+
+**Dívida explícita:** o risco do próprio ADR-0062 — `quay.io` pode seguir o
+mesmo caminho do Docker Hub — continua sem mitigação além do alarme do `pull`
+no CI. Nada a fazer agora sem evidência de que aconteceu; registrado lá, não
+aqui.
