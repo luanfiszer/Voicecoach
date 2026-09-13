@@ -42,6 +42,7 @@ from voicecoach.api.errors import ProblemError
 from voicecoach.api.schemas.problem import (
     TYPE_DAILY_QUOTA_EXCEEDED,
     TYPE_SERVICE_BUDGET_EXCEEDED,
+    TYPE_SESSION_ENDED,
     TYPE_SESSION_NOT_FOUND,
 )
 from voicecoach.api.schemas.turns import (
@@ -70,6 +71,7 @@ from voicecoach.application.use_cases.process_turn import TurnNotFoundError
 from voicecoach.application.use_cases.start_turn import (
     DailyQuotaExceeded,
     ServiceBudgetExceeded,
+    SessionEnded,
     SessionNotFound,
     StartTurn,
     StartTurnHandler,
@@ -192,6 +194,15 @@ async def criar_turn(
                         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                         detail="O serviço atingiu o limite de uso do período. "
                         "Tente novamente mais tarde.",
+                    )
+                case SessionEnded(session_id=encerrada):
+                    raise ProblemError(
+                        type_=TYPE_SESSION_ENDED,
+                        title="Sessão encerrada",
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Esta sessão já foi encerrada; a fala não entrou. "
+                        "Grave de novo numa sessão nova.",
+                        session_id=str(encerrada),
                     )
                 case _:  # pragma: no cover - inalcançável enquanto o mypy passar
                     assert_never(erro)

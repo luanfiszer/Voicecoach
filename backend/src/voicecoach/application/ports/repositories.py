@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
-    from voicecoach.domain.session import Session
+    from voicecoach.domain.session import Session, SessionSummary
     from voicecoach.domain.student import Student
     from voicecoach.domain.turn import Turn
     from voicecoach.domain.usage import StudentUsageTotals, UsageEvent
@@ -91,6 +91,31 @@ class SessionRepository(Protocol):
     async def get(self, session_id: UUID) -> Session | None: ...
 
     async def update(self, session: Session) -> None: ...
+
+    async def try_end(self, session_id: UUID, now: datetime) -> datetime:
+        """Encerra atomicamente, só se ainda não tiver sido encerrada (CARD-031).
+
+        Devolve o ``ended_at`` que **valeu** — não necessariamente ``now``: se
+        outra requisição encerrou primeiro, é o ``ended_at`` dela que volta, e
+        esta chamada não muda nada. É a peça que resolve o RNF4 (duas
+        chamadas concorrentes nunca produzem dois ``ended_at`` diferentes) sem
+        que os dois processos precisem saber um do outro — o mesmo princípio
+        do índice único de ``idempotency_key`` em ``Turn``, aplicado a um
+        `UPDATE` condicional em vez de um `INSERT`.
+
+        Levanta se a sessão não existir — chamar isto sem antes confirmar a
+        existência é bug de orquestração, não desfecho esperado.
+        """
+        ...
+
+    async def summary_for(self, session_id: UUID) -> SessionSummary:
+        """O resumo pós-sessão (CARD-031): minutos falados, turns, correções.
+
+        Duas queries agregadas no banco, não uma por turn — mesma disciplina
+        do ``totals_for_student`` do CARD-014. Sessão sem nenhum turn devolve
+        os zeros (RF5), nunca levanta.
+        """
+        ...
 
 
 class TurnRepository(Protocol):

@@ -79,8 +79,8 @@ class Fakes:
 
     def __init__(self) -> None:
         self.sessao = Session(id=uuid4(), student_id=ALUNO, started_at=AGORA)
-        self.sessions = FakeSessionRepository(self.sessao)
         self.turns = FakeTurnRepository()
+        self.sessions = FakeSessionRepository(self.sessao, turns=self.turns)
         self.storage = FakeMediaStorage()
         self.canal = FakeTurnEvents()
         self.uow = FakeUnitOfWork()

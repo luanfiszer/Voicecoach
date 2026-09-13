@@ -61,6 +61,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Encerra a sessão e devolve o resumo pós-sessão
+         * @description Idempotente (RF2): chamar de novo numa sessão já encerrada devolve o
+         *     mesmo resumo, não um erro — ver o docstring de ``EndSessionHandler``.
+         */
+        post: operations["encerrar_sessao_v1_sessions__session_id__end_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/turns": {
         parameters: {
             query?: never;
@@ -391,6 +412,26 @@ export interface components {
             is_active: boolean;
         };
         /**
+         * SessionSummaryResponse
+         * @description ``POST /v1/sessions/{id}/end`` — o resumo pós-sessão (CARD-031).
+         */
+        SessionSummaryResponse: {
+            /**
+             * Spoken Seconds
+             * @description Soma de audio_duration dos turns.
+             */
+            spoken_seconds: number;
+            /** Turns */
+            turns: number;
+            /**
+             * Corrections By Type
+             * @description Só os tipos que ocorreram; vazio é 'nenhuma correção'.
+             */
+            corrections_by_type: {
+                [key: string]: number;
+            };
+        };
+        /**
          * Severity
          * @description Quanto o erro pesa. Três níveis, e o número é a decisão.
          *
@@ -636,6 +677,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionResponse"];
+                };
+            };
+        };
+    };
+    encerrar_sessao_v1_sessions__session_id__end_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

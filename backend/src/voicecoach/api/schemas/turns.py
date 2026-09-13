@@ -39,6 +39,7 @@ from voicecoach.domain.correction import (
     Severity,
     legacy_summary,
 )
+from voicecoach.domain.session import SessionSummary
 from voicecoach.domain.turn import (
     RejectionReason,
     Turn,
@@ -195,6 +196,24 @@ class SessionResponse(BaseModel):
     student_id: UUID
     started_at: datetime
     is_active: bool
+
+
+class SessionSummaryResponse(BaseModel):
+    """``POST /v1/sessions/{id}/end`` — o resumo pós-sessão (CARD-031)."""
+
+    spoken_seconds: float = Field(description="Soma de audio_duration dos turns.")
+    turns: int
+    corrections_by_type: dict[CorrectionType, int] = Field(
+        description="Só os tipos que ocorreram; vazio é 'nenhuma correção'."
+    )
+
+    @classmethod
+    def de_resumo(cls, resumo: SessionSummary) -> SessionSummaryResponse:
+        return cls(
+            spoken_seconds=resumo.spoken.total_seconds(),
+            turns=resumo.turns,
+            corrections_by_type=dict(resumo.corrections_by_type),
+        )
 
 
 # --- payloads dos eventos SSE (ADR-0026, item 1) --------------------------
