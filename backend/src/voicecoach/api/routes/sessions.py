@@ -12,21 +12,24 @@ nenhuma outra parte do fluxo pergunta quem é o aluno.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 from voicecoach.adapters.persistence.seed import DEV_STUDENT_ID
 from voicecoach.api.dependencies import (
     agora,
     end_session_handler,
+    list_sessions_handler,
+    requesting_student_id,
     session_repository,
     unit_of_work,
 )
 from voicecoach.api.errors import ProblemError
 from voicecoach.api.schemas.problem import TYPE_SESSION_NOT_FOUND
+from voicecoach.api.schemas.sessions import SessionListEntry, SessionListResponse
 from voicecoach.api.schemas.turns import SessionResponse, SessionSummaryResponse
 from voicecoach.application.ports.repositories import SessionRepository, UnitOfWork
 from voicecoach.application.result import Err, Ok
@@ -34,6 +37,10 @@ from voicecoach.application.use_cases.end_session import (
     EndSession,
     EndSessionHandler,
     SessionNotFound,
+)
+from voicecoach.application.use_cases.list_sessions import (
+    ListSessions,
+    ListSessionsHandler,
 )
 from voicecoach.domain.session import Session
 
@@ -84,3 +91,41 @@ async def encerrar_sessao(
                 detail="Nenhuma sessão com este id.",
                 session_id=str(inexistente),
             )
+
+
+# A janela default é a promessa da tela: *"sessões anteriores a 30 dias vivem
+# no app web"* (RF2). Constante de módulo e não número solto na assinatura para
+# que o schema do OpenAPI e a documentação digam o mesmo valor.
+JANELA_PADRAO_EM_DIAS = 30
+JANELA_MAXIMA_EM_DIAS = 365
+
+
+@router.get(
+    "/sessions",
+    summary="As sessões do aluno, da mais recente para a mais antiga",
+)
+async def listar_sessoes(
+    handler: Annotated[ListSessionsHandler, Depends(list_sessions_handler)],
+    student_id: Annotated[UUID, Depends(requesting_student_id)],
+    days: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=JANELA_MAXIMA_EM_DIAS,
+            description="Janela em dias. O que ficou fora dela não é erro, "
+            "é ausência — a tela promete que o histórico longo vive na web.",
+        ),
+    ] = JANELA_PADRAO_EM_DIAS,
+) -> SessionListResponse:
+    """Leitura pura: não gasta cota e responde `200` mesmo com a cota estourada.
+
+    Aluno sem sessão nenhuma recebe `sessions: []` (RF5) — ausência de sessões
+    é uma resposta, não um recurso que não existe.
+    """
+    itens = await handler.handle(
+        ListSessions(student_id=student_id, window=timedelta(days=days))
+    )
+    return SessionListResponse(
+        sessions=[SessionListEntry.de_item(item) for item in itens],
+        window_days=days,
+    )

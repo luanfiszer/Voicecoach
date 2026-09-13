@@ -96,6 +96,13 @@ class StudentRow(Base):
 
 class SessionRow(Base):
     __tablename__ = "sessions"
+    # A listagem do CARD-030 filtra por `student_id` e ordena por `started_at`:
+    # **igualdade antes de faixa**, a mesma ordem do índice de `usage_events`, e
+    # pela mesma razão — o Postgres usa o prefixo do índice para o `=` e o
+    # sufixo para a ordenação, evitando o sort. Sem ele, a tela mais aberta do
+    # app faz seq scan que fica lento em silêncio, proporcional ao total de
+    # sessões do produto inteiro.
+    __table_args__ = (Index("ix_sessions_student_started", "student_id", "started_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
     student_id: Mapped[uuid.UUID] = mapped_column(

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -21,7 +22,7 @@ from uuid import UUID, uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from testcontainers.community.postgres import PostgresContainer
@@ -1447,3 +1448,186 @@ async def test_o_delete_do_turn_leva_as_traducoes_junto(
         {"id": turn.id},
     )
     assert restantes.scalar_one() == 0
+
+
+# --- listagem de sessões (CARD-030) -----------------------------------------
+
+
+@contextmanager
+def _contando_queries(db_session: AsyncSession) -> Iterator[list[str]]:
+    """Conta os SELECTs que saíram de verdade — o "log de SQL" do RNF1.
+
+    `event.listen` sobre `before_cursor_execute` é o gancho do SQLAlchemy que
+    vê a instrução **depois** de compilada e **antes** de ir ao driver: é o
+    ponto onde um N+1 fica visível, porque cada iteração do laço aparece como
+    uma linha a mais.
+
+    O alvo é o que `get_bind()` devolve — o motor **síncrono** que o
+    `AsyncSession` embrulha. O sistema de eventos do SQLAlchemy é do síncrono;
+    registrar no `AsyncEngine` não veria nada, e o silêncio pareceria "zero
+    queries".
+    """
+    executadas: list[str] = []
+
+    def registrar(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
+        del conn, cursor, parameters, context, executemany
+        executadas.append(statement)
+
+    motor = db_session.get_bind()
+    event.listen(motor, "before_cursor_execute", registrar)
+    try:
+        yield executadas
+    finally:
+        event.remove(motor, "before_cursor_execute", registrar)
+
+
+async def _sessao_com_turns(
+    db_session: AsyncSession, student_id: UUID, *, quando: datetime, turns: int
+) -> Session:
+    sessions: SessionRepository = SqlAlchemySessionRepository(db_session)
+    repository: TurnRepository = SqlAlchemyTurnRepository(db_session)
+    sessao = Session(id=uuid4(), student_id=student_id, started_at=quando)
+    await sessions.add(sessao)
+    await db_session.commit()  # antes dos turns: ver a nota em `aluno_isolado`
+    for i in range(turns):
+        turn = sessao.start_turn(
+            turn_id=uuid4(),
+            input_audio_ref=f"dev/{i}.m4a",
+            audio_duration=timedelta(seconds=30),
+            now=quando,
+        )
+        turn.start_processing(quando)
+        turn.attach_reply("Nice!", quando)
+        turn.attach_corrections([_correcao(0), _correcao(1)])
+        await repository.add(turn)
+    await db_session.commit()
+    return sessao
+
+
+async def test_listagem_ordena_da_mais_recente_e_agrega_no_banco(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """Critério de aceite: 3 sessões ordenadas, com contagens corretas.
+
+    A agregação de correções é o risco nº 1 do card (dois níveis de `JOIN`):
+    dois turns com duas correções cada devem dar **4 correções e 60 s**, nunca
+    4 correções e 120 s — que é o que um `JOIN` triplo produziria ao
+    multiplicar o áudio pelo número de correções.
+    """
+    student, _ = aluno_isolado
+    repository: SessionRepository = SqlAlchemySessionRepository(db_session)
+    velha = await _sessao_com_turns(
+        db_session, student.id, quando=NOW - timedelta(days=3), turns=1
+    )
+    nova = await _sessao_com_turns(
+        db_session, student.id, quando=NOW - timedelta(hours=1), turns=2
+    )
+
+    listagem = await repository.list_for_student(
+        student.id, since=NOW - timedelta(days=30)
+    )
+
+    ids = [d.id for d in listagem]
+    assert ids.index(nova.id) < ids.index(velha.id)
+    da_nova = next(d for d in listagem if d.id == nova.id)
+    assert da_nova.turns == 2
+    assert da_nova.spoken == timedelta(minutes=1)  # 2 x 30 s, NÃO 4 x 30 s
+    assert da_nova.corrections == 4
+
+
+async def test_o_numero_de_queries_nao_cresce_com_o_numero_de_sessoes(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """**O critério de aceite do RNF1**, provado no log de SQL.
+
+    O `lazy="raise_on_sql"` protegeria contra tocar uma coleção sem querer; ele
+    não protege contra um laço que chama o repositório por linha. Só a contagem
+    protege — e ela compara 1 sessão com 6.
+    """
+    student, _ = aluno_isolado
+    repository: SessionRepository = SqlAlchemySessionRepository(db_session)
+    await _sessao_com_turns(db_session, student.id, quando=NOW, turns=1)
+
+    with _contando_queries(db_session) as com_uma:
+        poucas = await repository.list_for_student(
+            student.id, since=NOW - timedelta(days=30)
+        )
+    queries_com_uma = len(com_uma)
+
+    for i in range(5):
+        await _sessao_com_turns(
+            db_session, student.id, quando=NOW - timedelta(hours=i + 1), turns=2
+        )
+
+    with _contando_queries(db_session) as com_seis:
+        listagem = await repository.list_for_student(
+            student.id, since=NOW - timedelta(days=30)
+        )
+
+    # A lista cresceu de verdade (senão a comparação de queries não diria nada)…
+    assert len(listagem) == len(poucas) + 5
+    # …e mesmo assim o número de queries é o MESMO. É este par de asserções que
+    # separa "não tem N+1" de "o teste não exercitou nada".
+    assert len(com_seis) == queries_com_uma
+
+
+async def test_sessao_sem_turn_nenhum_aparece_na_listagem(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """`outerjoin` e não `join`: com o interno ela sumiria, em silêncio (RF4)."""
+    student, _ = aluno_isolado
+    sessions: SessionRepository = SqlAlchemySessionRepository(db_session)
+    vazia = Session(id=uuid4(), student_id=student.id, started_at=NOW)
+    await sessions.add(vazia)
+    await db_session.commit()
+
+    listagem = await sessions.list_for_student(
+        student.id, since=NOW - timedelta(days=30)
+    )
+
+    digest = next(d for d in listagem if d.id == vazia.id)
+    assert digest.turns == 0
+    assert digest.spoken == timedelta(0)
+    assert digest.corrections == 0
+    assert digest.last_turn_at is None
+
+
+async def test_a_listagem_nao_ve_sessao_de_outro_aluno(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    student, _ = aluno_isolado
+    sessions: SessionRepository = SqlAlchemySessionRepository(db_session)
+    students: StudentRepository = SqlAlchemyStudentRepository(db_session)
+    outro = Student(id=uuid4(), display_name="Outro", created_at=NOW)
+    await students.add(outro)
+    await db_session.commit()
+    await _sessao_com_turns(db_session, outro.id, quando=NOW, turns=1)
+
+    listagem = await sessions.list_for_student(
+        student.id, since=NOW - timedelta(days=30)
+    )
+
+    assert all(d.id != outro.id for d in listagem)
+
+
+async def test_a_janela_exclui_o_que_e_mais_velho(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    student, _ = aluno_isolado
+    repository: SessionRepository = SqlAlchemySessionRepository(db_session)
+    antiga = await _sessao_com_turns(
+        db_session, student.id, quando=NOW - timedelta(days=40), turns=1
+    )
+
+    listagem = await repository.list_for_student(
+        student.id, since=NOW - timedelta(days=30)
+    )
+
+    assert all(d.id != antiga.id for d in listagem)

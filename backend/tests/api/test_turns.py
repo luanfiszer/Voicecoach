@@ -738,3 +738,89 @@ async def test_traduzir_nao_cria_turn_nem_mexe_na_cota(
 
     assert len(fakes.turns.turns) == turns_antes
     assert fakes.usage_events.eventos == {}
+
+
+# --- GET /v1/sessions (CARD-030) --------------------------------------------
+
+
+async def test_listar_sessoes_devolve_a_sessao_do_aluno(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    turn = turn_pronto(fakes, trechos=1, transcript="hi")
+    turn.attach_reply("Nice.", AGORA)
+    turn.attach_corrections(CORRECOES)
+
+    resposta = await client.get("/v1/sessions")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["window_days"] == 30
+    assert len(corpo["sessions"]) == 1
+    entrada = corpo["sessions"][0]
+    assert entrada["id"] == str(fakes.sessao.id)
+    assert entrada["turns"] == 1
+    assert entrada["corrections"] == 2
+    assert entrada["spoken_seconds"] == pytest.approx(2.0)
+
+
+async def test_a_janela_e_parametro_do_contrato(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    corpo = (await client.get("/v1/sessions", params={"days": 7})).json()
+
+    assert corpo["window_days"] == 7
+
+
+async def test_janela_invalida_e_422_em_problem_details(client: AsyncClient) -> None:
+    resposta = await client.get("/v1/sessions", params={"days": 0})
+
+    assert resposta.status_code == 422
+    assert resposta.headers["content-type"].startswith(CONTENT_TYPE)
+
+
+async def test_audio_de_ontem_vem_como_indisponivel(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    """A retenção do trecho é de 1 dia: a conversa de ontem já perdeu o áudio."""
+    antiga = Session(
+        id=uuid4(),
+        student_id=fakes.sessao.student_id,
+        started_at=AGORA - timedelta(days=2),
+    )
+    fakes.sessions.sessions[antiga.id] = antiga
+    turn = antiga.start_turn(
+        turn_id=uuid4(),
+        input_audio_ref="dev/velho.m4a",
+        audio_duration=timedelta(seconds=4),
+        now=AGORA - timedelta(days=2),
+    )
+    fakes.turns.turns[turn.id] = turn
+
+    corpo = (await client.get("/v1/sessions")).json()
+
+    da_antiga = next(s for s in corpo["sessions"] if s["id"] == str(antiga.id))
+    assert da_antiga["reply_media_available"] is False
+    # …e o resto continua íntegro: o áudio expirou, o registro não.
+    assert da_antiga["turns"] == 1
+
+
+async def test_a_listagem_responde_com_a_cota_estourada(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    """RNF5: quota bloqueia escrita, não leitura."""
+    fakes.budget.excedido = True
+
+    resposta = await client.get("/v1/sessions")
+
+    assert resposta.status_code == 200
+
+
+async def test_aluno_sem_sessao_recebe_lista_vazia_e_nao_404(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    fakes.sessions.sessions.clear()
+
+    resposta = await client.get("/v1/sessions")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["sessions"] == []
