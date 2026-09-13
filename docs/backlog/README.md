@@ -43,7 +43,7 @@ O diagnóstico card a card, a ordem e as decisões estão em
 | [017](CARD-017-retencao-lifecycle-delete.md) | Retenção de áudio: lifecycle assimétrico e delete por prefixo | 2 | backend/infra | P | 008, 010 | backlog |
 | [019](CARD-019-spike-stt-e-tts-no-aparelho.md) | **Spike:** STT e TTS no aparelho (sem compromisso) | 2 | mobile/IA | P | 012 | **bloqueado (2026-09-13)** — exige aparelho físico, fala real de aprendiz e escuta comparada (preferência subjetiva); sem parte parcial segura para o loop autônomo fazer |
 | [013](CARD-013-corrections-persistidas-e-historico.md) | **Corrections tipadas persistidas; `feedback` volta na retomada** *(antecipado — rodou antes de 014/015)* | 3 | backend | M | 009, 010 | **concluído** — p50 melhorou para 2,34 s (ADR-0049, ADR-0050) |
-| [028](CARD-028-estados-do-turno-redesenhados-contra-a-cascata.md) | **Estados do turno redesenhados contra a cascata** (design × produto) | 2 | mobile/design | P | 012 | backlog |
+| [028](CARD-028-estados-do-turno-redesenhados-contra-a-cascata.md) | **Estados do turno redesenhados contra a cascata** (design × produto) | 2 | mobile/design | P | 012 | **concluído (2026-09-13)** — o CARD-012 já implementava a UI certa; fechado o registro (veredito por artboard em `docs/design/README.md`) e extraído `subtitulo`/`rotulo` para `rotulos.ts`, testado |
 | [016](CARD-016-ui-de-correcoes-no-app.md) | UI de correções + resumo de sessão no app | 3 | mobile | M | 012, 013 | backlog |
 | [027](CARD-027-telas-de-excecao-do-app.md) | **Telas de exceção: offline, quota, pausado, timeout** | 3 | mobile | M | 015, 025, 026 | backlog |
 | [029](CARD-029-historico-de-sessoes-no-app.md) | **Histórico de sessões no app** (+ `GET /v1/sessions` e abas) | 3 | backend/mobile | M | 013, 016, 017 | backlog |

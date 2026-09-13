@@ -27,9 +27,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BotaoGravar } from '@/features/gravacao/BotaoGravar';
 import { OverlayPermissao } from '@/features/gravacao/OverlayPermissao';
 import { PlayerLocal } from '@/features/gravacao/PlayerLocal';
+import { rotulo, subtitulo } from '@/features/gravacao/rotulos';
 import { useGravacao } from '@/features/gravacao/useGravacao';
 import { ListaDoTurno } from '@/features/turno/ListaDoTurno';
-import { type EstadoDoTurn, useTurno } from '@/features/turno/useTurno';
+import { useTurno } from '@/features/turno/useTurno';
 import { alvo, espaco, texto, useCores } from '@/theme/tokens';
 
 export function TelaConversa() {
@@ -130,45 +131,6 @@ export function TelaConversa() {
       />
     </SafeAreaView>
   );
-}
-
-/**
- * O subtítulo do cabeçalho — **a etapa da cascata, não a do desenho antigo**.
- *
- * Os artboards 03–06 descrevem uma sequência anterior à cascata (transcrevendo →
- * pensando → texto → áudio). Hoje o áudio começa antes de o texto do feedback
- * fechar (ADR-0022/0023), e o vocabulário aqui reflete a ordem real.
- */
-function subtitulo(gravando: boolean, turno: EstadoDoTurn): string {
-  if (gravando) return 'Gravando…';
-  switch (turno) {
-    case 'ocioso':
-      return 'Nenhum turno ainda';
-    case 'enviando':
-      return 'Enviando…';
-    case 'transcrevendo':
-      return 'Transcrevendo…';
-    case 'ouvindo':
-      return 'O professor está falando…';
-    case 'concluido':
-      return 'Sua vez';
-    case 'falhou':
-      return 'Algo deu errado';
-  }
-}
-
-function rotulo(estado: 'ocioso' | 'gravando' | 'gravado'): string {
-  switch (estado) {
-    case 'ocioso':
-      return 'Toque para falar';
-    case 'gravando':
-      return 'Toque para parar';
-    // O rótulo descreve o BOTÃO, não o player: no estado `gravado` o botão
-    // grava de novo. "Ouça o que você falou" ficava embaixo dele e sugeria
-    // que tocá-lo reproduziria o áudio.
-    case 'gravado':
-      return 'Toque para gravar de novo';
-  }
 }
 
 function formatar(segundos: number): string {
