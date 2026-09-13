@@ -31,6 +31,8 @@ export type ListaDeSessoes = Schemas['SessionListResponse'];
 /** `reply` é a resposta do professor; `correction` é a explicação de uma correção. */
 export type AlvoDeTraducao = Schemas['TranslationTarget'];
 export type Traducao = Schemas['TranslationResponse'];
+/** O par emitido por login e por refresh — mesma forma nos dois (ADR-0007). */
+export type ParDeTokens = Schemas['TokenPairResponse'];
 
 export type OpcoesDoCliente = {
   baseUrl: string;
@@ -119,6 +121,34 @@ export type Cliente = {
     index?: number,
     sinal?: AbortSignal,
   ): Promise<Traducao>;
+  /**
+   * Cadastro por e-mail+senha (CARD-050, ADR-0007).
+   *
+   * **A resposta é sempre a mesma**, e-mail novo ou já cadastrado — não vazar
+   * quais e-mails existem é requisito do servidor (CARD-049), não deste
+   * client. O aluno vê "confirme seu e-mail" nos dois casos.
+   */
+  registrar(email: string, password: string, sinal?: AbortSignal): Promise<void>;
+  /** Devolve o par de tokens. Quem guarda em `expo-secure-store` é o app. */
+  login(email: string, password: string, sinal?: AbortSignal): Promise<ParDeTokens>;
+  /**
+   * Rotaciona o par de tokens (ADR-0007).
+   *
+   * **Nunca chame isto de dentro de um retry automático.** Repetir um
+   * refresh com o MESMO token é exatamente o gesto que o servidor lê como
+   * reuso e revoga a família inteira (CARD-049, item 3) — cada chamada
+   * daqui tem de corresponder a uma decisão deliberada de renovar, nunca a
+   * uma tentativa de rede que se repete sozinha.
+   */
+  renovarTokens(refreshToken: string, sinal?: AbortSignal): Promise<ParDeTokens>;
+  /** Revoga a família do refresh apresentado. Idempotente do lado do servidor. */
+  sair(refreshToken: string, sinal?: AbortSignal): Promise<void>;
+  /** `GET` porque é o link que o aluno clica no e-mail. */
+  confirmarEmail(token: string, sinal?: AbortSignal): Promise<void>;
+  reenviarConfirmacao(email: string, sinal?: AbortSignal): Promise<void>;
+  pedirRedefinicaoDeSenha(email: string, sinal?: AbortSignal): Promise<void>;
+  /** Troca a senha e desloga TODAS as sessões do aluno (ADR-0007) — não só esta. */
+  redefinirSenha(token: string, novaSenha: string, sinal?: AbortSignal): Promise<void>;
 };
 
 /**
@@ -365,6 +395,100 @@ export function criarCliente(opcoes: OpcoesDoCliente): Cliente {
         signal: sinal ?? null,
       });
       return json<Traducao>(resposta);
+    },
+
+    async registrar(
+      email: string,
+      password: string,
+      sinal?: AbortSignal,
+    ): Promise<void> {
+      const resposta = await executar(`${base}/v1/auth/register`, {
+        method: 'POST',
+        headers: cabecalhos({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ email, password }),
+        signal: sinal ?? null,
+      });
+      if (!resposta.ok) await falhar(resposta);
+    },
+
+    async login(
+      email: string,
+      password: string,
+      sinal?: AbortSignal,
+    ): Promise<ParDeTokens> {
+      const resposta = await executar(`${base}/v1/auth/login`, {
+        method: 'POST',
+        headers: cabecalhos({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ email, password }),
+        signal: sinal ?? null,
+      });
+      return json<ParDeTokens>(resposta);
+    },
+
+    async renovarTokens(
+      refreshToken: string,
+      sinal?: AbortSignal,
+    ): Promise<ParDeTokens> {
+      const resposta = await executar(`${base}/v1/auth/refresh`, {
+        method: 'POST',
+        headers: cabecalhos({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ refresh_token: refreshToken }),
+        signal: sinal ?? null,
+      });
+      return json<ParDeTokens>(resposta);
+    },
+
+    async sair(refreshToken: string, sinal?: AbortSignal): Promise<void> {
+      const resposta = await executar(`${base}/v1/auth/logout`, {
+        method: 'POST',
+        headers: cabecalhos({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ refresh_token: refreshToken }),
+        signal: sinal ?? null,
+      });
+      // `204 No Content` no caminho comum; qualquer outro status é erro.
+      if (!resposta.ok) await falhar(resposta);
+    },
+
+    async confirmarEmail(token: string, sinal?: AbortSignal): Promise<void> {
+      const resposta = await executar(
+        `${base}/v1/auth/confirm-email?token=${encodeURIComponent(token)}`,
+        { headers: cabecalhos(), signal: sinal ?? null },
+      );
+      if (!resposta.ok) await falhar(resposta);
+    },
+
+    async reenviarConfirmacao(email: string, sinal?: AbortSignal): Promise<void> {
+      const resposta = await executar(`${base}/v1/auth/resend-confirmation`, {
+        method: 'POST',
+        headers: cabecalhos({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ email }),
+        signal: sinal ?? null,
+      });
+      if (!resposta.ok) await falhar(resposta);
+    },
+
+    async pedirRedefinicaoDeSenha(email: string, sinal?: AbortSignal): Promise<void> {
+      const resposta = await executar(`${base}/v1/auth/request-password-reset`, {
+        method: 'POST',
+        headers: cabecalhos({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ email }),
+        signal: sinal ?? null,
+      });
+      if (!resposta.ok) await falhar(resposta);
+    },
+
+    async redefinirSenha(
+      token: string,
+      novaSenha: string,
+      sinal?: AbortSignal,
+    ): Promise<void> {
+      const resposta = await executar(`${base}/v1/auth/reset-password`, {
+        method: 'POST',
+        headers: cabecalhos({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ token, new_password: novaSenha }),
+        signal: sinal ?? null,
+      });
+      if (!resposta.ok) await falhar(resposta);
     },
 
     async *acompanharTurn(

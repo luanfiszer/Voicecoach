@@ -34,6 +34,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 
 import { config } from '@/config';
+import { useSessao } from '@/features/auth/useSessao';
 import {
   type ConteudoDeExcecao,
   conteudoDoErro,
@@ -228,9 +229,10 @@ function ordenarPorIndice(trechos: Trecho[]): Trecho[] {
 }
 
 export function useTurno(): Turno {
+  const { fetchAutenticado } = useSessao();
   const cliente = useMemo<Cliente>(
-    () => criarCliente({ baseUrl: config.apiBaseUrl }),
-    [],
+    () => criarCliente({ baseUrl: config.apiBaseUrl, fetch: fetchAutenticado }),
+    [fetchAutenticado],
   );
   const turnAtualRef = useRef<string | null>(null);
   /** Índices para os quais a recuperação já foi tentada — uma vez cada. */

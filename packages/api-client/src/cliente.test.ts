@@ -208,3 +208,210 @@ describe('traduzirTexto', () => {
     });
   });
 });
+
+describe('registrar', () => {
+  it('faz POST em /auth/register com e-mail e senha', async () => {
+    const urls: string[] = [];
+    const corpos: string[] = [];
+    const fake: typeof fetch = async (url, init) => {
+      urls.push(String(url));
+      corpos.push(String(init?.body));
+      return new Response(null, { status: 202 });
+    };
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch: fake });
+
+    await cliente.registrar('aluno@example.com', 'senha-super-secreta');
+
+    expect(urls).toEqual(['http://api.local/v1/auth/register']);
+    expect(JSON.parse(corpos[0] ?? '')).toEqual({
+      email: 'aluno@example.com',
+      password: 'senha-super-secreta',
+    });
+  });
+});
+
+describe('login', () => {
+  it('devolve o par de tokens', async () => {
+    const par = {
+      access_token: 'access-abc',
+      refresh_token: 'refresh-xyz',
+      token_type: 'bearer',
+      expires_in: 900,
+    };
+    const cliente = criarCliente({
+      baseUrl: 'http://api.local',
+      fetch: fetchQueDevolve(par).fetch,
+    });
+
+    const resultado = await cliente.login('aluno@example.com', 'senha-certa');
+
+    expect(resultado).toEqual(par);
+  });
+
+  it('senha errada vira ErroDaApi 401', async () => {
+    const { fetch } = fetchQueDevolve(
+      {
+        type: 'urn:voicecoach:problem:invalid-credentials',
+        title: 'Credenciais inválidas',
+      },
+      { status: 401 },
+    );
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch });
+
+    await expect(
+      cliente.login('aluno@example.com', 'senha-errada'),
+    ).rejects.toMatchObject({ status: 401 });
+  });
+});
+
+describe('renovarTokens', () => {
+  it('manda o refresh token no corpo e devolve o par novo', async () => {
+    const corpos: string[] = [];
+    const novoPar = {
+      access_token: 'access-novo',
+      refresh_token: 'refresh-novo',
+      token_type: 'bearer',
+      expires_in: 900,
+    };
+    const fake: typeof fetch = async (_url, init) => {
+      corpos.push(String(init?.body));
+      return new Response(JSON.stringify(novoPar), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch: fake });
+
+    const resultado = await cliente.renovarTokens('refresh-antigo');
+
+    expect(JSON.parse(corpos[0] ?? '')).toEqual({ refresh_token: 'refresh-antigo' });
+    expect(resultado).toEqual(novoPar);
+  });
+
+  it('refresh inválido (reuso detectado) vira ErroDaApi 401', async () => {
+    const { fetch } = fetchQueDevolve(
+      {
+        type: 'urn:voicecoach:problem:invalid-refresh-token',
+        title: 'Refresh token inválido',
+      },
+      { status: 401 },
+    );
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch });
+
+    await expect(cliente.renovarTokens('refresh-reusado')).rejects.toMatchObject({
+      status: 401,
+    });
+  });
+});
+
+describe('sair', () => {
+  it('faz POST em /auth/logout com o refresh token', async () => {
+    const urls: string[] = [];
+    const corpos: string[] = [];
+    const fake: typeof fetch = async (url, init) => {
+      urls.push(String(url));
+      corpos.push(String(init?.body));
+      return new Response(null, { status: 204 });
+    };
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch: fake });
+
+    await cliente.sair('refresh-do-aluno');
+
+    expect(urls).toEqual(['http://api.local/v1/auth/logout']);
+    expect(JSON.parse(corpos[0] ?? '')).toEqual({
+      refresh_token: 'refresh-do-aluno',
+    });
+  });
+});
+
+describe('confirmarEmail', () => {
+  it('faz GET em /auth/confirm-email com o token na query', async () => {
+    const urls: string[] = [];
+    const fake: typeof fetch = async (url) => {
+      urls.push(String(url));
+      return new Response(JSON.stringify({ status: 'confirmed' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch: fake });
+
+    await cliente.confirmarEmail('token-do-link');
+
+    expect(urls).toEqual([
+      'http://api.local/v1/auth/confirm-email?token=token-do-link',
+    ]);
+  });
+
+  it('token inválido vira ErroDaApi 400', async () => {
+    const { fetch } = fetchQueDevolve(
+      { title: 'Link de confirmação inválido' },
+      { status: 400 },
+    );
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch });
+
+    await expect(cliente.confirmarEmail('token-invalido')).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+});
+
+describe('reenviarConfirmacao', () => {
+  it('faz POST em /auth/resend-confirmation com o e-mail', async () => {
+    const corpos: string[] = [];
+    const fake: typeof fetch = async (_url, init) => {
+      corpos.push(String(init?.body));
+      return new Response(null, { status: 202 });
+    };
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch: fake });
+
+    await cliente.reenviarConfirmacao('aluno@example.com');
+
+    expect(JSON.parse(corpos[0] ?? '')).toEqual({ email: 'aluno@example.com' });
+  });
+});
+
+describe('pedirRedefinicaoDeSenha', () => {
+  it('faz POST em /auth/request-password-reset com o e-mail', async () => {
+    const corpos: string[] = [];
+    const fake: typeof fetch = async (_url, init) => {
+      corpos.push(String(init?.body));
+      return new Response(null, { status: 202 });
+    };
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch: fake });
+
+    await cliente.pedirRedefinicaoDeSenha('aluno@example.com');
+
+    expect(JSON.parse(corpos[0] ?? '')).toEqual({ email: 'aluno@example.com' });
+  });
+});
+
+describe('redefinirSenha', () => {
+  it('faz POST em /auth/reset-password com o token e a senha nova', async () => {
+    const corpos: string[] = [];
+    const fake: typeof fetch = async (_url, init) => {
+      corpos.push(String(init?.body));
+      return new Response(null, { status: 200 });
+    };
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch: fake });
+
+    await cliente.redefinirSenha('token-do-reset', 'senha-nova-123');
+
+    expect(JSON.parse(corpos[0] ?? '')).toEqual({
+      token: 'token-do-reset',
+      new_password: 'senha-nova-123',
+    });
+  });
+
+  it('token inválido vira ErroDaApi 400', async () => {
+    const { fetch } = fetchQueDevolve(
+      { title: 'Link de redefinição inválido' },
+      { status: 400 },
+    );
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch });
+
+    await expect(
+      cliente.redefinirSenha('token-invalido', 'senha-nova-123'),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+});
