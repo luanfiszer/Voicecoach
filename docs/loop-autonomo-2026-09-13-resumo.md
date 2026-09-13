@@ -388,3 +388,82 @@ dependentes do CARD-049/050 (concluídos):
   por critério 4 do `adr/README.md`.
 - **CARD-060** (login social Google+Apple) — tem ADR pendente, revisando o
   ADR-0007.
+
+## 14. Quinta leva — CARD-051, o último bloqueante de V1.0 que dependia só de código
+
+Continuação direta da leva anterior. Mergeou o CARD-051 sozinho — o maior
+card desta sessão depois do CARD-049, e o único que exigiu um ADR novo.
+
+### O que foi mergeado
+
+| Card | PR | O que entregou |
+|---|---|---|
+| CARD-051 | [#59](https://github.com/luanfiszer/Voicecoach/pull/59) | Delete de conta dentro do app (Guideline 5.1.1(v), LGPD). Exclusão lógica imediata (`Student.deleted_at`, revoga refresh tokens, `requesting_student_id` passa a checar a conta a cada request) + expurgo físico assíncrono e idempotente por varredura periódica do worker (`turns` → `sessions` → storage → `Student`). [ADR-0069](adr/0069-delete-de-conta-conteudo-apaga-usageevent-sobrevive-anonimo.md): `UsageEvent` nunca é apagado — `turn_id` perde a FK, `student_id` vira `ON DELETE SET NULL`. `DELETE /v1/students/me`, tela de Perfil com confirmação e aviso de assinatura, `Cliente.excluirConta()` |
+
+Nenhum outro card foi tocado nesta leva. 623 testes de backend (14 novos),
+cobertura 93,72% global / 99% no núcleo; 82 testes de cliente. Todos os
+gates locais verdes + CI verde antes do merge; nenhum `--no-verify`.
+
+### A decisão técnica central, e por que ela não foi uma pergunta ao vivo
+
+Ler o esquema real (não de memória — LEARNING-0003) revelou que
+`usage_events.turn_id`/`student_id` tinham `ON DELETE CASCADE` desde o
+CARD-014, herdado de uma época em que nenhum turn e nenhuma conta eram
+apagados. O CARD-051 é o primeiro código que de fato apaga os dois, e o
+`CASCADE` existente apagaria a única fonte de verdade de custo
+(ADR-0051) junto com a conta — exatamente o "Apagar demais" que o próprio
+card lista como risco.
+
+Não foi tratada como pergunta ao vivo porque a resposta já estava escrita
+no próprio card ("UsageEvent... provavelmente anonimiza, porque apagá-lo
+reescreveria a contabilidade do passado") e nos ADRs que o produto já tinha
+(ADR-0051): é a aplicação de uma decisão de arquitetura já tomada a um
+esquema que ainda não a refletia, não uma escolha de produto nova. Registrada
+como [ADR-0069](adr/0069-delete-de-conta-conteudo-apaga-usageevent-sobrevive-anonimo.md),
+citando o critério 4 (privacidade/retenção) do `adr/README.md`.
+
+### Outras decisões técnicas, todas decididas e registradas (não perguntas)
+
+- **`requesting_student_id` deixa de ser 100% stateless.** Passa a consultar
+  o `Student` a cada request autenticado — um `SELECT` por PK a mais em toda
+  rota do produto. Aceito porque o próprio ADR-0007 já registrava esta
+  exceção por escrito ("aqui a janela não é tolerável"); o card só pedia para
+  não deixá-la em aberto.
+- **Expurgo por varredura periódica no worker, não fila de job por conta.**
+  Reaproveita o mecanismo já testado do CARD-025/034 (`cron_jobs`, `job_id`
+  determinístico entre réplicas) em vez de desenhar um port de fila novo —
+  nenhuma característica do expurgo pedia algo diferente.
+- **Aviso de assinatura incondicional na tela de Perfil.** A Fase 4
+  (pagamento) não existe ainda; o app não tem como saber se há assinatura
+  ativa, então o aviso aparece sempre, texto genérico. Não é produto
+  inventado — é a única leitura possível do requisito dado o que o sistema
+  sabe hoje.
+
+### O que não foi verificado (dívida declarada)
+
+A tela de Perfil (link "Excluir minha conta", confirmação, botão
+destrutivo) não rodou em Simulador nem aparelho físico nesta leva — mesma
+lacuna já registrada para o CARD-050. Toda a lógica está testada (gates
+verdes); o que só a tela renderizada prova fica para a próxima sessão com
+Simulador/aparelho.
+
+### Achado que não é deste card, registrado para não se perder
+
+`CARD-017` (lifecycle rules + `delete_prefix`) já estava implementado antes
+desta sessão — achado ao ler o código para escrever o ADR-0069, não algo que
+este card fez. O índice do backlog continua marcando `017` como "backlog"
+porque nenhuma sessão o executou formalmente como card próprio; vale uma
+auditoria dedicada num card futuro, fora do escopo do CARD-051.
+
+### Como retomar
+
+Sem pausa pedida pelo desenvolvedor. Com o CARD-051 mergeado, os
+bloqueantes de V1.0 que só dependiam de código (049, 050, 051) estão
+fechados. O que resta na faixa de auth/conta é:
+
+- **CARD-060** (login social Google+Apple) — tem ADR pendente, revisando o
+  ADR-0007. Não depende de nada além do CARD-049 (concluído).
+- **CARD-052** (delete de turn/sessão pelo aluno, se existir no backlog com
+  esse número) ou o próximo item da fila de bloqueantes de V1.0 — vale
+  reler `docs/backlog/README.md` inteiro antes de escolher, porque esta
+  sessão já mudou o estado de várias linhas dele.
