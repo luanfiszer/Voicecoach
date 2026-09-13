@@ -3,7 +3,7 @@
 - **ID:** CARD-044
 - **Épico:** Qualidade da conversa (briefing 2026-09-09, ponto 1)
 - **Esforço:** P
-- **Status:** backlog
+- **Status:** bloqueado (2026-09-13) — ver "Execução" abaixo
 - **Dependências:** ADR-0032, ADR-0033
 
 ## Contexto
@@ -156,3 +156,39 @@ número certo aqui e a latência absoluta não: RTF 0,028 contra 0,177 diz que a
 voz `high` consome 18% do tempo que ela produz, contra 3% — e é isso, não os
 0,645 s da frase medida, que prevê o comportamento em sentenças de qualquer
 tamanho. É a diferença entre medir um caso e medir uma taxa.
+
+## Execução (2026-09-13, loop autônomo) — BLOQUEADO, escuta humana
+
+**Não implementado.** O próprio card é explícito sobre o que falta: *"o que
+falta não é medição — é a escuta, e ela é decisão do desenvolvedor"*. Preferência
+de naturalidade de voz é o exemplo textual de "preferência subjetiva de UX" que
+`docs/prompt-loop-autonomo-backlog.md` lista como o tipo de decisão que o loop
+autônomo **não** deve tomar por adivinhação — não há como eu ouvir áudio e
+julgar qual voz soa menos robótica.
+
+**O instrumento do proposta técnica item 1 já existe** —
+`backend/benchmarks/tts_audicao.py` — e é o MESMO script que decidiu Kokoro vs.
+Piper no ADR-0032 (`docs/medicao-latencia.md:477-479`): roda contra o adapter de
+produção, toca cada voz de `voices/` em sequência e deixa os WAVs em `/tmp` para
+comparação lado a lado. Ele já cobre a maior parte do que este card pediria
+construir; não recriei um segundo script equivalente.
+
+**O que verifiquei, sem decidir nada de subjetivo:**
+
+- Hoje só `en_US-lessac-medium` (atual) e `en_US-amy-medium` estão baixadas em
+  `backend/voices/` — as candidatas `high` e femininas da segunda rodada
+  (`hfc_female`, `ljspeech`, `cori`, `libritts`) medidas em 2026-09-09/10 não
+  estão no repositório nem em `backend/voices/`, só as amostras de áudio
+  citadas em `~/Desktop/voicecoach-vozes-femininas/` (máquina do
+  desenvolvedor, fora deste ambiente).
+- `tts_voice = "en_US-lessac-medium"` continua o default em `config.py:366` —
+  nenhuma troca foi feita, porque nenhuma escolha foi feita.
+
+**Risco do próprio card que fica registrado, não resolvido:** o script atual
+toca as vozes em ordem alfabética fixa (`sorted(...)`), sem embaralhar — o
+risco de "viés de novidade" que a seção Riscos deste card nomeia continua
+presente. Não mudei isso especulativamente: não sei se o desenvolvedor prefere
+embaralhar, ouvir contrabalanceado, ou já tem outro hábito de escuta às cegas
+— é pergunta do ponto de decisão, não algo para decidir sem ele.
+
+**Seguindo para o próximo card da fila (CARD-043) sem tocar mais neste.**
