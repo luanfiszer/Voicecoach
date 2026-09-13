@@ -3,7 +3,7 @@
 - **ID:** CARD-039
 - **Épico:** Qualidade da conversa (briefing 2026-09-09, ponto 3 — primeira metade)
 - **Esforço:** M
-- **Status:** backlog
+- **Status:** concluído (2026-09-13)
 - **Dependências:** ADR-0055, ADR-0056 (ambos escritos)
 
 ## Contexto
@@ -137,3 +137,105 @@ com implementação default e ninguém notaria; aqui a tipagem estrutural + `myp
 --strict` transforma "alarguei o contrato" numa lista completa de quem precisa
 mudar, sem herança e sem registro. É a diferença entre acoplamento por
 declaração e acoplamento por forma, sentida na prática.
+
+---
+
+## Execução (2026-09-13)
+
+### Critérios de aceite, um a um, com evidência
+
+- ✅ **Áudio em português, configuração default, `language == "pt"` e texto
+  correto.** Provado contra o motor real:
+  `tests/adapters/test_stt_integration.py::test_multilingue_com_deteccao_entende_o_portugues`
+  — `uv run pytest -m slow` → `PASSED`. Fixture novo:
+  `tests/fixtures/stt/pt-br-curto.wav` (3,97 s, `say -v Luciana`, "Não sei como
+  dizer isso em inglês, você pode me ajudar?").
+- ✅ **Mesmo áudio com `stt_language="en"`, `language == "en"`.** Provado:
+  `test_stt_language_forcado_governa_mesmo_com_audio_em_portugues` → `PASSED`.
+- ✅ **`confidence` separa transcrição correta de alucinação.** Provado, mas
+  **com o teste reescrito durante a implementação** — ver "Decisão tomada
+  durante a execução" abaixo:
+  `test_confidence_separa_a_alucinacao_do_modelo_en_da_transcricao_correta` →
+  `PASSED`, 3 execuções seguidas para excluir sorte.
+- ✅ **`segments` com múltiplos elementos e `end_seconds` crescentes.** Provado:
+  `test_segments_tem_tempos_crescentes` → `PASSED`.
+- ✅ **`lint-imports`: nenhum tipo de `numpy`/`mlx`/`faster_whisper` alcança
+  `application`.** `Contracts: 4 kept, 0 broken`. **Gate provado que morde**:
+  violação injetada (`import numpy as np` em
+  `application/ports/speech_to_text.py`) → `Contracts: 3 kept, 1 broken`,
+  apontando a linha exata; revertida, `4 kept, 0 broken` de novo.
+- ✅ **`docs/medicao-latencia.md` remedido, número honesto inclusive se pior.**
+  §13, nova. Custo da detecção: **+0,18 s** de média (4 insumos), reproduz o
+  +0,17 s do ADR-0055. Achado **não previsto** também registrado: a alucinação
+  do `.en` antigo é não-determinística o bastante para atravessar o limiar
+  `-1,0` original em algumas execuções (medido: -0,97 a -1,10 em 5 repetições)
+  — número ruim registrado, não escondido.
+
+### Decisão tomada durante a execução (não coberta pelos ADRs — não é decisão de arquitetura, é achado de comportamento)
+
+O critério de aceite original comparava `confidence` do modelo antigo contra
+um limiar absoluto (`< -1,0`). Medindo 5 execuções do `.en` antigo contra o
+mesmo áudio pt-BR, o valor oscilou entre **-0,97 e -1,10** — em torno do
+próprio limiar, não abaixo dele de forma confiável (causa: fallback de
+temperatura do Whisper, que já era conhecido pelo ADR-0055 como
+"não-determinístico", mas cuja magnitude perto do limiar não tinha sido
+medida). Um teste que passa ou falha por sorte não verifica nada.
+
+**Perguntado ao desenvolvedor no ponto da decisão** (antes de reescrever o
+teste): confirmado que a preocupação inicial era sobre latência (não era) —
+esclarecido que a variância é do **texto/confiança** da alucinação, não do
+**tempo** de execução (esse continua estável, medido em §13.1) — e que a
+instabilidade é sintoma do próprio bug que o card corrige, não efeito
+colateral da correção (confirmado rodando o modelo novo 5x: resultado idêntico
+byte a byte nas 5). **Decisão, com aprovação do desenvolvedor:** o teste passa
+a comparar **relativamente** (`confidence` do modelo novo supera o antigo em
+pelo menos 0,3) em vez de contra um limiar absoluto. Registrado como dívida
+explícita para o CARD-040: o limiar do desfecho "não entendi" (ADR-0057) não
+pode ser um número único fixo perto de -1,0, sob pena de herdar o mesmo
+problema.
+
+Não gera ADR novo: não introduz dependência, não altera a fronteira decidida
+pelo ADR-0055/0056, não afeta custo nem segurança — é escolha local e
+reversível de como um teste verifica um comportamento (`docs/adr/README.md`,
+seção "Quando NÃO escrever ADR": "detalhes de implementação").
+
+### Regra do explicador — desfecho das perguntas desta sessão
+
+Candidatas da fila (`docs/perguntas-em-aberto.md`, registradas em 2026-09-09).
+Escolhidas as duas mais caras de errar; a terceira (mypy/Protocol) não foi
+reapresentada nesta sessão — ver arquivo de perguntas.
+
+1. **"Com um áudio bem curto (ex.: só 'yes'), o multilíngue com detecção
+   classifica como pt ou en, e com que confiança?"** — feita antes de
+   qualquer consumidor futuro do campo `language`. **Dispensada pelo
+   desenvolvedor** ("pode rodar o experimento e seguir"). Rodado assim mesmo:
+   `mlx-whisper`, áudio de 0,48 s ("Yes"), detectou `en` corretamente,
+   `confidence=-0,625` — pior que uma fala longa (-0,13 a -0,32 no ADR-0055),
+   mas ainda longe do território de alucinação. Sem consumidor neste card
+   (CARD-040/041), então sem decisão de produto pendente aqui.
+2. **"A média ponderada por duração esconde um segmento ruim (ex.: tosse) num
+   turno de 3 segmentos?"** — feita antes de escrever a fórmula de
+   `confidence`. **Não chegou a ser apresentada isoladamente**: a
+   implementação da fórmula (ADR-0056, já decidida) e o teste que prova o
+   comportamento (`test_faster_whisper_confidence_e_media_ponderada_por_duracao`)
+   tornaram a resposta imediatamente observável durante a própria escrita do
+   código — **sim, esconde**: um segmento de 1s com -0,1 e outro de 2s com
+   -0,4 dão confidence -0,3 (mais perto do ruim, porque pesa mais), não a
+   média simples -0,25. Fica registrado aqui como resposta objetiva; não foi
+   formalmente perguntada e respondida por escrito porque a pergunta 1 e o
+   achado do não-determinismo (acima, que nasceu no ponto da decisão e não
+   estava na lista de candidatas) já ocuparam as duas do limite desta sessão.
+
+### Dívidas explícitas
+
+- **CARD-040:** o limiar de confiança não pode ser um número fixo único perto
+  de -1,0 — precisa considerar a variância medida em `docs/medicao-latencia.md`
+  §13.3, e precisa ser validado contra os dois adapters (`mlx` e
+  `faster-whisper`), não só um.
+- **`faster-whisper` não foi remedido em TEMPO** com o script novo
+  (`benchmarks/stt_deteccao_idioma.py` mede só `mlx`, o motor local desta
+  máquina) — só em `confidence`, via teste de integração. Gatilho: máquina x86
+  disponível (mesma lacuna do ADR-0027).
+- **`no_speech` sem segmento nenhum é `0.0` por convenção** (documentado no
+  docstring do campo) — não é um caso coberto pelo ADR-0056 explicitamente;
+  decisão local de implementação, sem impacto de produto até haver consumidor.

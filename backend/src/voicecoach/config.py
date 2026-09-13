@@ -315,12 +315,23 @@ class Settings(BaseSettings):
     # tradução entre os dois, que é justamente o tipo de "esperteza" que
     # esconde erro de configuração.
     #
-    # `small.en` é o default e a escolha de modelo está BLOQUEADA (ADR-0027,
-    # item 7) até existir insumo com voz real de aprendiz: latência está
-    # medida, qualidade não. Trocar por `base.en` NÃO é a otimização óbvia que
-    # parece — remedido, ele ficou mais LENTO no mlx.
-    stt_model_faster_whisper: str = "small.en"
-    stt_model_mlx: str = "mlx-community/whisper-small.en-mlx"
+    # `small` MULTILÍNGUE é o default (ADR-0055): o `.en` produzia inglês
+    # inventado diante de português — comportamento correto de uma variante
+    # English-only, e requisito de produto errado. Medido: trocar a variante
+    # custa ZERO latência (é o vocabulário do decoder que muda, não o tamanho
+    # da rede). O PORTE (`small` → `medium`) segue BLOQUEADO (ADR-0027, item 7)
+    # até existir insumo com voz real de aprendiz — isso não mudou.
+    stt_model_faster_whisper: str = "small"
+    stt_model_mlx: str = "mlx-community/whisper-small-mlx"
+
+    # `None` = detectar de verdade (ADR-0055). Um campo só, ao contrário do
+    # nome do modelo acima: os dois motores aceitam a mesma string de idioma
+    # (`faster-whisper` tem `language: str | None` na própria assinatura;
+    # `mlx-whisper`, com modelo multilíngue, dispara `model.detect_language()`
+    # quando recebe `None`). Detectar custa +0,17 s fixos, medidos — o preço
+    # de o professor saber que o aluno falou português em vez de traduzi-lo
+    # silenciosamente. Recuo barato sem deploy: `stt_language=en` no `.env`.
+    stt_language: str | None = None
 
     # --- TTS (ADR-0011, e o ADR de troca do CARD-008) ------------------------
     # Piper por default: 10x mais rápido para carregar, 4x menor RTF e ZERO

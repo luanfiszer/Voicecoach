@@ -28,9 +28,9 @@ Regra em vigor:
 Uma só, pela regra nova: pergunta da sessão **imediatamente anterior** que ficou
 sem desfecho volta **uma** vez.
 
-**Nenhuma.** O CARD-037 (2026-09-09) fez as suas duas perguntas no ponto da
-decisão e **as duas foram respondidas** — nada fica pendente para a abertura
-seguinte.
+**Nenhuma.** O CARD-039 (2026-09-13) teve as suas duas perguntas com desfecho
+registrado — uma dispensada e demonstrada assim mesmo, outra respondida pela
+própria implementação — nada fica pendente para a abertura seguinte.
 
 > **CARD-037 (2026-09-09): duas perguntas, as duas conferidas rodando.**
 >
@@ -426,6 +426,49 @@ continua faltando, e é por isso que nenhuma está em "Fechadas".
 > não prever — o "regravar" passa a calar, e o achado vira LEARNING-0007 com
 > regra. Ambas **respondidas**. A pergunta da parte 1 segue fechada. A Q7 não foi
 > reapresentada: é o mesmo card da parte 1, onde ela já tinha sido.
+
+> **CARD-039 (2026-09-13): duas candidatas escolhidas das três registradas em
+> 2026-09-09, ambas com desfecho.**
+>
+> - **Q1** *"com um áudio bem curto (ex.: 'yes'), o multilíngue com detecção
+>   classifica como pt ou en, e com que confiança?"* — feita antes de qualquer
+>   consumidor futuro do campo `language`. **Dispensada pelo desenvolvedor**
+>   ("pode rodar o experimento e seguir"). Demonstrada assim mesmo: 0,48 s de
+>   áudio ("Yes", `say -v Samantha`), detectou `en` corretamente,
+>   `confidence=-0,625` — pior que fala longa (-0,13 a -0,32 no ADR-0055), mas
+>   longe de alucinação. Sem decisão de produto pendente aqui — é o CARD-040/041
+>   que vão consumir o campo.
+> - **Q2** *"a média ponderada por duração esconde um segmento ruim (ex.:
+>   tosse) num turno de 3 segmentos?"* — a resposta ficou observável na própria
+>   escrita do código e do teste que a prova
+>   (`test_faster_whisper_confidence_e_media_ponderada_por_duracao`), sem
+>   chegar a ser apresentada como pergunta isolada: **sim, esconde** — um
+>   segmento de 1s a -0,1 e outro de 2s a -0,4 dão -0,3 (mais perto do ruim,
+>   porque pesa mais), não a média simples -0,25.
+>
+> **A terceira candidata da fila** ("quantos arquivos o `mypy --strict` acusa
+> quando `Transcript` ganha 3 campos, e por que seria diferente com classe
+> base") **não foi reapresentada** — a regra permite no máximo 2 por sessão, e
+> as duas acima eram mais caras de errar. Ela volta se um card futuro tocar de
+> novo a forma da porta.
+>
+> **Achado que nasceu no ponto da decisão e não estava na lista de
+> candidatas:** ao escrever o teste que prova o critério de aceite
+> "`confidence` separa alucinação de transcrição correta", a medição revelou
+> que o `.en` antigo é não-determinístico o bastante (fallback de temperatura
+> do Whisper) para o limiar fixo `-1,0` do critério original não ser
+> confiável — 5 execuções do mesmo áudio deram -0,97 a -1,10, em torno do
+> próprio limiar. Perguntado ao desenvolvedor no ponto: a primeira leitura foi
+> **"a latência real do modelo vai aumentar?"** — esclarecido que a variância é
+> do texto/confiança da alucinação, não do tempo (esse é estável, medido em
+> `docs/medicao-latencia.md` §13.1); segunda pergunta, **"mudar para
+> multilíngue pode aumentar a alucinação?"** — esclarecido e demonstrado que é
+> o oposto (o modelo novo deu resultado byte-a-byte idêntico em 5 execuções; a
+> instabilidade é sintoma do bug que o card corrige, não efeito colateral da
+> correção). **Aprovado**: "pode seguir". O teste passou a comparar
+> `confidence` relativamente (margem de 0,3) em vez de contra o limiar fixo —
+> decisão registrada no CARD-039, não em ADR (é escolha local e reversível de
+> verificação, não decisão de fronteira/dependência/custo).
 
 ## Fechadas
 
