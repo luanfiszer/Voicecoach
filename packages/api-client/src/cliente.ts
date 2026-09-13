@@ -26,6 +26,8 @@ export type Sessao = Schemas['SessionResponse'];
 export type Turn = Schemas['TurnResponse'];
 export type TurnAceito = Schemas['TurnAcceptedResponse'];
 export type Trecho = Schemas['ChunkPayload'];
+export type SessaoDoHistorico = Schemas['SessionListEntry'];
+export type ListaDeSessoes = Schemas['SessionListResponse'];
 
 export type OpcoesDoCliente = {
   baseUrl: string;
@@ -88,6 +90,13 @@ export type Cliente = {
     turnId: string,
     opcoes?: AcompanhamentoDoTurn,
   ): AsyncGenerator<EventoDoTurn>;
+  /**
+   * O histórico do aluno (CARD-030), mais recente primeiro.
+   *
+   * `dias` é a janela do contrato — sem ela, o servidor usa o default de 30
+   * (a promessa da tela: "sessões anteriores a 30 dias vivem no app web").
+   */
+  listarSessoes(dias?: number, sinal?: AbortSignal): Promise<ListaDeSessoes>;
 };
 
 /**
@@ -278,6 +287,15 @@ export function criarCliente(opcoes: OpcoesDoCliente): Cliente {
         signal: sinal ?? null,
       });
       return json<Turn>(resposta);
+    },
+
+    async listarSessoes(dias?: number, sinal?: AbortSignal): Promise<ListaDeSessoes> {
+      const query = dias !== undefined ? `?days=${dias}` : '';
+      const resposta = await executar(`${base}/v1/sessions${query}`, {
+        headers: cabecalhos(),
+        signal: sinal ?? null,
+      });
+      return json<ListaDeSessoes>(resposta);
     },
 
     async *acompanharTurn(
