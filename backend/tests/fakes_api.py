@@ -35,6 +35,7 @@ from fakes_pipeline import (
     FakeRefreshTokenRepository,
     FakeServiceBudget,
     FakeSessionRepository,
+    FakeSocialIdentityRepository,
     FakeStudentRepository,
     FakeTranslationRepository,
     FakeTranslator,
@@ -130,6 +131,10 @@ class Fakes:
         self.verification_tokens = FakeEmailVerificationTokenRepository()
         self.password_reset_tokens = FakePasswordResetTokenRepository()
         self.email_sender = FakeEmailSender()
+        # CARD-060/ADR-0070: vazio por padrão — os testes de login social
+        # (`test_auth_routes.py`) programam o `FakeSocialIdentityProvider`
+        # próprio; este repositório só guarda o que a regra de vínculo cria.
+        self.social_identities = FakeSocialIdentityRepository()
 
     async def enqueue(self, turn_id: UUID) -> None:
         self.enfileirados.append(turn_id)

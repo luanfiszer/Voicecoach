@@ -42,6 +42,7 @@ from voicecoach.application.ports.repositories import (
     ConflictingWriteError,
     RowNotFoundError,
 )
+from voicecoach.application.ports.social_identity import VerifiedSocialIdentity
 from voicecoach.application.ports.speech_to_text import AudioInput, Segment, Transcript
 from voicecoach.application.ports.teacher_llm import (
     TeacherEvent,
@@ -59,6 +60,8 @@ from voicecoach.domain.auth import (
     EmailVerificationToken,
     PasswordResetToken,
     RefreshToken,
+    SocialIdentity,
+    SocialProvider,
 )
 from voicecoach.domain.correction import CorrectionType
 from voicecoach.domain.session import Session, SessionDigest, SessionSummary
@@ -808,6 +811,63 @@ class FakePasswordResetTokenRepository:
 
     async def mark_used(self, token_id: UUID, when: datetime) -> None:
         self.by_id[token_id].used_at = when
+
+
+class FakeSocialIdentityRepository:
+    """Guarda ``SocialIdentity`` em memória, com o mesmo índice único do
+    banco (CARD-060, ADR-0070) — `(provider, external_id)`.
+    """
+
+    def __init__(self, *identities: SocialIdentity) -> None:
+        self.by_id: dict[UUID, SocialIdentity] = {i.id: i for i in identities}
+
+    async def add(self, identity: SocialIdentity) -> None:
+        chave = (identity.provider, identity.external_id)
+        if any((i.provider, i.external_id) == chave for i in self.by_id.values()):
+            message = f"identidade {chave} já vinculada."
+            raise ConflictingWriteError(message)
+        self.by_id[identity.id] = identity
+
+    async def get_by_provider(
+        self, provider: SocialProvider, external_id: str
+    ) -> SocialIdentity | None:
+        return next(
+            (
+                i
+                for i in self.by_id.values()
+                if i.provider == provider and i.external_id == external_id
+            ),
+            None,
+        )
+
+
+class FakeSocialIdentityProvider:
+    """Um `SocialIdentityProvider` sem JWT nenhum — devolve o que foi
+    programado, ou levanta ``InvalidSocialTokenError`` (CARD-060, ADR-0070).
+
+    Mesma disciplina dos outros fakes de fronteira externa: o caso de uso
+    não precisa de um JWT de verdade para ser testado — quem prova a
+    verificação criptográfica são os testes do adapter, contra uma chave
+    real (`tests/adapters/test_google_identity_provider.py` e o par da
+    Apple).
+    """
+
+    def __init__(
+        self,
+        identidade: VerifiedSocialIdentity | None = None,
+        *,
+        erro: Exception | None = None,
+    ) -> None:
+        self._identidade = identidade
+        self._erro = erro
+        self.chamadas: list[str] = []
+
+    async def verify(self, token: str) -> VerifiedSocialIdentity:
+        self.chamadas.append(token)
+        if self._erro is not None:
+            raise self._erro
+        assert self._identidade is not None, "fake sem identidade programada"
+        return self._identidade
 
 
 class FakeEmailSender:

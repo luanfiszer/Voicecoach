@@ -11,9 +11,17 @@ from __future__ import annotations
 
 import re
 
+from fastapi import FastAPI
 from httpx import AsyncClient
 
 from fakes_api import Fakes, wav_de
+from fakes_pipeline import FakeSocialIdentityProvider
+from voicecoach.api import dependencies as deps
+from voicecoach.application.ports.social_identity import (
+    InvalidSocialTokenError,
+    VerifiedSocialIdentity,
+)
+from voicecoach.domain.auth import SocialProvider
 
 REGISTRO = {"email": "novo@example.com", "password": "senha-super-segura"}
 CHAVE_TURN = {"Idempotency-Key": "chave-do-teste-de-auth-0001"}
@@ -210,3 +218,75 @@ async def test_reset_password_com_token_invalido_e_400(client: AsyncClient) -> N
     )
 
     assert resposta.status_code == 400
+
+
+# -- Login social: Google e Apple (CARD-060, ADR-0070) -----------------------
+
+
+def _identidade(provider: SocialProvider) -> VerifiedSocialIdentity:
+    return VerifiedSocialIdentity(
+        provider=provider,
+        external_id=f"{provider.value}-sub-1",
+        email="aluno@example.com",
+        email_verified=True,
+        display_name="Aluno" if provider == SocialProvider.GOOGLE else None,
+    )
+
+
+async def test_login_google_novo_aluno_devolve_o_par_de_tokens(
+    app: FastAPI, client: AsyncClient
+) -> None:
+    app.dependency_overrides[deps.google_identity_provider] = lambda: (
+        FakeSocialIdentityProvider(_identidade(SocialProvider.GOOGLE))
+    )
+
+    resposta = await client.post("/v1/auth/google", json={"id_token": "qualquer"})
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert "access_token" in corpo
+    assert "refresh_token" in corpo
+
+
+async def test_login_apple_aceita_display_name_na_primeira_vez(
+    app: FastAPI, client: AsyncClient
+) -> None:
+    app.dependency_overrides[deps.apple_identity_provider] = lambda: (
+        FakeSocialIdentityProvider(_identidade(SocialProvider.APPLE))
+    )
+
+    resposta = await client.post(
+        "/v1/auth/apple",
+        json={"identity_token": "qualquer", "display_name": "Nome Da Apple"},
+    )
+
+    assert resposta.status_code == 200
+    assert "access_token" in resposta.json()
+
+
+async def test_login_google_token_invalido_e_401(
+    app: FastAPI, client: AsyncClient
+) -> None:
+    app.dependency_overrides[deps.google_identity_provider] = lambda: (
+        FakeSocialIdentityProvider(erro=InvalidSocialTokenError("assinatura ruim"))
+    )
+
+    resposta = await client.post("/v1/auth/google", json={"id_token": "adulterado"})
+
+    assert resposta.status_code == 401
+    assert resposta.json()["type"].endswith(":invalid-social-token")
+
+
+async def test_login_google_sem_client_id_configurado_e_503(
+    app: FastAPI, client: AsyncClient
+) -> None:
+    """Simula o boot real (`lifespan.py`) sem `GOOGLE_CLIENT_ID` — o card não
+    pôde ser fechado sem a credencial real, e este é o desfecho documentado:
+    503, nunca 500, nunca silêncio.
+    """
+    app.state.google_identity_provider = None
+
+    resposta = await client.post("/v1/auth/google", json={"id_token": "qualquer"})
+
+    assert resposta.status_code == 503
+    assert resposta.json()["type"].endswith(":dependency-unavailable")

@@ -384,6 +384,90 @@
         }
       }
     },
+    "/v1/auth/google": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login social com Google (CARD-060, ADR-0070)",
+        "description": "Cria a conta na primeira vez, linka numa `Credential` existente com o\nmesmo e-mail, ou reconhece quem j\u00e1 logou por aqui antes \u2014 ver o\ndocstring de `login_with_social.py` para a regra de v\u00ednculo completa.",
+        "operationId": "login_google_v1_auth_google_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPairResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/apple": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login social com Sign in with Apple (CARD-060, ADR-0070)",
+        "description": "``display_name`` s\u00f3 importa na primeira autoriza\u00e7\u00e3o (o\n`identityToken` da Apple nunca carrega nome) \u2014 em qualquer chamada\nseguinte, o campo \u00e9 ignorado porque a conta j\u00e1 existe.",
+        "operationId": "login_apple_v1_auth_apple_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppleLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPairResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/sessions": {
       "post": {
         "tags": [
@@ -947,6 +1031,31 @@
   },
   "components": {
     "schemas": {
+      "AppleLoginRequest": {
+        "properties": {
+          "identity_token": {
+            "type": "string",
+            "title": "Identity Token"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "identity_token"
+        ],
+        "title": "AppleLoginRequest",
+        "description": "CARD-060, ADR-0070.\n\n``display_name`` \u00e9 opcional e s\u00f3 faz sentido na PRIMEIRA autoriza\u00e7\u00e3o \u2014\no `identityToken` da Apple nunca carrega nome (ver o docstring de\n``adapters.auth.apple_identity_provider``), ent\u00e3o \u00e9 o cliente quem\nprecisa mand\u00e1-lo aqui, capturado naquele instante \u00fanico."
+      },
       "BlockedReason": {
         "type": "string",
         "enum": [
@@ -1163,6 +1272,20 @@
         ],
         "title": "FeedbackPayload",
         "description": "Evento ``feedback`` \u2014 agora reconstru\u00eddo na retomada (CARD-013).\n\nEra **o \u00fanico evento que a retomada n\u00e3o reconstru\u00eda**, porque corre\u00e7\u00e3o n\u00e3o\nera persistida (ADR-0035, ADR-0041 item 5). Com ``turn.corrections`` no\nbanco, o gatilho que aquele ADR deixou escrito disparou e ele volta como\nqualquer outro.\n\n**Os quatro campos velhos continuam aqui, e continuam obrigat\u00f3rios**\n(ADR-0008: proibido remover ou renomear dentro de ``/v1`` \u2014 a restri\u00e7\u00e3o dura\n\u00e9 o app na loja que n\u00e3o atualiza quando queremos). O que mudou \u00e9 de onde\nsaem: eles s\u00e3o **derivados** de ``corrections`` por ``legacy_summary``, e n\u00e3o\nmais gerados pelo modelo. Quando morrem: no ``/v2``, ou antes, quando o app\nm\u00ednimo suportado j\u00e1 ler ``corrections[]``."
+      },
+      "GoogleLoginRequest": {
+        "properties": {
+          "id_token": {
+            "type": "string",
+            "title": "Id Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id_token"
+        ],
+        "title": "GoogleLoginRequest",
+        "description": "CARD-060, ADR-0070. O `id_token` que o SDK nativo do Google devolve\nao cliente \u2014 o corpo n\u00e3o carrega nada mais, porque tudo o que o backend\nprecisa (e-mail, nome, id externo) j\u00e1 est\u00e1 dentro do pr\u00f3prio JWT."
       },
       "HTTPValidationError": {
         "properties": {

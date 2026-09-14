@@ -614,6 +614,29 @@ class Settings(BaseSettings):
     # storage (o passo que pode ser lento de verdade).
     account_purge_batch_limit: int = Field(default=20, gt=0)
 
+    # --- Login social: Google e Apple (CARD-060, ADR-0070) -------------------
+    # Os dois são o `client_id` PÚBLICO de cada provedor — não é segredo (vai
+    # no `app.json`/Info.plist do cliente, para o SDK nativo de sign-in), e é
+    # por isso que não tem o mesmo tratamento de `resend_api_key`/`jwt_secret`
+    # (fail-fast no boot). Sem eles, o boot sobe normalmente e os dois
+    # endpoints existem — a rota é quem recusa (503, "provedor não
+    # configurado") se alguém os chamar antes de o desenvolvedor criar as
+    # credenciais reais (conta Google Cloud, Apple Developer — CARD-060 não
+    # pôde ser fechado sem elas).
+    #
+    # `apple_client_id` é o **Services ID** da Apple (`com.voicecoach.web` ou
+    # similar) — NUNCA o bundle id do app iOS. Os dois são conceitos
+    # diferentes no fluxo da Apple; confundi-los produz um `aud` sempre
+    # errado, com o mesmo sintoma de "token adulterado".
+    google_client_id: str | None = None
+    apple_client_id: str | None = None
+
+    # Mesmo teto de abuso do cadastro (CARD-049) — o login social já se
+    # protege da parte cara (verificar JWT contra JWKS não é adivinhação),
+    # mas um cliente em loop ainda merece um freio por IP.
+    social_login_rate_limit_window: timedelta = timedelta(hours=1)
+    social_login_rate_limit_per_ip: int = Field(default=10, gt=0)
+
     # --- E-mail transacional (ADR-0068) ---------------------------------------
     # `console` é o default de custo zero (ADR-0010): escreve o link no log do
     # processo. `resend` exige `RESEND_API_KEY` — sem ela, o boot recusa

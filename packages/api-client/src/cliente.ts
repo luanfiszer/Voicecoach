@@ -150,6 +150,27 @@ export type Cliente = {
   /** Troca a senha e desloga TODAS as sessões do aluno (ADR-0007) — não só esta. */
   redefinirSenha(token: string, novaSenha: string, sinal?: AbortSignal): Promise<void>;
   /**
+   * Login social com Google (CARD-060, ADR-0070). `idToken` é o que o SDK
+   * nativo do Google devolve — este método não sabe nada sobre a UI de
+   * sign-in, só fala com o backend depois que o aparelho já tem o token.
+   *
+   * Cria a conta na primeira vez, ou reconhece/linka numa existente — o
+   * corpo da resposta é o MESMO par de tokens do login por senha.
+   */
+  loginGoogle(idToken: string, sinal?: AbortSignal): Promise<ParDeTokens>;
+  /**
+   * Login social com a Apple (CARD-060, ADR-0070).
+   *
+   * `nomeExibido` só faz sentido na PRIMEIRA autorização — o `identityToken`
+   * da Apple nunca carrega nome (a Apple entrega separado, fora do JWT, e só
+   * naquele instante). Em qualquer chamada seguinte, omita o parâmetro.
+   */
+  loginApple(
+    identityToken: string,
+    nomeExibido?: string,
+    sinal?: AbortSignal,
+  ): Promise<ParDeTokens>;
+  /**
    * Exclui a própria conta (CARD-051, ADR-0069) — LGPD e Guideline 5.1.1(v).
    *
    * **Só marca e revoga, do lado do servidor; não apaga nada aqui.** É por
@@ -500,6 +521,33 @@ export function criarCliente(opcoes: OpcoesDoCliente): Cliente {
         signal: sinal ?? null,
       });
       if (!resposta.ok) await falhar(resposta);
+    },
+
+    async loginGoogle(idToken: string, sinal?: AbortSignal): Promise<ParDeTokens> {
+      const resposta = await executar(`${base}/v1/auth/google`, {
+        method: 'POST',
+        headers: cabecalhos({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ id_token: idToken }),
+        signal: sinal ?? null,
+      });
+      return json<ParDeTokens>(resposta);
+    },
+
+    async loginApple(
+      identityToken: string,
+      nomeExibido?: string,
+      sinal?: AbortSignal,
+    ): Promise<ParDeTokens> {
+      const resposta = await executar(`${base}/v1/auth/apple`, {
+        method: 'POST',
+        headers: cabecalhos({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          identity_token: identityToken,
+          display_name: nomeExibido ?? null,
+        }),
+        signal: sinal ?? null,
+      });
+      return json<ParDeTokens>(resposta);
     },
 
     async excluirConta(sinal?: AbortSignal): Promise<void> {

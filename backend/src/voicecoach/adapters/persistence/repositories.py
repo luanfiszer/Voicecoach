@@ -34,6 +34,7 @@ from voicecoach.adapters.persistence.models import (
     PasswordResetTokenRow,
     RefreshTokenRow,
     SessionRow,
+    SocialIdentityRow,
     StudentRow,
     TranslationRow,
     TurnRow,
@@ -59,6 +60,8 @@ if TYPE_CHECKING:
         EmailVerificationToken,
         PasswordResetToken,
         RefreshToken,
+        SocialIdentity,
+        SocialProvider,
     )
     from voicecoach.domain.session import Session, SessionDigest
     from voicecoach.domain.student import Student
@@ -240,6 +243,27 @@ class SqlAlchemyPasswordResetTokenRepository:
             .values(used_at=when)
         )
         await self._session.execute(stmt)
+
+
+class SqlAlchemySocialIdentityRepository:
+    """Implementa ``SocialIdentityRepository`` (``ports/auth_repositories``,
+    CARD-060, ADR-0070)."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, identity: SocialIdentity) -> None:
+        self._session.add(mappers.social_identity_to_row(identity))
+
+    async def get_by_provider(
+        self, provider: SocialProvider, external_id: str
+    ) -> SocialIdentity | None:
+        stmt = select(SocialIdentityRow).where(
+            SocialIdentityRow.provider == provider,
+            SocialIdentityRow.external_id == external_id,
+        )
+        row = (await self._session.execute(stmt)).scalar_one_or_none()
+        return None if row is None else mappers.social_identity_from_row(row)
 
 
 class SqlAlchemySessionRepository:

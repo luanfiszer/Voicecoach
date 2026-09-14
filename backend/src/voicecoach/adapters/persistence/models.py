@@ -27,11 +27,13 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
     text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from voicecoach.domain.auth import SocialProvider
 from voicecoach.domain.correction import CorrectionType, Severity
 from voicecoach.domain.translation import TranslationTarget
 from voicecoach.domain.turn import TurnStatus
@@ -82,6 +84,15 @@ _TranslationTargetType = Enum(
 _SeverityType = Enum(
     Severity,
     name="correction_severity",
+    values_callable=lambda enum: [member.value for member in enum],
+)
+
+# CARD-060 (ADR-0070): fechado por decisão de produto (Guideline 4.8 da
+# Apple — ver `domain.auth.SocialProvider`), mesma régua dos quatro enums
+# acima.
+_SocialProviderType = Enum(
+    SocialProvider,
+    name="social_provider",
     values_callable=lambda enum: [member.value for member in enum],
 )
 
@@ -174,6 +185,33 @@ class PasswordResetTokenRow(Base):
     created_at: Mapped[datetime] = mapped_column(_Timestamp)
     expires_at: Mapped[datetime] = mapped_column(_Timestamp)
     used_at: Mapped[datetime | None] = mapped_column(_Timestamp, default=None)
+
+
+class SocialIdentityRow(Base):
+    """O vínculo de identidade federada (CARD-060, ADR-0070).
+
+    ``(provider, external_id)`` único é o que impede duas linhas para a
+    mesma pessoa no mesmo provedor — a corrida de dois logins simultâneos do
+    MESMO aluno, no MESMO provedor, na primeira vez, cai aqui como
+    `IntegrityError` (traduzido pelo `SqlAlchemyUnitOfWork` em
+    `ConflictingWriteError`, mesmo desenho da `idempotency_key`).
+    """
+
+    __tablename__ = "social_identities"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider", "external_id", name="uq_social_identities_provider_external_id"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), index=True
+    )
+    provider: Mapped[SocialProvider] = mapped_column(_SocialProviderType)
+    external_id: Mapped[str] = mapped_column(String(255))
+    email: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(_Timestamp)
 
 
 class SessionRow(Base):

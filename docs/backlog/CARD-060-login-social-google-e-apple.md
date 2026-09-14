@@ -4,10 +4,10 @@
 - **Épico:** Contas e auth de verdade (bloqueante de V1.0 se o app for publicado
   oferecendo login de terceiro)
 - **Esforço:** M
-- **Status:** backlog
+- **Status:** bloqueado (2026-09-13) — ver "Execução"
 - **Dependências:** CARD-049 (a base de e-mail+senha, JWT e refresh precisa
-  existir primeiro), **ADR novo** (revisa o ADR-0007, que hoje diz "sem login
-  social no MVP")
+  existir primeiro), [ADR-0070](../adr/0070-login-social-google-e-apple-juntos-vinculo-por-email.md)
+  (revisa o ADR-0007, que dizia "sem login social no MVP")
 
 ## Contexto
 
@@ -108,3 +108,92 @@ JWT assinado externamente contra um JWKS público (chave rotativa, cache de
 chave pública) é um padrão que aparece em qualquer integração OAuth/OIDC, e
 o equivalente .NET seria `Microsoft.IdentityModel.Protocols.OpenIdConnect`
 fazendo o mesmo papel de buscar e cachear o JWKS.
+
+## Execução (2026-09-13, loop autônomo) — backend completo, bloqueado no resto
+
+### O que foi implementado e testado
+
+- **[ADR-0070](../adr/0070-login-social-google-e-apple-juntos-vinculo-por-email.md)**
+  — a decisão de vínculo, os dois adapters (`PyJWT`+`PyJWKClient`, não SDK
+  completo), a `Credential` sem senha para conta puramente social, e o
+  `display_name_hint` da Apple. Lida antes de escrever qualquer código.
+- **Domínio**: `SocialProvider` (enum fechado, Google/Apple) e
+  `SocialIdentity` (`domain/auth.py`) — entidade própria, nunca coluna em
+  `Credential`, porque uma pessoa pode ter os dois provedores ao mesmo
+  tempo.
+- **Porta `SocialIdentityProvider`** (`application/ports/social_identity.py`)
+  e **`SocialIdentityRepository`** (`application/ports/auth_repositories.py`).
+- **`LoginWithSocialHandler`** (`application/use_cases/login_with_social.py`):
+  a regra de vínculo completa — reconhece pelo `(provider, external_id)`,
+  linka por e-mail numa `Credential` existente, ou cria os três (Student +
+  Credential + SocialIdentity) na primeira vez. Testado com um
+  `SocialIdentityProvider` fake — a verificação criptográfica é testada nos
+  adapters.
+- **`GoogleIdentityProvider`/`AppleIdentityProvider`**
+  (`adapters/auth/`) — verificação RS256 via `PyJWKClient`, com executor
+  (mesma razão do `boto3`/ADR-0034: a busca da chave é síncrona). Testados
+  com um par de chaves RSA gerado na hora e um `_ClienteDeChaves` fake — sem
+  bater no Google/Apple de verdade. Cobrem: token válido, assinado com outra
+  chave, audiência errada, emissor errado, expirado, sem e-mail, JWKS fora
+  do ar, e — específico da Apple — `email_verified` chegando como STRING
+  (`"true"`/`"false"`, documentado pela Apple, não bug do PyJWT).
+- **`social_identities`** (migration `a4d8f2c19e6b`, testada com
+  `alembic upgrade head`/`downgrade -1` contra Postgres real): tabela nova,
+  `(provider, external_id)` único, `ON DELETE CASCADE` para `students.id`
+  (ao contrário do `usage_events` do ADR-0069, aqui não há nada a
+  anonimizar).
+- **`POST /v1/auth/google`, `POST /v1/auth/apple`** — dois endpoints (não um
+  unificado, decisão registrada no ADR), rate limit por IP, `503` (não
+  `500`, nunca silêncio) quando `GOOGLE_CLIENT_ID`/`APPLE_CLIENT_ID` não
+  estão configurados.
+- **`Cliente.loginGoogle`/`loginApple`** em `packages/api-client` — os dois
+  métodos HTTP, testados com `fetch` fake. **Sem tela nem SDK nativo** — ver
+  "O que ficou bloqueado".
+
+### O que ficou bloqueado, e por quê (o próprio card previa isto)
+
+- **Sem `GOOGLE_CLIENT_ID` nem `APPLE_CLIENT_ID` (Services ID) reais.** Os
+  dois exigem uma conta Google Cloud e um Apple Developer Program
+  (pago, matrícula em nome do desenvolvedor) — fora do alcance desta sessão,
+  exatamente como o próprio card previa ("se a sessão não tiver acesso... o
+  card documenta o bloqueio e para"). Nada foi verificado contra os
+  provedores de verdade; só contra chaves RSA de teste.
+- **Nenhuma UI de sign-in no app mobile.** Botões nativos de Google/Apple
+  exigem os SDKs nativos (`@react-native-google-signin/google-signin`,
+  `expo-apple-authentication`) instalados e configurados com as MESMAS
+  credenciais reais que faltam — construir a tela sem elas produziria
+  código que não roda e não pode ser testado nem no Simulador. `apps/mobile`
+  não foi tocado neste card.
+- **`enforce_social_login_rate_limit`/os dois endpoints nunca foram
+  exercitados contra o Google ou a Apple reais** — só via fakes/testcontainers.
+
+### Decisões técnicas registradas (não perguntas ao vivo)
+
+Todas decorrem direto do texto do próprio card ou de ADRs já existentes
+(ADR-0007, ADR-0051) — nenhuma cruzou o limiar de "decisão de produto que só
+o desenvolvedor pode tomar":
+
+- Dois endpoints, não um unificado (corpos diferentes entre os provedores).
+- `PyJWT`+`PyJWKClient` em vez de SDK completo (o card já pedia "comparação
+  real, não suposição" — a comparação é a ausência de SDK oficial da Apple).
+- `Credential` sem senha para conta puramente social, reaproveitando toda a
+  máquina de verificação de e-mail do CARD-049 sem mudar uma linha dela.
+- `GOOGLE_CLIENT_ID`/`APPLE_CLIENT_ID` como configuração opcional (são
+  públicos, não segredo) em vez de fail-fast no boot — o oposto do
+  `jwt_secret`, e a razão está no ADR.
+
+### Gates
+
+Backend: `ruff format/check`, `mypy --strict`, `lint-imports` verdes;
+`pytest --cov` verde (653 testes; a suíte completa do projeto, não só deste
+card). Cliente: `pnpm run gates` verde, 86 testes.
+
+### Como retomar
+
+Quando o desenvolvedor tiver as duas credenciais: (1) configurar
+`GOOGLE_CLIENT_ID`/`APPLE_CLIENT_ID` no `.env`; (2) testar os dois endpoints
+com um token real de cada provedor (o backend já está pronto para isso, sem
+mudança de código); (3) instalar os SDKs nativos no `apps/mobile` e
+construir as duas telas/botões, chamando `Cliente.loginGoogle`/`loginApple`
+já prontos. Cada uma das três etapas é independente — não precisam ser
+feitas na mesma sessão.

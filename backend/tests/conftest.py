@@ -99,6 +99,7 @@ def app(settings: Settings, fakes: Fakes) -> Iterator[FastAPI]:
             deps.requesting_student_id: lambda: ALUNO,
             deps.student_repository: lambda: fakes.students,
             deps.credential_repository: lambda: fakes.credentials,
+            deps.social_identity_repository: lambda: fakes.social_identities,
             deps.refresh_token_repository: lambda: fakes.refresh_tokens,
             deps.email_verification_token_repository: lambda: fakes.verification_tokens,
             deps.password_reset_token_repository: lambda: fakes.password_reset_tokens,

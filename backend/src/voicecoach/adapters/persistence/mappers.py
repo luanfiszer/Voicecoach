@@ -19,6 +19,7 @@ from voicecoach.adapters.persistence.models import (
     PasswordResetTokenRow,
     RefreshTokenRow,
     SessionRow,
+    SocialIdentityRow,
     StudentRow,
     TranslationRow,
     TurnAudioChunkRow,
@@ -30,6 +31,7 @@ from voicecoach.domain.auth import (
     EmailVerificationToken,
     PasswordResetToken,
     RefreshToken,
+    SocialIdentity,
 )
 from voicecoach.domain.correction import Correction
 from voicecoach.domain.session import Session
@@ -165,6 +167,28 @@ def password_reset_token_from_row(row: PasswordResetTokenRow) -> PasswordResetTo
         created_at=row.created_at,
         expires_at=row.expires_at,
         used_at=row.used_at,
+    )
+
+
+def social_identity_to_row(identity: SocialIdentity) -> SocialIdentityRow:
+    return SocialIdentityRow(
+        id=identity.id,
+        student_id=identity.student_id,
+        provider=identity.provider,
+        external_id=identity.external_id,
+        email=identity.email,
+        created_at=identity.created_at,
+    )
+
+
+def social_identity_from_row(row: SocialIdentityRow) -> SocialIdentity:
+    return SocialIdentity(
+        id=row.id,
+        student_id=row.student_id,
+        provider=row.provider,
+        external_id=row.external_id,
+        email=row.email,
+        created_at=row.created_at,
     )
 
 

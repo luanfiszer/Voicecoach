@@ -3,9 +3,11 @@
 **Por que ``Credential`` é entidade própria, e não campos em ``Student``.**
 ``Student`` continua magro de propósito (ver o docstring de ``student.py``):
 nem todo consumidor dele (turns, sessões, cota) precisa saber que existe
-e-mail/senha, e o CARD-060 (login social) vai ser **outra forma de provar a
-mesma identidade** — o dia em que o Google/Apple entrarem, eles apontam para
-o mesmo ``student_id`` sem tocar nesta classe.
+e-mail/senha, e o CARD-060 (login social) é **outra forma de provar a mesma
+identidade** — o Google/Apple apontam para o mesmo ``student_id`` sem tocar
+nesta classe. É por isso que ``SocialIdentity``, abaixo, é entidade própria
+também: nem toda conta social tem senha, e nem toda ``Credential`` tem um
+provedor social — as duas convivem, cada uma opcional em relação à outra.
 
 **Por que ``RefreshToken`` guarda só o hash, nunca o token em claro.** O valor
 que atravessa a rede e chega ao cliente nasce em
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from uuid import UUID
 
 
@@ -109,3 +112,45 @@ class PasswordResetToken:
 
     def is_usable(self, now: datetime) -> bool:
         return self.used_at is None and now < self.expires_at
+
+
+class SocialProvider(StrEnum):
+    """Os dois provedores, e só os dois (CARD-060, ADR-0070).
+
+    **Fechado por decisão, não por falta de tempo.** Publicar um app iOS
+    oferecendo qualquer login de terceiro obriga a oferecer Sign in with
+    Apple (Guideline 4.8) — não existe "só Google" para este produto. Um
+    terceiro provedor (Facebook, etc.) entraria aqui no dia em que houver
+    gatilho de produto para ele, não antes.
+    """
+
+    GOOGLE = "google"
+    APPLE = "apple"
+
+
+@dataclass
+class SocialIdentity:
+    """O vínculo entre um ``Student`` e uma identidade de um provedor externo
+    (CARD-060, ADR-0070).
+
+    **Por que é entidade própria, e não uma coluna em ``Credential``.**
+    ``Credential`` é "prova por senha"; isto é "prova por terceiro
+    verificado" — uma pessoa pode ter as duas, uma das duas, ou (com Google
+    E Apple) duas linhas aqui apontando para o MESMO ``student_id``. Uma
+    coluna só em ``Credential`` não teria onde guardar a segunda.
+
+    ``(provider, external_id)`` é a chave que identifica a pessoa PARA
+    aquele provedor — nunca o e-mail: o card nomeia o risco de dois
+    provedores devolverem e-mails diferentes para a mesma pessoa, e usar
+    e-mail como chave de identidade esconderia exatamente esse caso.
+    ``email`` mora aqui mesmo assim porque é o que a regra de vínculo
+    (`login_with_social.py`) usa para achar uma ``Credential`` existente do
+    mesmo aluno — dado do provedor, não a chave de identidade dele.
+    """
+
+    id: UUID
+    student_id: UUID
+    provider: SocialProvider
+    external_id: str
+    email: str
+    created_at: datetime
