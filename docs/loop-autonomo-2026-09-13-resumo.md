@@ -467,3 +467,66 @@ fechados. O que resta na faixa de auth/conta é:
   esse número) ou o próximo item da fila de bloqueantes de V1.0 — vale
   reler `docs/backlog/README.md` inteiro antes de escolher, porque esta
   sessão já mudou o estado de várias linhas dele.
+
+## 15. Sexta leva — CARD-060, avisado que bateria numa parede de credenciais
+
+O desenvolvedor foi perguntado explicitamente ("CARD-051 está fechado. Como
+devo seguir?") e escolheu seguir para o CARD-060 mesmo depois do aviso de
+que a sessão provavelmente bateria numa parede de credenciais externas
+(mesma classe de bloqueio do Resend no CARD-049). Mergeou o backend inteiro
+do card — o único desta leva.
+
+### O que foi mergeado
+
+| Card | PR | O que entregou |
+|---|---|---|
+| CARD-060 (parcial — ver "bloqueado") | [#61](https://github.com/luanfiszer/Voicecoach/pull/61) | Verificação de `id_token`/`identityToken` via `PyJWT`+`PyJWKClient` (RS256) contra o JWKS público de cada provedor, sem SDK completo. `SocialIdentity` (entidade própria, `(provider, external_id)` único) vinculada por e-mail verificado a uma `Credential` existente, em vez de duplicar conta. Conta puramente social recebe uma `Credential` sem senha usável, herdando toda a máquina de verificação de e-mail do CARD-049 sem mudar uma linha dela. [ADR-0070](adr/0070-login-social-google-e-apple-juntos-vinculo-por-email.md) (revisa o ADR-0007). `POST /v1/auth/google`, `POST /v1/auth/apple`, `Cliente.loginGoogle`/`loginApple` |
+
+30 testes novos (653 no total do backend), incluindo verificação
+criptográfica real com um par de chaves RSA gerado na hora — token válido,
+chave errada, audiência errada, emissor errado, expirado, sem e-mail, JWKS
+fora do ar, e o quirk documentado da Apple (`email_verified` chega como
+STRING `"true"`/`"false"`, não booleano). Gates locais e CI verdes antes do
+merge.
+
+### O bloqueio, exatamente como avisado
+
+`GOOGLE_CLIENT_ID` e `APPLE_CLIENT_ID` (o Services ID da Apple) não existem
+— os dois exigem uma conta Google Cloud e um Apple Developer Program
+(matrícula paga em nome do desenvolvedor), fora do alcance de uma sessão de
+agente. Sem eles: nenhuma verificação rodou contra o Google/Apple de
+verdade (só contra chaves de teste), e nenhuma tela ou SDK nativo foi
+construído no `apps/mobile` — um botão de sign-in sem as credenciais reais
+para configurá-lo produziria código não testável e não funcional. O card
+ficou **bloqueado**, não **concluído**, com os três passos de retomada
+escritos no próprio card.
+
+### Decisão técnica que vale destacar: por que a rota não falha no boot
+
+`GOOGLE_CLIENT_ID`/`APPLE_CLIENT_ID` são valores **públicos** do provedor
+(vão no `app.json` do cliente, para o SDK nativo) — ao contrário de
+`jwt_secret`/`resend_api_key`, não são segredo, então não recebem
+fail-fast no boot. O processo sobe normalmente sem eles; a rota responde
+`503` ("provedor não configurado") se alguém a chamar antes de as
+credenciais existirem. É a mesma disciplina de "nunca 500, nunca silêncio"
+do resto do produto, aplicada a uma ausência que é esperada nesta fase, não
+uma falha de infraestrutura.
+
+### Achado da Apple que valia verificar no protocolo, não supor
+
+O `identityToken` da Apple **nunca** carrega o nome do usuário em claim
+nenhuma — a Apple entrega o nome separado do JWT, no objeto de credencial
+do lado do cliente, e só na primeira autorização. Isso já era um risco
+nomeado pelo próprio card; o que a implementação teve de decidir foi ONDE
+capturar isso (`display_name_hint` no comando do caso de uso, usado só
+quando a conta ainda não existe) — decisão técnica direta, não pergunta ao
+desenvolvedor.
+
+### Como retomar
+
+Com CARD-049/050/051 concluídos e CARD-060 bloqueado (mas com todo o
+trabalho de código feito), não sobra nenhum card "seguro" e pronto na fila
+de auth/conta que não dependa de credencial externa, aparelho físico, ou
+julgamento de produto que só o desenvolvedor tem. Vale reler
+`docs/backlog/README.md` inteiro para escolher o próximo card — o estado
+mudou bastante ao longo desta noite.
