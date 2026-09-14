@@ -79,7 +79,12 @@ dependencies = [
     #                 `pyasn1`/`ecdsa` para curvas que este projeto não usa —
     #                 HS256 é HMAC puro, sem curva nenhuma).
     "argon2-cffi>=23.1",
-    "pyjwt>=2.9",
+    # `[crypto]` entrou no CARD-060 (ADR-0070): login social precisa verificar
+    # RS256 (o Google e a Apple assinam o próprio JWT com chave assimétrica —
+    # nunca HS256, porque não é o mesmo processo que emite E valida, ao
+    # contrário do nosso próprio access token). O extra traz `cryptography`
+    # só para isso; o HS256 do ADR-0007 nunca precisou dela.
+    "pyjwt[crypto]>=2.9",
 ]
 
 # `mlx-whisper` é dependência OPCIONAL, não base (ADR-0027, item 4): ela só
@@ -350,6 +355,12 @@ forbidden_modules = [
     # PyPI é `pyjwt`, o import é `jwt` — a mesma armadilha da Q8).
     "argon2",
     "jwt",
+    # Login social entra no CARD-060 (ADR-0070). `pyjwt[crypto]` (RS256, para
+    # verificar o JWT do Google/Apple contra o JWKS público deles) traz
+    # `cryptography` como dependência real — a mesma lição da Q8 aplicada ao
+    # `PyJWT` de novo: só `jwt` na lista não pegaria `import cryptography`
+    # direto no núcleo.
+    "cryptography",
 ]
 
 [[tool.importlinter.contracts]]
@@ -429,6 +440,12 @@ forbidden_modules = [
     # PyPI é `pyjwt`, o import é `jwt` — a mesma armadilha da Q8).
     "argon2",
     "jwt",
+    # Login social entra no CARD-060 (ADR-0070). `pyjwt[crypto]` (RS256, para
+    # verificar o JWT do Google/Apple contra o JWKS público deles) traz
+    # `cryptography` como dependência real — a mesma lição da Q8 aplicada ao
+    # `PyJWT` de novo: só `jwt` na lista não pegaria `import cryptography`
+    # direto no núcleo.
+    "cryptography",
 ]
 
 # `voicecoach.config` mora fora das cinco camadas (ADR-0013), então o contrato

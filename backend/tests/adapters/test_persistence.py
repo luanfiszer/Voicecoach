@@ -38,6 +38,7 @@ from voicecoach.adapters.persistence.repositories import (
     SqlAlchemyPasswordResetTokenRepository,
     SqlAlchemyRefreshTokenRepository,
     SqlAlchemySessionRepository,
+    SqlAlchemySocialIdentityRepository,
     SqlAlchemyStudentRepository,
     SqlAlchemyTranslationRepository,
     SqlAlchemyTurnRepository,
@@ -53,6 +54,7 @@ from voicecoach.application.ports.auth_repositories import (
     EmailVerificationTokenRepository,
     PasswordResetTokenRepository,
     RefreshTokenRepository,
+    SocialIdentityRepository,
 )
 from voicecoach.application.ports.repositories import (
     ConflictingWriteError,
@@ -69,6 +71,8 @@ from voicecoach.domain.auth import (
     EmailVerificationToken,
     PasswordResetToken,
     RefreshToken,
+    SocialIdentity,
+    SocialProvider,
 )
 from voicecoach.domain.correction import Correction, CorrectionType, Severity
 from voicecoach.domain.session import Session
@@ -2003,6 +2007,119 @@ async def test_mark_email_verified_persiste(
     relida = await repository.get_by_student_id(student.id)
     assert relida is not None
     assert relida.is_email_verified is True
+
+
+async def test_social_identity_faz_roundtrip_por_provider_e_external_id(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    student, _sessao = aluno_isolado
+    repository: SocialIdentityRepository = SqlAlchemySocialIdentityRepository(
+        db_session
+    )
+    identidade = SocialIdentity(
+        id=uuid4(),
+        student_id=student.id,
+        provider=SocialProvider.GOOGLE,
+        external_id=f"google-sub-{student.id}",
+        email=f"{student.id}@example.com",
+        created_at=NOW,
+    )
+
+    await repository.add(identidade)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    recarregada = await repository.get_by_provider(
+        SocialProvider.GOOGLE, identidade.external_id
+    )
+    assert recarregada == identidade
+    assert (
+        await repository.get_by_provider(SocialProvider.APPLE, identidade.external_id)
+        is None
+    )
+
+
+async def test_social_identity_mesmo_provider_e_external_id_e_recusado(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """`(provider, external_id)` único — a mesma corrida que `email` em
+    `credentials` resolve, aplicada à chave de identidade social.
+    """
+    student, _sessao = aluno_isolado
+    outro = Student(id=uuid4(), display_name="Outro aluno", created_at=NOW)
+    students: StudentRepository = SqlAlchemyStudentRepository(db_session)
+    await students.add(outro)
+    await db_session.commit()
+
+    repository: SocialIdentityRepository = SqlAlchemySocialIdentityRepository(
+        db_session
+    )
+    external_id_compartilhado = "google-sub-disputado"
+    await repository.add(
+        SocialIdentity(
+            id=uuid4(),
+            student_id=student.id,
+            provider=SocialProvider.GOOGLE,
+            external_id=external_id_compartilhado,
+            email=f"{student.id}@example.com",
+            created_at=NOW,
+        )
+    )
+    await db_session.commit()
+
+    await repository.add(
+        SocialIdentity(
+            id=uuid4(),
+            student_id=outro.id,
+            provider=SocialProvider.GOOGLE,
+            external_id=external_id_compartilhado,
+            email=f"{outro.id}@example.com",
+            created_at=NOW,
+        )
+    )
+    uow: UnitOfWork = SqlAlchemyUnitOfWork(db_session)
+    with pytest.raises(ConflictingWriteError):
+        await uow.commit()
+
+
+async def test_social_identity_mesmo_email_provedores_diferentes_e_permitido(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """O caso feliz do card: a MESMA pessoa com Google e Apple, duas linhas,
+    um aluno só — `email` não é único aqui de propósito.
+    """
+    student, _sessao = aluno_isolado
+    repository: SocialIdentityRepository = SqlAlchemySocialIdentityRepository(
+        db_session
+    )
+    email = f"{student.id}@example.com"
+    await repository.add(
+        SocialIdentity(
+            id=uuid4(),
+            student_id=student.id,
+            provider=SocialProvider.GOOGLE,
+            external_id="google-sub",
+            email=email,
+            created_at=NOW,
+        )
+    )
+    await repository.add(
+        SocialIdentity(
+            id=uuid4(),
+            student_id=student.id,
+            provider=SocialProvider.APPLE,
+            external_id="apple-sub",
+            email=email,
+            created_at=NOW,
+        )
+    )
+    await db_session.commit()  # não levanta — provedores diferentes
+
+    do_google = await repository.get_by_provider(SocialProvider.GOOGLE, "google-sub")
+    da_apple = await repository.get_by_provider(SocialProvider.APPLE, "apple-sub")
+    assert do_google is not None
+    assert da_apple is not None
+    assert do_google.student_id == da_apple.student_id == student.id
 
 
 async def test_refresh_token_faz_roundtrip_por_hash(

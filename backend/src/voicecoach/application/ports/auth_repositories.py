@@ -25,6 +25,8 @@ if TYPE_CHECKING:
         EmailVerificationToken,
         PasswordResetToken,
         RefreshToken,
+        SocialIdentity,
+        SocialProvider,
     )
 
 
@@ -97,3 +99,17 @@ class PasswordResetTokenRepository(Protocol):
     async def get_by_hash(self, token_hash: str) -> PasswordResetToken | None: ...
 
     async def mark_used(self, token_id: UUID, when: datetime) -> None: ...
+
+
+class SocialIdentityRepository(Protocol):
+    """Acesso aos vínculos de identidade federada (CARD-060, ADR-0070)."""
+
+    async def add(self, identity: SocialIdentity) -> None: ...
+
+    async def get_by_provider(
+        self, provider: SocialProvider, external_id: str
+    ) -> SocialIdentity | None:
+        """A busca que decide "já vi esta pessoa" — pela chave do provedor,
+        nunca pelo e-mail (ver o docstring de `SocialIdentity`).
+        """
+        ...

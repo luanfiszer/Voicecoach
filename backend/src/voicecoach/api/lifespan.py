@@ -39,6 +39,8 @@ from typing import TYPE_CHECKING
 import redis.asyncio as redis
 from arq.connections import RedisSettings, create_pool
 
+from voicecoach.adapters.auth.apple_identity_provider import AppleIdentityProvider
+from voicecoach.adapters.auth.google_identity_provider import GoogleIdentityProvider
 from voicecoach.adapters.email.factory import create_email_sender
 from voicecoach.adapters.llm.factory import create_translator
 from voicecoach.adapters.persistence.engine import (
@@ -100,6 +102,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # tradutor — o cliente HTTP do adapter Resend tem pool próprio, e
     # construí-lo por request abriria um pool novo a cada cadastro.
     app.state.email_sender = create_email_sender(settings)
+
+    # Login social (CARD-060, ADR-0070): `None` quando o `client_id` não está
+    # configurado — não é fail-fast como `jwt_secret`/`resend_api_key`,
+    # porque o resto do produto funciona sem os dois provedores. A rota é
+    # quem recusa (503) se alguém chamar o endpoint sem a credencial real.
+    # Construído aqui, uma vez, pela mesma razão do tradutor: o `PyJWKClient`
+    # cacheia a chave pública do provedor, e recriá-lo por request jogaria
+    # fora esse cache.
+    app.state.google_identity_provider = (
+        GoogleIdentityProvider(client_id=settings.google_client_id)
+        if settings.google_client_id
+        else None
+    )
+    app.state.apple_identity_provider = (
+        AppleIdentityProvider(client_id=settings.apple_client_id)
+        if settings.apple_client_id
+        else None
+    )
 
     try:
         yield

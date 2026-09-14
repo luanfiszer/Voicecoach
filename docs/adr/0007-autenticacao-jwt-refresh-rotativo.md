@@ -2,7 +2,9 @@
 
 - **Status:** aceito · **ajustado pelo ADR-0010**: no MVP o cadastro é gated
   por código de convite e a verificação de e-mail obrigatória move-se para o
-  gatilho "beta aberto"; o restante desta decisão permanece
+  gatilho "beta aberto"; o restante desta decisão permanece · **o item "sem
+  login social no MVP" é revisado pelo [ADR-0070](0070-login-social-google-e-apple-juntos-vinculo-por-email.md)**:
+  o gatilho que este ADR escreveu (publicação com login de terceiro) chegou
 - **Data:** 2026-08-17
 
 ## Contexto

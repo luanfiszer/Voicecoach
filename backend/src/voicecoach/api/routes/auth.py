@@ -19,7 +19,10 @@ from voicecoach.api.dependencies import (
     enforce_login_rate_limit,
     enforce_password_reset_rate_limit,
     enforce_register_rate_limit,
+    enforce_social_login_rate_limit,
     login_student_handler,
+    login_with_apple_handler,
+    login_with_google_handler,
     logout_student_handler,
     refresh_tokens_handler,
     register_student_handler,
@@ -29,6 +32,8 @@ from voicecoach.api.dependencies import (
 )
 from voicecoach.api.errors import ProblemError
 from voicecoach.api.schemas.auth import (
+    AppleLoginRequest,
+    GoogleLoginRequest,
     LoginRequest,
     LogoutRequest,
     RefreshRequest,
@@ -43,6 +48,7 @@ from voicecoach.api.schemas.problem import (
     TYPE_INVALID_EMAIL_CONFIRMATION_TOKEN,
     TYPE_INVALID_PASSWORD_RESET_TOKEN,
     TYPE_INVALID_REFRESH_TOKEN,
+    TYPE_INVALID_SOCIAL_TOKEN,
 )
 from voicecoach.application.result import Err, Ok
 from voicecoach.application.use_cases.email_verification import (
@@ -54,6 +60,10 @@ from voicecoach.application.use_cases.email_verification import (
 from voicecoach.application.use_cases.login_student import (
     LoginStudent,
     LoginStudentHandler,
+)
+from voicecoach.application.use_cases.login_with_social import (
+    LoginWithSocial,
+    LoginWithSocialHandler,
 )
 from voicecoach.application.use_cases.logout_student import (
     LogoutStudent,
@@ -73,6 +83,7 @@ from voicecoach.application.use_cases.register_student import (
     RegisterStudent,
     RegisterStudentHandler,
 )
+from voicecoach.domain.auth import SocialProvider
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -230,4 +241,74 @@ async def redefinir_senha(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Este link não é válido ou já expirou. Peça um novo "
                 "em POST /v1/auth/request-password-reset.",
+            )
+
+
+@router.post(
+    "/google",
+    summary="Login social com Google (CARD-060, ADR-0070)",
+    dependencies=[Depends(enforce_social_login_rate_limit)],
+)
+async def login_google(
+    pedido: GoogleLoginRequest,
+    handler: Annotated[LoginWithSocialHandler, Depends(login_with_google_handler)],
+) -> TokenPairResponse:
+    """Cria a conta na primeira vez, linka numa `Credential` existente com o
+    mesmo e-mail, ou reconhece quem já logou por aqui antes — ver o
+    docstring de `login_with_social.py` para a regra de vínculo completa.
+    """
+    resultado = await handler.handle(
+        LoginWithSocial(provider=SocialProvider.GOOGLE, token=pedido.id_token)
+    )
+    match resultado:
+        case Ok(value=par):
+            return TokenPairResponse(
+                access_token=par.access_token,
+                refresh_token=par.refresh_token,
+                expires_in=par.expires_in_seconds,
+            )
+        case Err():
+            raise ProblemError(
+                type_=TYPE_INVALID_SOCIAL_TOKEN,
+                title="Token do Google inválido",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Não foi possível verificar este id_token com o Google. "
+                "Tente entrar de novo.",
+            )
+
+
+@router.post(
+    "/apple",
+    summary="Login social com Sign in with Apple (CARD-060, ADR-0070)",
+    dependencies=[Depends(enforce_social_login_rate_limit)],
+)
+async def login_apple(
+    pedido: AppleLoginRequest,
+    handler: Annotated[LoginWithSocialHandler, Depends(login_with_apple_handler)],
+) -> TokenPairResponse:
+    """``display_name`` só importa na primeira autorização (o
+    `identityToken` da Apple nunca carrega nome) — em qualquer chamada
+    seguinte, o campo é ignorado porque a conta já existe.
+    """
+    resultado = await handler.handle(
+        LoginWithSocial(
+            provider=SocialProvider.APPLE,
+            token=pedido.identity_token,
+            display_name_hint=pedido.display_name,
+        )
+    )
+    match resultado:
+        case Ok(value=par):
+            return TokenPairResponse(
+                access_token=par.access_token,
+                refresh_token=par.refresh_token,
+                expires_in=par.expires_in_seconds,
+            )
+        case Err():
+            raise ProblemError(
+                type_=TYPE_INVALID_SOCIAL_TOKEN,
+                title="Token da Apple inválido",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Não foi possível verificar este identityToken com a "
+                "Apple. Tente entrar de novo.",
             )

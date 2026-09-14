@@ -41,6 +41,7 @@ from voicecoach.adapters.persistence.repositories import (
     SqlAlchemyPasswordResetTokenRepository,
     SqlAlchemyRefreshTokenRepository,
     SqlAlchemySessionRepository,
+    SqlAlchemySocialIdentityRepository,
     SqlAlchemyStudentRepository,
     SqlAlchemyTranslationRepository,
     SqlAlchemyTurnRepository,
@@ -53,6 +54,7 @@ from voicecoach.adapters.quota.redis_service_budget import RedisServiceBudget
 from voicecoach.api.errors import ProblemError
 from voicecoach.api.schemas.auth import LoginRequest
 from voicecoach.api.schemas.problem import (
+    TYPE_DEPENDENCY_UNAVAILABLE,
     TYPE_EMAIL_NOT_VERIFIED,
     TYPE_RATE_LIMITED,
     TYPE_UNAUTHENTICATED,
@@ -66,6 +68,7 @@ from voicecoach.application.ports.auth_repositories import (
     EmailVerificationTokenRepository,
     PasswordResetTokenRepository,
     RefreshTokenRepository,
+    SocialIdentityRepository,
 )
 from voicecoach.application.ports.email_sender import EmailSender
 from voicecoach.application.ports.media_storage import MediaStorage
@@ -80,6 +83,7 @@ from voicecoach.application.ports.repositories import (
     UsageEventRepository,
 )
 from voicecoach.application.ports.service_budget import ServiceBudget
+from voicecoach.application.ports.social_identity import SocialIdentityProvider
 from voicecoach.application.ports.translator import Translator
 from voicecoach.application.ports.turn_events import TurnEvents
 from voicecoach.application.ports.turn_queue import TurnQueue
@@ -94,6 +98,7 @@ from voicecoach.application.use_cases.email_verification import (
 from voicecoach.application.use_cases.end_session import EndSessionHandler
 from voicecoach.application.use_cases.list_sessions import ListSessionsHandler
 from voicecoach.application.use_cases.login_student import LoginStudentHandler
+from voicecoach.application.use_cases.login_with_social import LoginWithSocialHandler
 from voicecoach.application.use_cases.logout_student import LogoutStudentHandler
 from voicecoach.application.use_cases.password_reset import (
     RequestPasswordResetHandler,
@@ -901,4 +906,143 @@ def delete_account_handler(
         refresh_tokens=refresh_tokens,
         unit_of_work=uow,
         clock=lambda: clock,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Login social: Google e Apple (CARD-060, ADR-0070)
+# ---------------------------------------------------------------------------
+
+
+def google_identity_provider(request: Request) -> SocialIdentityProvider:
+    """``None`` no `app.state` quando `GOOGLE_CLIENT_ID` não está configurado
+    — CARD-060 não pôde ser fechado sem a credencial real (conta Google
+    Cloud). ``503``, não ``500``: é a mesma disciplina do resto da API,
+    "nunca um erro mudo" — aqui o motivo é "feature não configurada", não
+    "dependência caiu", mas o desfecho para o cliente é o mesmo: tente
+    outro caminho de login.
+    """
+    provider: SocialIdentityProvider | None = request.app.state.google_identity_provider
+    if provider is None:
+        raise ProblemError(
+            type_=TYPE_DEPENDENCY_UNAVAILABLE,
+            title="Provedor não configurado",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Login com Google não está disponível neste ambiente.",
+        )
+    return provider
+
+
+def apple_identity_provider(request: Request) -> SocialIdentityProvider:
+    """Mesma razão de ``google_identity_provider`` — sem `APPLE_CLIENT_ID`
+    (o Services ID, não o bundle id) o app não pode verificar o
+    `identityToken` contra a audiência certa.
+    """
+    provider: SocialIdentityProvider | None = request.app.state.apple_identity_provider
+    if provider is None:
+        raise ProblemError(
+            type_=TYPE_DEPENDENCY_UNAVAILABLE,
+            title="Provedor não configurado",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Login com Apple não está disponível neste ambiente.",
+        )
+    return provider
+
+
+def social_identity_repository(session: Sessao) -> SocialIdentityRepository:
+    return SqlAlchemySocialIdentityRepository(session)
+
+
+async def enforce_social_login_rate_limit(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings_from_app)],
+    limiter: Annotated[RateLimiter, Depends(rate_limiter)],
+) -> None:
+    """Por IP — mesmo teto de abuso do cadastro (CARD-049); a verificação
+    criptográfica do token já limita o "confiar em qualquer coisa" que um
+    endpoint de auth social convida (o card nomeia isto por escrito).
+    """
+    ip = request.client.host if request.client else "sem-ip"
+    dentro = await limiter.hit(
+        f"auth-social:ip:{ip}",
+        window=settings.social_login_rate_limit_window,
+        limit=settings.social_login_rate_limit_per_ip,
+    )
+    if not dentro:
+        raise ProblemError(
+            type_=TYPE_RATE_LIMITED,
+            title="Muitas requisições",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Limite de tentativas de login social excedido.",
+            retry_after_seconds=int(
+                settings.social_login_rate_limit_window.total_seconds()
+            ),
+        )
+
+
+def login_with_google_handler(
+    identity_provider: Annotated[
+        SocialIdentityProvider, Depends(google_identity_provider)
+    ],
+    social_identities: Annotated[
+        SocialIdentityRepository, Depends(social_identity_repository)
+    ],
+    credentials: Annotated[CredentialRepository, Depends(credential_repository)],
+    students: Annotated[StudentRepository, Depends(student_repository)],
+    refresh_tokens: Annotated[
+        RefreshTokenRepository, Depends(refresh_token_repository)
+    ],
+    issuer: Annotated[AccessTokenIssuer, Depends(access_token_issuer)],
+    uow: Annotated[UnitOfWork, Depends(unit_of_work)],
+    clock: Annotated[datetime, Depends(agora)],
+    settings: Annotated[Settings, Depends(get_settings_from_app)],
+) -> LoginWithSocialHandler:
+    """Cada porta pelo seu provider overridável — nunca `SqlAlchemyXRepository(session)`
+    direto, que contornaria `app.dependency_overrides` e quebraria todo
+    teste de rota (a mesma composição por request do CARD-010).
+    """
+    return LoginWithSocialHandler(
+        identity_provider=identity_provider,
+        social_identities=social_identities,
+        credentials=credentials,
+        students=students,
+        refresh_tokens=refresh_tokens,
+        token_issuer=issuer,
+        unit_of_work=uow,
+        clock=lambda: clock,
+        new_id=uuid4,
+        access_token_ttl=settings.access_token_ttl,
+        refresh_token_ttl=settings.refresh_token_ttl,
+    )
+
+
+def login_with_apple_handler(
+    identity_provider: Annotated[
+        SocialIdentityProvider, Depends(apple_identity_provider)
+    ],
+    social_identities: Annotated[
+        SocialIdentityRepository, Depends(social_identity_repository)
+    ],
+    credentials: Annotated[CredentialRepository, Depends(credential_repository)],
+    students: Annotated[StudentRepository, Depends(student_repository)],
+    refresh_tokens: Annotated[
+        RefreshTokenRepository, Depends(refresh_token_repository)
+    ],
+    issuer: Annotated[AccessTokenIssuer, Depends(access_token_issuer)],
+    uow: Annotated[UnitOfWork, Depends(unit_of_work)],
+    clock: Annotated[datetime, Depends(agora)],
+    settings: Annotated[Settings, Depends(get_settings_from_app)],
+) -> LoginWithSocialHandler:
+    return LoginWithSocialHandler(
+        identity_provider=identity_provider,
+        social_identities=social_identities,
+        credentials=credentials,
+        students=students,
+        refresh_tokens=refresh_tokens,
+        token_issuer=issuer,
+        unit_of_work=uow,
+        clock=lambda: clock,
+        new_id=uuid4,
+        access_token_ttl=settings.access_token_ttl,
+        refresh_token_ttl=settings.refresh_token_ttl,
     )

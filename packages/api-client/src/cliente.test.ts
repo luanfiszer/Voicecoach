@@ -440,3 +440,86 @@ describe('excluirConta', () => {
     await expect(cliente.excluirConta()).rejects.toMatchObject({ status: 429 });
   });
 });
+
+describe('loginGoogle', () => {
+  it('faz POST em /auth/google com o id_token e devolve o par de tokens', async () => {
+    const par = {
+      access_token: 'access-google',
+      refresh_token: 'refresh-google',
+      token_type: 'bearer',
+      expires_in: 900,
+    };
+    const urls: string[] = [];
+    const corpos: string[] = [];
+    const fake: typeof fetch = async (url, init) => {
+      urls.push(String(url));
+      corpos.push(String(init?.body));
+      return new Response(JSON.stringify(par), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch: fake });
+
+    const resultado = await cliente.loginGoogle('id-token-do-google');
+
+    expect(urls).toEqual(['http://api.local/v1/auth/google']);
+    expect(JSON.parse(corpos[0] ?? '')).toEqual({ id_token: 'id-token-do-google' });
+    expect(resultado).toEqual(par);
+  });
+
+  it('token inválido vira ErroDaApi 401', async () => {
+    const { fetch } = fetchQueDevolve(
+      { title: 'Token do Google inválido' },
+      { status: 401 },
+    );
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch });
+
+    await expect(cliente.loginGoogle('adulterado')).rejects.toMatchObject({
+      status: 401,
+    });
+  });
+});
+
+describe('loginApple', () => {
+  it('manda display_name só quando informado', async () => {
+    const corpos: string[] = [];
+    const fake: typeof fetch = async (_url, init) => {
+      corpos.push(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          access_token: 'access-apple',
+          refresh_token: 'refresh-apple',
+          token_type: 'bearer',
+          expires_in: 900,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    };
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch: fake });
+
+    await cliente.loginApple('identity-token', 'Nome Da Primeira Vez');
+    await cliente.loginApple('identity-token-de-novo');
+
+    expect(JSON.parse(corpos[0] ?? '')).toEqual({
+      identity_token: 'identity-token',
+      display_name: 'Nome Da Primeira Vez',
+    });
+    expect(JSON.parse(corpos[1] ?? '')).toEqual({
+      identity_token: 'identity-token-de-novo',
+      display_name: null,
+    });
+  });
+
+  it('token inválido vira ErroDaApi 401', async () => {
+    const { fetch } = fetchQueDevolve(
+      { title: 'Token da Apple inválido' },
+      { status: 401 },
+    );
+    const cliente = criarCliente({ baseUrl: 'http://api.local', fetch });
+
+    await expect(cliente.loginApple('adulterado')).rejects.toMatchObject({
+      status: 401,
+    });
+  });
+});

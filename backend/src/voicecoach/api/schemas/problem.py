@@ -55,6 +55,9 @@ TYPE_INVALID_REFRESH_TOKEN = f"{BASE}:invalid-refresh-token"
 TYPE_EMAIL_NOT_VERIFIED = f"{BASE}:email-not-verified"
 TYPE_INVALID_EMAIL_CONFIRMATION_TOKEN = f"{BASE}:invalid-email-confirmation-token"
 TYPE_INVALID_PASSWORD_RESET_TOKEN = f"{BASE}:invalid-password-reset-token"
+# CARD-060 (ADR-0070): distinto de `invalid-credentials` — o cliente reage
+# diferente ("tente o Sign in with Google/Apple de novo" vs. "senha errada").
+TYPE_INVALID_SOCIAL_TOKEN = f"{BASE}:invalid-social-token"
 
 
 class ProblemDetails(BaseModel):

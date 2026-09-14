@@ -201,6 +201,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/google": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Login social com Google (CARD-060, ADR-0070)
+         * @description Cria a conta na primeira vez, linka numa `Credential` existente com o
+         *     mesmo e-mail, ou reconhece quem já logou por aqui antes — ver o
+         *     docstring de `login_with_social.py` para a regra de vínculo completa.
+         */
+        post: operations["login_google_v1_auth_google_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/apple": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Login social com Sign in with Apple (CARD-060, ADR-0070)
+         * @description ``display_name`` só importa na primeira autorização (o
+         *     `identityToken` da Apple nunca carrega nome) — em qualquer chamada
+         *     seguinte, o campo é ignorado porque a conta já existe.
+         */
+        post: operations["login_apple_v1_auth_apple_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions": {
         parameters: {
             query?: never;
@@ -430,6 +474,21 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * AppleLoginRequest
+         * @description CARD-060, ADR-0070.
+         *
+         *     ``display_name`` é opcional e só faz sentido na PRIMEIRA autorização —
+         *     o `identityToken` da Apple nunca carrega nome (ver o docstring de
+         *     ``adapters.auth.apple_identity_provider``), então é o cliente quem
+         *     precisa mandá-lo aqui, capturado naquele instante único.
+         */
+        AppleLoginRequest: {
+            /** Identity Token */
+            identity_token: string;
+            /** Display Name */
+            display_name?: string | null;
+        };
+        /**
          * BlockedReason
          * @description Por que o aluno não pode falar AGORA — nunca por quê em dólares (RF4).
          *
@@ -596,6 +655,16 @@ export interface components {
              * @description Correções tipadas (CARD-013). Campo ADITIVO.
              */
             corrections?: components["schemas"]["CorrectionPayload"][];
+        };
+        /**
+         * GoogleLoginRequest
+         * @description CARD-060, ADR-0070. O `id_token` que o SDK nativo do Google devolve
+         *     ao cliente — o corpo não carrega nada mais, porque tudo o que o backend
+         *     precisa (e-mail, nome, id externo) já está dentro do próprio JWT.
+         */
+        GoogleLoginRequest: {
+            /** Id Token */
+            id_token: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1365,6 +1434,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    login_google_v1_auth_google_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoogleLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenPairResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    login_apple_v1_auth_apple_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppleLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenPairResponse"];
                 };
             };
             /** @description Validation Error */

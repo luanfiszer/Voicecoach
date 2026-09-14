@@ -66,3 +66,25 @@ class RequestPasswordResetRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str = Field(min_length=_SENHA_MIN)
+
+
+class GoogleLoginRequest(BaseModel):
+    """CARD-060, ADR-0070. O `id_token` que o SDK nativo do Google devolve
+    ao cliente — o corpo não carrega nada mais, porque tudo o que o backend
+    precisa (e-mail, nome, id externo) já está dentro do próprio JWT.
+    """
+
+    id_token: str
+
+
+class AppleLoginRequest(BaseModel):
+    """CARD-060, ADR-0070.
+
+    ``display_name`` é opcional e só faz sentido na PRIMEIRA autorização —
+    o `identityToken` da Apple nunca carrega nome (ver o docstring de
+    ``adapters.auth.apple_identity_provider``), então é o cliente quem
+    precisa mandá-lo aqui, capturado naquele instante único.
+    """
+
+    identity_token: str
+    display_name: str | None = None
