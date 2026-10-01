@@ -575,3 +575,28 @@ describe('sessão da web (CARD-064)', () => {
     ).rejects.toBeInstanceOf(ErroDaApi);
   });
 });
+
+describe('lerCota', () => {
+  it('faz GET em /students/me/quota e devolve o saldo', async () => {
+    const cota = {
+      spoken_seconds: 120,
+      quota_spoken_seconds: 600,
+      resets_at: '2026-10-02T03:00:00Z',
+      service_available: true,
+      blocked_reason: null,
+    };
+    const urls: string[] = [];
+    const fake: typeof fetch = async (url) => {
+      urls.push(String(url));
+      return new Response(JSON.stringify(cota), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+
+    const resultado = await criarCliente({ baseUrl: '', fetch: fake }).lerCota();
+
+    expect(urls).toEqual(['/v1/students/me/quota']);
+    expect(resultado).toEqual(cota);
+  });
+});

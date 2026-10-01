@@ -1,0 +1,155 @@
+/*
+ * Os poucos componentes de UI da web (CARD-064). Visual provisório: tudo vem
+ * de `theme/tokens.css` — o redesign futuro troca tokens e estes estilos, não
+ * as telas.
+ */
+
+.botao {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--espaco-sm);
+  width: 100%;
+  min-height: var(--alvo-minimo);
+  padding: 0 var(--espaco-lg);
+  border: 1.5px solid transparent;
+  border-radius: var(--raio-campo);
+  font: var(--texto-corpo);
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+.botao:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+.botao:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.primario {
+  background: var(--cor-acento);
+  color: var(--cor-sobre-acento);
+}
+
+.destrutivo {
+  background: var(--cor-perigo);
+  color: var(--cor-sobre-acento);
+}
+
+.secundario {
+  background: var(--cor-superficie);
+  border-color: var(--cor-secundario);
+  color: var(--cor-tinta);
+}
+
+.girando {
+  width: 18px;
+  height: 18px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: girar 700ms linear infinite;
+}
+
+@keyframes girar {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-xs);
+}
+
+.entrada {
+  min-height: var(--alvo-minimo);
+  padding: 0 var(--espaco-md);
+  border: 1.5px solid var(--cor-chip);
+  border-radius: var(--raio-campo);
+  background: var(--cor-superficie);
+  color: var(--cor-tinta);
+  font: var(--texto-corpo);
+}
+
+.entrada:focus {
+  border-color: var(--cor-acento);
+  outline: none;
+}
+
+.entradaComErro {
+  border-color: var(--cor-acento);
+}
+
+.link {
+  align-self: center;
+  padding: var(--espaco-xs);
+  border: 0;
+  background: none;
+  color: var(--cor-acento);
+  font: var(--texto-apoio);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.cartao {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-sm);
+  padding: var(--espaco-md);
+  border-radius: var(--raio-card);
+  background: var(--cor-superficie);
+}
+
+.paginaDeFormulario {
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  padding: var(--espaco-lg);
+}
+
+.formulario {
+  display: flex;
+  width: 100%;
+  max-width: var(--largura-formulario);
+  flex-direction: column;
+  gap: var(--espaco-md);
+}
+
+.separador {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-sm);
+  color: var(--cor-secundario);
+  font: var(--texto-apoio);
+}
+
+.separador::before,
+.separador::after {
+  flex: 1;
+  height: 1px;
+  background: var(--cor-chip);
+  content: "";
+}
+
+.rodape {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--espaco-xs);
+}
+
+.lugarDoGoogle {
+  display: flex;
+  min-height: 44px;
+  justify-content: center;
+}
