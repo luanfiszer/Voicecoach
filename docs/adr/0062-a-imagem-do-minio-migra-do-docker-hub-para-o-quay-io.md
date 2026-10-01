@@ -1,6 +1,6 @@
 # ADR-0062 — A imagem do MinIO migra do Docker Hub para o quay.io
 
-- **Status:** aceito
+- **Status:** substituído pelo [ADR-0072](0072-a-imagem-do-minio-sai-do-quay-para-o-fork-pgsty.md) (o quay.io também fechou, 2026-10-01)
 - **Data:** 2026-09-13
 
 ## Contexto
