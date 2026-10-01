@@ -234,6 +234,15 @@ cliente — esta seção registra e valida esse trabalho, que estava sem commit.
   link de confirmação sumia. Medido no QA de 2026-10-01: com
   `EMAIL_PROVIDER=console`, o link aparece no log da API.
 
+- **Drift entre `models.py` e as migrations** (achado na validação de
+  2026-10-01, herdado do CARD-049): `credentials.email` e os três
+  `token_hash` declaravam `unique=True, index=True`, mas a migration criou
+  `UniqueConstraint` sem índice `ix_*` — `uv run alembic check` acusava 8
+  operações pendentes. Corrigido no model (o Postgres já sustenta a
+  constraint com índice btree; nenhuma mudança no banco) e guardado por um
+  teste novo, `test_models_e_migrations_nao_divergem` (`command.check` do
+  Alembic contra o banco migrado).
+
 ### Evidência
 
 - Login Google real: linha `provider=google` em `social_identities` do banco

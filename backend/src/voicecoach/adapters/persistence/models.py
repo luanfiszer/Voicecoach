@@ -131,7 +131,11 @@ class CredentialRow(Base):
     # medido: sempre `credentials` antes de `students`, violando a FK em todo
     # cadastro novo e sendo traduzido (errado) em "e-mail já existe".
     student: Mapped[StudentRow] = relationship(lazy="raise_on_sql")
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    # `unique=True` sem `index=True`: a migration cria `UniqueConstraint`, e o
+    # Postgres já a sustenta com um índice btree — `index=True` declarava um
+    # SEGUNDO índice (`ix_*`) que nenhuma migration criou, e o `alembic check`
+    # acusava drift (vale para os três `token_hash` abaixo, idem).
+    email: Mapped[str] = mapped_column(String(255), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(_Timestamp)
     email_verified_at: Mapped[datetime | None] = mapped_column(_Timestamp, default=None)
@@ -154,7 +158,7 @@ class RefreshTokenRow(Base):
         Uuid(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), index=True
     )
     family_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), index=True)
-    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(_Timestamp)
     expires_at: Mapped[datetime] = mapped_column(_Timestamp)
     revoked_at: Mapped[datetime | None] = mapped_column(_Timestamp, default=None)
@@ -169,7 +173,7 @@ class EmailVerificationTokenRow(Base):
     student_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), index=True
     )
-    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(_Timestamp)
     expires_at: Mapped[datetime] = mapped_column(_Timestamp)
     used_at: Mapped[datetime | None] = mapped_column(_Timestamp, default=None)
@@ -189,7 +193,7 @@ class PasswordResetTokenRow(Base):
     student_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), index=True
     )
-    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(_Timestamp)
     expires_at: Mapped[datetime] = mapped_column(_Timestamp)
     used_at: Mapped[datetime | None] = mapped_column(_Timestamp, default=None)

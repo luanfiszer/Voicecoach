@@ -128,6 +128,21 @@ async def sessao_persistida(db_session: AsyncSession) -> Session:
     return session
 
 
+def test_models_e_migrations_nao_divergem(database_url: str) -> None:
+    """`alembic check` como teste: o `models.py` descreve o esquema que as
+    migrations de fato criam. Regressão do CARD-049, que declarou
+    `unique=True, index=True` (um índice `ix_*` que nenhuma migration criou) e
+    passou verde porque nada comparava os dois — o próximo `--autogenerate`
+    teria arrastado a correção para dentro de uma migration sem relação.
+
+    Síncrono pela mesma razão de `_run_migrations`: o `env.py` chama
+    `asyncio.run()`.
+    """
+    config = Config(str(BACKEND_ROOT / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.check(config)
+
+
 async def test_upgrade_head_cria_o_student_dev(db_session: AsyncSession) -> None:
     """Critério de aceite: banco vazio + `alembic upgrade head` ⇒ Student dev existe."""
     # A anotação com o tipo da PORTA é o que faz o mypy verificar que o adapter
