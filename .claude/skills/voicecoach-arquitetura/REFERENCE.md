@@ -280,5 +280,6 @@ tabela é alteração que ninguém vai conseguir auditar depois.
 | 2026-08-23 | Proibição nova: **porta que precisa estabelecer estado antes de iterar é context manager, não `AsyncIterator`** | ADR-0041. Não é hipótese: `TurnEvents.subscribe` foi escrita primeiro como gerador, e o corpo de um gerador assíncrono não roda até o primeiro `__anext__` — o `SUBSCRIBE` não existiria durante a leitura do banco, e o evento publicado nessa janela cairia no chão |
 | 2026-08-23 | Proibição nova: **erro 4xx não sai de dentro do gerador de um stream** | ADR-0040 item 7. Descoberto na execução: o Starlette recusa com *"Caught handled exception, but response already started"* |
 | 2026-08-23 | **Dívida mantida:** ADRs 0024–0029 seguem não destilados | O CARD-010 tocou 0024 e 0026 e corrigiu só o que **contradizia** o código novo. A varredura completa continua sendo do CARD-004 |
+| 2026-10-01 | Regra nova: **todo caso de uso que recebe id de recurso do aluno recebe `student_id` e checa o dono; alheio = mesmo 404 do inexistente** | ADR-0073, LEARNING-0009. Quatro rotas estavam sem isolamento entre alunos em `main` com todos os gates verdes — a regra existia só no `DiscardTurn` e era replicada de memória |
 
 *Esta skill cresce pelos postmortems (`docs/learnings/`), não por antecipação.*

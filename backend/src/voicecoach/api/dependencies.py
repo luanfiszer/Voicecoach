@@ -96,6 +96,7 @@ from voicecoach.application.use_cases.email_verification import (
     ResendConfirmationHandler,
 )
 from voicecoach.application.use_cases.end_session import EndSessionHandler
+from voicecoach.application.use_cases.get_turn import GetTurnHandler
 from voicecoach.application.use_cases.list_sessions import ListSessionsHandler
 from voicecoach.application.use_cases.login_student import LoginStudentHandler
 from voicecoach.application.use_cases.login_with_social import LoginWithSocialHandler
@@ -383,6 +384,13 @@ def discard_turn_handler(
         unit_of_work=uow,
         clock=lambda: clock,
     )
+
+
+def get_turn_handler(
+    turns: Annotated[TurnRepository, Depends(turn_repository)],
+    sessions: Annotated[SessionRepository, Depends(session_repository)],
+) -> GetTurnHandler:
+    return GetTurnHandler(turns=turns, sessions=sessions)
 
 
 def password_hasher() -> PasswordHasher:

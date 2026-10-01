@@ -90,9 +90,13 @@ class StartTurn:
     ``idempotency_key`` é obrigatória e sem default. Um default aqui (``None``,
     "gera uma") transformaria "o cliente esqueceu o cabeçalho" num turn extra
     cobrado, em silêncio.
+
+    ``student_id`` é quem pede (o token, CARD-049): sessão de outro aluno é
+    ``SessionNotFound``, o mesmo 404 da inexistente (RNF2, CARD-062).
     """
 
     session_id: UUID
+    student_id: UUID
     idempotency_key: str
     audio: bytes
     content_type: str
@@ -116,7 +120,10 @@ class TurnAccepted:
 
 @dataclass(frozen=True, slots=True)
 class SessionNotFound:
-    """A sessão referida no caminho não existe.
+    """A sessão referida no caminho não existe, OU não é do aluno (RNF2).
+
+    Um tipo só para os dois casos, como o ``TurnNotFound`` do ``DiscardTurn``:
+    a distinção não pode vazar, ou o 404 vira oráculo de "este id existe".
 
     Um **valor**, não uma exceção (ADR do ``Result``): carrega o id para que a
     borda monte o Problem Details sem precisar reler o comando.
@@ -209,16 +216,23 @@ class StartTurnHandler:
     async def handle(
         self, command: StartTurn
     ) -> Result[TurnAccepted, StartTurnRejection]:
+        # O dono vem ANTES do replay (CARD-062): a `Idempotency-Key` é única no
+        # banco inteiro, e sem esta ordem quem acertasse a chave de outro aluno
+        # receberia o `turn_id` dele de volta.
+        session = await self._sessions.get(command.session_id)
+        if session is None or session.student_id != command.student_id:
+            return Err(SessionNotFound(command.session_id))
+
         ja_existe = await self._turns.get_by_idempotency_key(command.idempotency_key)
         if ja_existe is not None:
             # F11 (CARD-015): reenvio idempotente NUNCA consome cota de novo —
             # é o mesmo turn, não um turn a mais. Por isso o replay sai ANTES
             # de qualquer checagem de cota ou orçamento.
+            if ja_existe.session_id != session.id:
+                dona = await self._sessions.get(ja_existe.session_id)
+                if dona is None or dona.student_id != command.student_id:
+                    return Err(SessionNotFound(command.session_id))
             return await self._repetir(ja_existe.id)
-
-        session = await self._sessions.get(command.session_id)
-        if session is None:
-            return Err(SessionNotFound(command.session_id))
 
         agora = self._clock()
         # Kill switch ANTES da cota por student: é a checagem mais barata (uma
