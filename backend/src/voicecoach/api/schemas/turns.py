@@ -136,7 +136,9 @@ class TurnResponse(BaseModel):
         "(ADR-0057). Campo ADITIVO (ADR-0008).",
     )
     chunks: list[ChunkPayload] = Field(
-        default_factory=list, description="Campo ADITIVO (ADR-0008)."
+        default_factory=list,
+        description="Campo ADITIVO (ADR-0008). Vazio depois de a retenção dos "
+        "trechos vencer (ADR-0024, CARD-017) — o cliente toca `reply_audio_url`.",
     )
     corrections: list[CorrectionPayload] = Field(
         default_factory=list,
@@ -154,7 +156,7 @@ class TurnResponse(BaseModel):
         cls,
         turn: Turn,
         *,
-        chunk_urls: list[str],
+        chunk_urls: list[str] | None,
         reply_audio_url: str | None,
     ) -> TurnResponse:
         """Projeta a entidade. As URLs vêm prontas porque assinar é ``await``.
@@ -163,6 +165,10 @@ class TurnResponse(BaseModel):
         executor no adapter S3 (ADR-0034), então é uma corrotina. Um
         ``@computed_field`` do pydantic não pode ser async; por isso a rota
         assina e passa, em vez de o schema resolver sozinho.
+
+        ``chunk_urls=None`` quer dizer "a retenção dos trechos venceu"
+        (CARD-017): a lista sai vazia, e o cliente cai no ``reply_audio_url``
+        — a degradação que o ADR-0024 desenhou.
         """
         return cls(
             id=turn.id,
@@ -177,7 +183,9 @@ class TurnResponse(BaseModel):
             delivered_partially=turn.delivered_partially,
             failure_reason=turn.failure_reason,
             rejection_reason=turn.rejection_reason,
-            chunks=[
+            chunks=[]
+            if chunk_urls is None
+            else [
                 ChunkPayload.de_chunk(chunk, url)
                 for chunk, url in zip(turn.audio_chunks, chunk_urls, strict=True)
             ],

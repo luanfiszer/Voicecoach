@@ -1958,7 +1958,7 @@
             },
             "type": "array",
             "title": "Chunks",
-            "description": "Campo ADITIVO (ADR-0008)."
+            "description": "Campo ADITIVO (ADR-0008). Vazio depois de a reten\u00e7\u00e3o dos trechos vencer (ADR-0024, CARD-017) \u2014 o cliente toca `reply_audio_url`."
           },
           "corrections": {
             "items": {

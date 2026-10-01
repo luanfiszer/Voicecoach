@@ -221,6 +221,33 @@ class S3MediaStorage:
             raise MediaStorageError(message) from exc
 
 
+def _cliente_s3(settings: Settings, endpoint: str, config: Config) -> Any:  # noqa: ANN401 — o boto3 não é tipado
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=settings.s3_access_key,
+        aws_secret_access_key=settings.s3_secret_key,
+        region_name=settings.s3_region,
+        config=config,
+    )
+
+
+def create_s3_admin_client(settings: Settings) -> Any:  # noqa: ANN401 — o boto3 não é tipado
+    """Um cliente cru para o SETUP do bucket (lifecycle, CARD-017).
+
+    Separado do ``S3MediaStorage`` de propósito: configurar o bucket é
+    administração, não operação da porta — o caso de uso nunca deveria
+    conseguir chamar isto.
+    """
+    config = Config(
+        signature_version="s3v4",
+        connect_timeout=settings.s3_connect_timeout,
+        read_timeout=settings.s3_read_timeout,
+        retries={"max_attempts": settings.s3_max_attempts, "mode": "standard"},
+    )
+    return _cliente_s3(settings, settings.s3_endpoint_url, config)
+
+
 def create_media_storage(settings: Settings) -> S3MediaStorage:
     """Monta o adapter a partir da configuração — chamado no composition root.
 
@@ -256,14 +283,7 @@ def create_media_storage(settings: Settings) -> S3MediaStorage:
     )
 
     def montar(endpoint: str) -> Any:  # noqa: ANN401 — o boto3 não é tipado
-        return boto3.client(
-            "s3",
-            endpoint_url=endpoint,
-            aws_access_key_id=settings.s3_access_key,
-            aws_secret_access_key=settings.s3_secret_key,
-            region_name=settings.s3_region,
-            config=resiliencia,
-        )
+        return _cliente_s3(settings, endpoint, resiliencia)
 
     client = montar(settings.s3_endpoint_url)
     assinatura = settings.s3_signing_endpoint_url

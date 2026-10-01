@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from botocore.exceptions import ClientError
+
 from voicecoach.domain.media_keys import RetentionClass
 
 if TYPE_CHECKING:
@@ -62,3 +64,51 @@ def apply_lifecycle(client: Any, bucket: str, settings: Settings) -> None:  # no
         Bucket=bucket,
         LifecycleConfiguration={"Rules": build_rules(settings)},
     )
+
+
+class LifecycleNotAppliedError(RuntimeError):
+    """O bucket não tem as regras de retenção que a configuração pede.
+
+    Existe por causa do CARD-017: as regras foram escritas e testadas no
+    CARD-008, mas nada as aplicava — o bucket real não tinha lifecycle
+    nenhum, e a voz dos alunos ficava guardada para sempre, em silêncio. Quem
+    recebe isto (o boot do worker) **não sobe**: gravar áudio sem prazo de
+    validade é pior que não gravar.
+    """
+
+
+def _assinatura(regras: list[dict[str, Any]]) -> set[tuple[str, str, int]]:
+    """O que importa comparar: id, tag do filtro e dias. O resto o storage
+    pode devolver normalizado (ordem, campos extras) sem que seja divergência.
+    """
+    return {
+        (
+            r.get("ID", ""),
+            r.get("Filter", {}).get("Tag", {}).get("Value", ""),
+            int(r.get("Expiration", {}).get("Days", -1)),
+        )
+        for r in regras
+        if r.get("Status") == "Enabled"
+    }
+
+
+def ensure_lifecycle(client: Any, bucket: str, settings: Settings) -> None:  # noqa: ANN401
+    """Levanta ``LifecycleNotAppliedError`` se o bucket não bate com a config.
+
+    "Não bate" inclui TTL alterado em ``Settings`` sem reaplicar: a política
+    que vale é a que está no bucket, e uma config que diz outra coisa é uma
+    promessa falsa na política de privacidade.
+    """
+    try:
+        lidas = client.get_bucket_lifecycle_configuration(Bucket=bucket)["Rules"]
+    except ClientError as exc:
+        codigo = exc.response.get("Error", {}).get("Code", "")
+        if codigo != "NoSuchLifecycleConfiguration":
+            raise
+        lidas = []
+    if _assinatura(lidas) != _assinatura(build_rules(settings)):
+        message = (
+            f"o bucket {bucket!r} não tem as regras de retenção da configuração "
+            "(ADR-0024). Rode, de backend/:  uv run voicecoach-storage-setup"
+        )
+        raise LifecycleNotAppliedError(message)

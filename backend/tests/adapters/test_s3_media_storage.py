@@ -34,7 +34,11 @@ from botocore.config import Config as BotoConfig
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.wait_strategies import HttpWaitStrategy
 
-from voicecoach.adapters.storage.lifecycle import apply_lifecycle
+from voicecoach.adapters.storage.lifecycle import (
+    LifecycleNotAppliedError,
+    apply_lifecycle,
+    ensure_lifecycle,
+)
 from voicecoach.adapters.storage.s3_media_storage import (
     S3MediaStorage,
     create_media_storage,
@@ -671,3 +675,29 @@ def test_o_storage_de_producao_tem_pool_proprio_e_ele_fecha() -> None:
 
     assert executor._shutdown
     storage.close()  # idempotente: chamar de novo não levanta
+
+
+def test_ensure_lifecycle_recusa_bucket_sem_regras_e_aceita_depois_de_aplicar(
+    s3_client: Any,
+) -> None:
+    """CARD-017: o bucket real não tinha lifecycle nenhum. Contra o MinIO de
+    verdade: sem regras → erro; aplicadas → passa; TTL mudado na config sem
+    reaplicar → erro de novo (a política do bucket é a que vale).
+    """
+    bucket = f"lifecycle-{uuid4().hex[:8]}"
+    s3_client.create_bucket(Bucket=bucket)
+    settings = Settings(anthropic_api_key="x", _env_file=None)  # type: ignore[call-arg]
+
+    with pytest.raises(LifecycleNotAppliedError, match="voicecoach-storage-setup"):
+        ensure_lifecycle(s3_client, bucket, settings)
+
+    apply_lifecycle(s3_client, bucket, settings)
+    ensure_lifecycle(s3_client, bucket, settings)
+
+    outra = Settings(  # type: ignore[call-arg]
+        anthropic_api_key="x",
+        _env_file=None,
+        retention_reply_full=settings.retention_reply_full * 2,
+    )
+    with pytest.raises(LifecycleNotAppliedError):
+        ensure_lifecycle(s3_client, bucket, outra)

@@ -134,3 +134,8 @@ processo estar pronto** — que é o mesmo assunto do ADR-0025, visto do outro
 lado. Em .NET o paralelo é publicar um worker service e uma API do mesmo
 solution; a diferença aqui é que o modelo de IA é um asset pesado que muda a
 resposta.
+
+> **Nota do CARD-017 (2026-10-01):** o deploy precisa rodar
+> `uv run voicecoach-storage-setup` contra o bucket de produção antes de subir
+> o worker — sem as regras de retenção ele não sobe (ADR-0075). Reconferir o
+> lifecycle no provedor S3 real (ressalva do ADR-0024).
