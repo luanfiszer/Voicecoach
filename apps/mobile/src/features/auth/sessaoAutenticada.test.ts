@@ -75,6 +75,10 @@ function clienteFalso(
     async redefinirSenha() {
       conta('redefinirSenha');
     },
+    async loginGoogle() {
+      conta('loginGoogle');
+      return PAR_INICIAL;
+    },
     ...overrides,
   };
 }
@@ -127,6 +131,20 @@ describe('login', () => {
 
     await sessao.login('aluno@example.com', 'senha-certa');
 
+    expect(sessao.obterEstado()).toBe('autenticado');
+    expect(armazenamento.token).toBe('refresh-1');
+  });
+});
+
+describe('loginGoogle', () => {
+  it('manda o id_token e aplica o par de tokens como um login normal', async () => {
+    const armazenamento = armazenamentoFalso();
+    const cliente = clienteFalso();
+    const sessao = criarSessaoAutenticada({ cliente, armazenamento });
+
+    await sessao.loginGoogle('id-token-do-google');
+
+    expect(cliente.chamadas.loginGoogle).toBe(1);
     expect(sessao.obterEstado()).toBe('autenticado');
     expect(armazenamento.token).toBe('refresh-1');
   });

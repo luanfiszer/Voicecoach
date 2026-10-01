@@ -123,7 +123,19 @@ class CredentialRow(Base):
     student_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), unique=True
     )
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    # `relationship()` sem uso de leitura — existe só para o SQLAlchemy saber a
+    # ORDEM de flush. A FK crua (a coluna acima) não basta: sem um
+    # `relationship()` ligando os dois mappers, o unit-of-work não tem como
+    # inferir que `students` precisa ser inserido antes de `credentials` no
+    # MESMO commit, e despacha os INSERTs na ordem alfabética das tabelas —
+    # medido: sempre `credentials` antes de `students`, violando a FK em todo
+    # cadastro novo e sendo traduzido (errado) em "e-mail já existe".
+    student: Mapped[StudentRow] = relationship(lazy="raise_on_sql")
+    # `unique=True` sem `index=True`: a migration cria `UniqueConstraint`, e o
+    # Postgres já a sustenta com um índice btree — `index=True` declarava um
+    # SEGUNDO índice (`ix_*`) que nenhuma migration criou, e o `alembic check`
+    # acusava drift (vale para os três `token_hash` abaixo, idem).
+    email: Mapped[str] = mapped_column(String(255), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(_Timestamp)
     email_verified_at: Mapped[datetime | None] = mapped_column(_Timestamp, default=None)
@@ -146,7 +158,7 @@ class RefreshTokenRow(Base):
         Uuid(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), index=True
     )
     family_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), index=True)
-    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(_Timestamp)
     expires_at: Mapped[datetime] = mapped_column(_Timestamp)
     revoked_at: Mapped[datetime | None] = mapped_column(_Timestamp, default=None)
@@ -161,7 +173,7 @@ class EmailVerificationTokenRow(Base):
     student_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), index=True
     )
-    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(_Timestamp)
     expires_at: Mapped[datetime] = mapped_column(_Timestamp)
     used_at: Mapped[datetime | None] = mapped_column(_Timestamp, default=None)
@@ -181,7 +193,7 @@ class PasswordResetTokenRow(Base):
     student_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), index=True
     )
-    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(_Timestamp)
     expires_at: Mapped[datetime] = mapped_column(_Timestamp)
     used_at: Mapped[datetime | None] = mapped_column(_Timestamp, default=None)
@@ -208,6 +220,11 @@ class SocialIdentityRow(Base):
     student_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), index=True
     )
+    # Mesma razão do `student` de `CredentialRow`: sem `relationship()` o
+    # unit-of-work não ordena o flush entre mappers diferentes, e
+    # `LoginWithSocialHandler` cria `Student` + esta linha no mesmo commit
+    # quando o aluno chega pela primeira vez.
+    student: Mapped[StudentRow] = relationship(lazy="raise_on_sql")
     provider: Mapped[SocialProvider] = mapped_column(_SocialProviderType)
     external_id: Mapped[str] = mapped_column(String(255))
     email: Mapped[str] = mapped_column(String(255))

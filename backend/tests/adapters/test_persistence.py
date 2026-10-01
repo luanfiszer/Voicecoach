@@ -128,6 +128,21 @@ async def sessao_persistida(db_session: AsyncSession) -> Session:
     return session
 
 
+def test_models_e_migrations_nao_divergem(database_url: str) -> None:
+    """`alembic check` como teste: o `models.py` descreve o esquema que as
+    migrations de fato criam. Regressão do CARD-049, que declarou
+    `unique=True, index=True` (um índice `ix_*` que nenhuma migration criou) e
+    passou verde porque nada comparava os dois — o próximo `--autogenerate`
+    teria arrastado a correção para dentro de uma migration sem relação.
+
+    Síncrono pela mesma razão de `_run_migrations`: o `env.py` chama
+    `asyncio.run()`.
+    """
+    config = Config(str(BACKEND_ROOT / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.check(config)
+
+
 async def test_upgrade_head_cria_o_student_dev(db_session: AsyncSession) -> None:
     """Critério de aceite: banco vazio + `alembic upgrade head` ⇒ Student dev existe."""
     # A anotação com o tipo da PORTA é o que faz o mypy verificar que o adapter
@@ -1984,6 +1999,69 @@ async def test_credential_email_duplicado_e_recusado(
     uow: UnitOfWork = SqlAlchemyUnitOfWork(db_session)
     with pytest.raises(ConflictingWriteError):
         await uow.commit()
+
+
+async def test_student_e_credential_novos_persistem_no_mesmo_commit(
+    db_session: AsyncSession,
+) -> None:
+    """Regressão: `RegisterStudentHandler` cria `Student` e `Credential` juntos,
+    sem um commit intermediário — diferente de todo outro teste deste arquivo,
+    que usa `aluno_isolado` (o `Student` já existe e comitado antes do
+    `Credential` entrar). Sem `CredentialRow.student` (ver `models.py`), o
+    unit-of-work não sabia que `students` precisa ser inserido antes de
+    `credentials` no mesmo flush e despachava os `INSERT`s na ordem errada —
+    toda chamada real de `/v1/auth/register` violava a FK e era silenciosamente
+    tratada como "e-mail já existe" (`ConflictingWriteError`).
+    """
+    student = Student(id=uuid4(), display_name="Aluno novo", created_at=NOW)
+    credencial = Credential(
+        id=uuid4(),
+        student_id=student.id,
+        email=f"{student.id}@example.com",
+        password_hash="$argon2id$fake$para-teste",
+        created_at=NOW,
+    )
+    students: StudentRepository = SqlAlchemyStudentRepository(db_session)
+    credentials: CredentialRepository = SqlAlchemyCredentialRepository(db_session)
+
+    await students.add(student)
+    await credentials.add(credencial)
+    await db_session.commit()
+
+    assert await credentials.get_by_email(credencial.email) == credencial
+
+
+async def test_student_e_social_identity_novos_persistem_no_mesmo_commit(
+    db_session: AsyncSession,
+) -> None:
+    """Mesma regressão de `test_student_e_credential_novos_persistem_no_mesmo_commit`,
+    para o caminho de `LoginWithSocialHandler` quando o aluno chega pela
+    primeira vez: `Student` e `SocialIdentity` novos no mesmo flush.
+    """
+    student = Student(id=uuid4(), display_name="Aluno via Google", created_at=NOW)
+    identidade = SocialIdentity(
+        id=uuid4(),
+        student_id=student.id,
+        provider=SocialProvider.GOOGLE,
+        external_id=f"google-sub-{student.id}",
+        email=f"{student.id}@example.com",
+        created_at=NOW,
+    )
+    students: StudentRepository = SqlAlchemyStudentRepository(db_session)
+    social_identities: SocialIdentityRepository = SqlAlchemySocialIdentityRepository(
+        db_session
+    )
+
+    await students.add(student)
+    await social_identities.add(identidade)
+    await db_session.commit()
+
+    assert (
+        await social_identities.get_by_provider(
+            SocialProvider.GOOGLE, identidade.external_id
+        )
+        == identidade
+    )
 
 
 async def test_mark_email_verified_persiste(
