@@ -70,6 +70,7 @@ O diagnóstico card a card, a ordem e as decisões estão em
 | [022](CARD-022-webhooks-de-pagamento-e-reconciliacao.md) | Webhooks de pagamento: idempotência e reconciliação | 4 | backend | M | 021 | backlog |
 | [023](CARD-023-gate-de-entitlement-no-turn.md) | Gate de entitlement no POST de turn | 4 | backend | P | 015, 020, 022 | backlog |
 | [060](CARD-060-login-social-google-e-apple.md) | **Login social: Google e Sign in with Apple, os dois juntos** | 3 | backend/mobile | M | 049, [ADR-0070](../adr/0070-login-social-google-e-apple-juntos-vinculo-por-email.md) | **bloqueado (2026-09-13)** — backend inteiro implementado e testado (verificação JWT/JWKS contra chave de teste, vínculo por e-mail, `Cliente.loginGoogle`/`loginApple`); sem `GOOGLE_CLIENT_ID`/`APPLE_CLIENT_ID` reais nem SDK nativo no app, não há como fechar. Ver a seção "Execução" do card |
+| [061](CARD-061-a-imagem-do-minio-saiu-do-quay.md) | **A imagem do MinIO saiu do quay.io** | — | infra | P | [ADR-0072](../adr/0072-a-imagem-do-minio-sai-do-quay-para-o-fork-pgsty.md) | **concluído (2026-10-01)** — `quay.io/minio/minio` passou a exigir autenticação; trocada por `pgsty/minio` com tag fixa. Desbloqueou o CI |
 | — | Eval harness da IA (executa P5) | 5 | IA | — | Fase 3 | a detalhar |
 | — | Web companion — e possível canal de receita | 6 | web | — | Fases 4–5 | a detalhar |
 | — | Produto pedagógico completo (resumo, revisão espaçada) | 7 | mobile/IA | — | Fase 5 | a detalhar — **o CEFR saiu daqui em 2026-09-09**: virou 045/046/047. A tradução já era o 036 |

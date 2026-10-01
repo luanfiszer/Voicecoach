@@ -47,9 +47,9 @@ services:
       retries: 10
 
   minio:
-    # quay.io, não Docker Hub: o `minio/minio` de lá deixou de ser público em
-    # 2026-09 (ADR-0062) — mesma tag, outro registry.
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # `pgsty/minio`, fork comunitário com tag de versão fixável (ADR-0072): a
+    # MinIO fechou o Docker Hub em 2026-09 (ADR-0062) e o quay.io em 2026-10.
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-voicecoach}
@@ -78,7 +78,7 @@ services:
   # servidor MinIO — ela já traz o `mc` (o healthcheck acima o usa) e a tag já
   # está fixada, o que evita mais uma imagem para manter atualizada.
   createbuckets:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
     depends_on:
       minio:
         condition: service_healthy

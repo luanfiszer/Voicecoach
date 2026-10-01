@@ -55,9 +55,10 @@ from voicecoach.domain.media_keys import (
 
 # Mesma imagem e mesma tag do `docker-compose.yml`: o teste e o ambiente de
 # desenvolvimento não podem divergir de versão sem que alguém decida isso.
-# quay.io, não Docker Hub (ADR-0062) — o `test_a_imagem_do_compose_bate_com_a_
-# do_teste` abaixo é o que impede as duas cópias de divergir em silêncio.
-MINIO_IMAGE = "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
+# `pgsty/minio` (ADR-0072, que substitui o ADR-0062) — o
+# `test_a_imagem_do_compose_bate_com_a_do_teste` abaixo é o que impede as duas
+# cópias de divergir em silêncio.
+MINIO_IMAGE = "pgsty/minio:RELEASE.2026-08-04T00-00-00Z"
 ACCESS_KEY = "voicecoach"
 SECRET_KEY = "voicecoach-dev-secret"
 BUCKET = "test-media"

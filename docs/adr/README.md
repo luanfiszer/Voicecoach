@@ -98,7 +98,7 @@ Escreva um ADR sempre que a decisão:
 | [0059](0059-o-prompt-do-professor-recebe-contexto-do-aluno.md) | O prompt do professor deixa de ser estático: ele recebe um bloco de contexto do aluno | aceito (muda a conta do 0021; preserva 0020 e 0022) |
 | [0060](0060-o-backend-sai-do-mac-e-a-latencia-paga-a-conta.md) | O backend sai do Mac para um VPS Linux, e a latência paga a conta | aceito (ajusta a parte de infra do 0010 e a Parte E da visão; **exerce** o 0027 em vez de contrariá-lo; substitui a escolha do CARD-038) |
 | [0061](0061-o-primeiro-teste-do-cliente-vitest-sobre-logica-extraida.md) | O primeiro teste do cliente: `vitest` sobre lógica extraída | aceito |
-| [0062](0062-a-imagem-do-minio-migra-do-docker-hub-para-o-quay-io.md) | A imagem do MinIO migra do Docker Hub para o quay.io | aceito |
+| [0062](0062-a-imagem-do-minio-migra-do-docker-hub-para-o-quay-io.md) | A imagem do MinIO migra do Docker Hub para o quay.io | substituído pelo [0072](0072-a-imagem-do-minio-sai-do-quay-para-o-fork-pgsty.md) |
 | [0063](0063-cota-diaria-em-minutos-e-turns-e-kill-switch-global-por-custo.md) | Cota diária por student em minutos e turns, kill switch global por custo | aceito |
 | [0064](0064-leitura-de-cota-e-estado-do-servico-get-students-me-quota.md) | A leitura de cota vira `GET /v1/students/me/quota`, sem cache, com o motivo do bloqueio explícito | aceito |
 | [0065](0065-descartar-turn-marca-sem-apagar-e-sobrevive-a-conclusao-concorrente.md) | "Descartar" marca um campo aditivo e sobrevive à conclusão concorrente do worker | aceito |
@@ -107,6 +107,7 @@ Escreva um ADR sempre que a decisão:
 | [0068](0068-provedor-de-email-transacional-resend-com-console-como-default.md) | Provedor de e-mail transacional: Resend, com console como default de custo zero | aceito |
 | [0069](0069-delete-de-conta-conteudo-apaga-usageevent-sobrevive-anonimo.md) | Delete de conta: conteúdo apaga, `UsageEvent` sobrevive anônimo (`ON DELETE SET NULL`) | aceito |
 | [0070](0070-login-social-google-e-apple-juntos-vinculo-por-email.md) | Login social: Google e Apple juntos, vínculo por e-mail verificado (revisa o ADR-0007) | aceito |
+| [0072](0072-a-imagem-do-minio-sai-do-quay-para-o-fork-pgsty.md) | A imagem do MinIO sai do quay.io para o fork `pgsty/minio` (substitui o ADR-0062) | aceito |
 
 ## ADRs pendentes de decisão de produto
 
