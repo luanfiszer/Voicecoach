@@ -47,7 +47,9 @@ from voicecoach.api.schemas.problem import (
     ProblemDetails,
 )
 from voicecoach.application.ports.media_storage import MediaStorageError
+from voicecoach.application.ports.rate_limiter import RateLimiterError
 from voicecoach.application.ports.repositories import ConflictingWriteError
+from voicecoach.application.ports.service_budget import ServiceBudgetError
 from voicecoach.application.ports.translator import TranslatorError
 from voicecoach.application.ports.turn_events import TurnEventsError
 from voicecoach.application.ports.turn_queue import TurnQueueError
@@ -69,6 +71,10 @@ FALHAS_DE_INFRAESTRUTURA = (
     # CARD-036, RF6: tradutor fora do ar é 503 com o mesmo vocabulário dos
     # outros — o texto original continua legível e a UI diz que não deu.
     TranslatorError,
+    # CARD-054: os contadores de custo são FAIL-CLOSED — Redis fora barra a
+    # requisição com 503, nunca a deixa passar sem contar (e nunca 500 mudo).
+    RateLimiterError,
+    ServiceBudgetError,
 )
 
 

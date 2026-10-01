@@ -62,6 +62,24 @@ async def test_registro_com_email_ja_cadastrado_devolve_a_mesma_resposta(
     assert fakes.email_sender.enviados == []
 
 
+async def test_cadastro_alem_do_limite_por_ip_e_429_sem_dizer_se_o_email_existe(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    """Critério 1 do CARD-054: a chave é o IP (a conta ainda não existe), e a
+    recusa é a mesma para e-mail novo ou já cadastrado — nada é enviado.
+    """
+    fakes.rate_limiter.permitido = False
+
+    resposta = await client.post("/v1/auth/register", json=REGISTRO)
+
+    assert resposta.status_code == 429
+    corpo = resposta.json()
+    assert corpo["type"].endswith(":rate-limited")
+    assert REGISTRO["email"] not in resposta.text
+    assert fakes.rate_limiter.chamadas[-1].startswith("auth-register:ip:")
+    assert fakes.email_sender.enviados == []
+
+
 async def test_fluxo_completo_registro_confirmacao_login_refresh_logout(
     client: AsyncClient, fakes: Fakes
 ) -> None:

@@ -61,11 +61,15 @@ class FakeRateLimiter:
 
     def __init__(self, *, permitido: bool = True) -> None:
         self.permitido = permitido
+        # CARD-054: o teste de fail-closed põe aqui o erro que o Redis fora daria.
+        self.falha: BaseException | None = None
         self.chamadas: list[str] = []
 
     async def hit(self, key: str, *, window: timedelta, limit: int) -> bool:
         del window, limit
         self.chamadas.append(key)
+        if self.falha is not None:
+            raise self.falha
         return self.permitido
 
 

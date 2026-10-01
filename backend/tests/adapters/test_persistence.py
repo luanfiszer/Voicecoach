@@ -2373,3 +2373,57 @@ async def test_revoke_all_for_student_revoga_duas_familias_diferentes(
     assert relido_a.revoked_at is not None
     assert relido_b is not None
     assert relido_b.revoked_at is not None
+
+
+# --- CARD-054: custo por conta nova, consultável sem dashboard ----------------
+
+
+async def test_account_costs_soma_turns_e_traducoes_dentro_da_janela_da_conta(
+    db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """A view é a leitura do critério "custo por conta criada" do CARD-054.
+
+    Três turns: dia 0, dia 10 e dia 40 da conta; o de 40 dias fica FORA das
+    duas janelas, o de 10 só entra na de 30. A tradução do primeiro turn
+    soma. O evento sem preço (`None`) não vira zero calado: marca a linha.
+    """
+    student, sessao = aluno_isolado
+    usage_events: UsageEventRepository = SqlAlchemyUsageEventRepository(db_session)
+    traducoes: TranslationRepository = SqlAlchemyTranslationRepository(db_session)
+    dia0 = await _turn_gravado(db_session, sessao)
+    dia10 = await _turn_gravado(db_session, sessao)
+    dia40 = await _turn_gravado(db_session, sessao)
+    await usage_events.add(
+        _evento_de(dia0.id, student.id, quando=NOW, custo=Decimal("0.002"))
+    )
+    await usage_events.add(
+        _evento_de(dia10.id, student.id, quando=NOW + timedelta(days=10), custo=None)
+    )
+    await usage_events.add(
+        _evento_de(
+            dia40.id,
+            student.id,
+            quando=NOW + timedelta(days=40),
+            custo=Decimal("0.5"),
+        )
+    )
+    await traducoes.add(_traducao(dia0.id, target=TranslationTarget.REPLY, index=0))
+    await db_session.commit()
+
+    linha = (
+        await db_session.execute(
+            text(
+                "SELECT turns_first_30_days, cost_first_7_days_usd, "
+                "cost_first_30_days_usd, has_unpriced_events, deleted "
+                "FROM account_costs WHERE student_id = :id"
+            ),
+            {"id": student.id},
+        )
+    ).one()
+
+    assert linha.turns_first_30_days == 2
+    # 0,002 do turn + 0,00016 da tradução; o de 40 dias (0,5) fica de fora.
+    assert linha.cost_first_7_days_usd == Decimal("0.00216000")
+    assert linha.cost_first_30_days_usd == Decimal("0.00216000")
+    assert linha.has_unpriced_events is True
+    assert linha.deleted is False

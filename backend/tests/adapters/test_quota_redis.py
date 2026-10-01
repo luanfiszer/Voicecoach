@@ -21,6 +21,8 @@ from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 
 from voicecoach.adapters.quota.redis_rate_limiter import RedisRateLimiter
 from voicecoach.adapters.quota.redis_service_budget import RedisServiceBudget
+from voicecoach.application.ports.rate_limiter import RateLimiterError
+from voicecoach.application.ports.service_budget import ServiceBudgetError
 
 
 @pytest.fixture(scope="session")
@@ -157,3 +159,41 @@ async def test_arredonda_para_o_centavo_mais_proximo(cliente: redis.Redis) -> No
     await budget.add_cost(Decimal("0.005"), when=QUANDO)
 
     assert not await budget.is_exceeded(when=QUANDO)
+
+
+# --- Redis fora: FAIL-CLOSED (CARD-054) ---------------------------------------
+#
+# Antes do CARD-054 o `RedisError` vazava cru e a API respondia `500
+# text/plain`. Barrava — mas por acidente, sem que nada no código dissesse que
+# barrar era a decisão. Agora é erro de porta, e a borda o traduz para 503.
+
+
+@pytest.fixture
+async def redis_fora() -> AsyncIterator[redis.Redis]:
+    """Um cliente apontado para uma porta onde ninguém escuta."""
+    cliente = redis.Redis(host="127.0.0.1", port=1, socket_connect_timeout=0.5)
+    yield cliente
+    await cliente.aclose()
+
+
+async def test_rate_limiter_com_redis_fora_levanta_erro_da_porta(
+    redis_fora: redis.Redis,
+) -> None:
+    limitador = RedisRateLimiter(redis_fora)
+
+    with pytest.raises(RateLimiterError, match="inalcançável"):
+        await limitador.hit("teste:fora", window=timedelta(minutes=1), limit=5)
+
+
+async def test_orcamento_com_redis_fora_levanta_erro_da_porta_nas_duas_operacoes(
+    redis_fora: redis.Redis,
+) -> None:
+    orcamento = RedisServiceBudget(
+        redis_fora, daily_cap_usd=Decimal(1), monthly_cap_usd=Decimal(10)
+    )
+    agora = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+
+    with pytest.raises(ServiceBudgetError):
+        await orcamento.is_exceeded(when=agora)
+    with pytest.raises(ServiceBudgetError):
+        await orcamento.add_cost(Decimal("0.01"), when=agora)

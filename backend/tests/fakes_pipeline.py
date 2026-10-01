@@ -268,6 +268,8 @@ class FakeServiceBudget:
 
     def __init__(self, *, excedido: bool = False) -> None:
         self.excedido = excedido
+        # CARD-054: o teste de fail-closed põe aqui o erro que o Redis fora daria.
+        self.falha: BaseException | None = None
         self.somado: list[Decimal] = []
 
     async def add_cost(self, usd: Decimal, *, when: datetime) -> None:
@@ -276,6 +278,8 @@ class FakeServiceBudget:
 
     async def is_exceeded(self, *, when: datetime) -> bool:
         del when
+        if self.falha is not None:
+            raise self.falha
         return self.excedido
 
 

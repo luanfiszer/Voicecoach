@@ -23,6 +23,16 @@ if TYPE_CHECKING:
     from decimal import Decimal
 
 
+class ServiceBudgetError(RuntimeError):
+    """O contador do orçamento não respondeu (CARD-054).
+
+    Mesma decisão do ``RateLimiterError``: **fail-closed**. Sem saber quanto o
+    produto já gastou, a resposta segura é não gastar mais — a borda devolve
+    ``503``. ``RuntimeError`` e não ``DomainError`` (ADR-0017): é
+    infraestrutura que não colaborou, não regra de negócio violada.
+    """
+
+
 class ServiceBudget(Protocol):
     """Os dois contadores (diário e mensal) do orçamento do produto.
 
