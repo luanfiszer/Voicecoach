@@ -3,7 +3,7 @@
 - **ID:** CARD-024
 - **Épico:** Fase 1 — Fatia vertical em cascata (infra de execução)
 - **Esforço:** M
-- **Status:** backlog
+- **Status:** concluído (2026-10-01)
 - **Dependências:** CARD-009 (concluído); ADR-0025, ADR-0032, ADR-0010
 
 ## Contexto
@@ -88,3 +88,39 @@ Como um projeto Python empacota **artefato de modelo** — a diferença entre
 dependência (resolvida pelo gerenciador de pacotes) e peso de IA (baixado por
 código, cacheado em `~/.cache`), e por que a segunda categoria não tem
 equivalente no `dotnet publish`.
+
+## Execução (2026-10-01, loop autônomo)
+
+- `backend/Dockerfile` com dois alvos (`api`, `worker`) sobre um estágio de
+  dependências comum; `backend/.dockerignore`; serviços `migrate`,
+  `storage-setup`, `api`, `worker` no compose sob o profile `app`.
+  **Decidido junto: o Dockerfile da API** (o "a decidir" do Escopo) — mesmo
+  arquivo, alvo próprio, sem pesos. [ADR-0076](../adr/0076-uma-imagem-dois-alvos-pesos-no-build.md)
+  (critérios **1**, **3** e **5**).
+
+### Critérios de aceite
+
+| Critério | Evidência |
+|---|---|
+| `docker compose up` → `/health/ready` 200 com `worker` | `docker compose --profile app up -d` → `{"status":"ready",...,"worker":{"status":"up"}}`; `migrate` e `storage-setup` `Exited (0)` |
+| Readiness sem download de modelo | worker com `HF_HUB_OFFLINE=1` → `pronto em 1.69 s`; e `docker run --network none voicecoach-worker:dev` carrega STT+TTS em 2,85 s |
+| Turn ponta a ponta com o worker em container | `QA_BASE_URL=http://localhost:8001 qa/ponta_a_ponta.py` → `FALHAS: nenhuma`, turn em 7,1 s |
+| Latência do caminho `faster-whisper` medida | `docs/medicao-latencia.md` §14: p50 1º trecho **4,84 s** (container) vs **1,91 s** (host `mlx`) |
+
+### Decisões (técnicas, registradas)
+
+- Profile `app` em vez de default — o dev no Mac continua com `mlx` no host.
+- Healthcheck da API é liveness (`/health`), não readiness — ela não pode
+  ficar "unhealthy" enquanto o worker carrega.
+- Sem healthcheck no worker: a readiness dele já é lida pela API (ADR-0025).
+
+### Achado que muda o CARD-055
+
+O `faster-whisper` em container custa **+2,9 s** no p50 até o primeiro trecho,
+o dobro da estimativa pessimista do ADR-0060 — numa CPU de M4. O alvo de
+4,5 s do ADR-0060 está em risco antes de existir servidor.
+
+### Dívida declarada
+
+- Imagem da API com 970 MB (libs de STT/TTS são dependências base); ver ADR-0076.
+- x86 nativo não construído nem medido — fica para o CARD-055.

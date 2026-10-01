@@ -268,6 +268,18 @@ uv run uvicorn voicecoach.api.app:create_app --factory --reload
 Depois, `curl localhost:8000/health/ready` deve responder 200 com as três
 dependências `up`.
 
+### API e worker em container (CARD-024, [ADR-0076](../docs/adr/0076-uma-imagem-dois-alvos-pesos-no-build.md))
+
+```bash
+docker compose --profile app up -d --build   # na raiz; API em localhost:8001
+```
+
+Sobe, em ordem: `migrate` (`alembic upgrade head`), `storage-setup` (retenção),
+`api` e `worker` — este com `faster-whisper` e os pesos **dentro da imagem**
+(`HF_HUB_OFFLINE=1`: nada é baixado em runtime). Não rode o worker do host ao
+mesmo tempo: os dois disputariam a mesma fila. O primeiro build leva ~3 min e
+gera imagens de ~1 GB (API) e ~2 GB (worker).
+
 **O worker não sobe sem as regras de retenção no bucket** (CARD-017,
 [ADR-0075](../docs/adr/0075-retencao-aplicada-por-comando-e-verificada-no-boot.md)):
 se esquecer o `voicecoach-storage-setup`, o boot falha com a mensagem que manda

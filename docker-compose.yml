@@ -6,6 +6,8 @@
 #
 #   docker compose up -d                              # postgres + redis + minio
 #   docker compose --profile observability up -d      # + jaeger
+#   docker compose --profile app up -d --build        # + migrate, storage-setup,
+#                                                     #   api e worker em container
 #
 # As portas de host são configuráveis (${X_PORT}) porque 5432/6379 costumam já
 # estar ocupadas por instalações locais — é o risco que o CARD-002 antecipou.
@@ -93,6 +95,78 @@ services:
         mc mb --ignore-existing "local/$$S3_BUCKET" &&
         echo "bucket pronto: $$S3_BUCKET"
     restart: "no"
+
+  # --- profile `app`: API e worker em container (CARD-024, ADR-0076) ---------
+  #
+  # Profile, e não default: no Mac o caminho de desenvolvimento continua sendo
+  # API e worker no HOST (o worker com `mlx`, que o container não tem — ADR-0027).
+  # Subir os dois juntos faria dois workers disputarem a mesma fila. Este
+  # profile é o ensaio do deploy (CARD-055): o mesmo que o servidor vai rodar.
+  #
+  # Segredos vêm do `.env` da raiz (`env_file`); o `environment` só troca o que
+  # muda DENTRO da rede do compose — os hosts. `environment` ganha de `env_file`.
+  migrate:
+    profiles: ["app"]
+    build: { context: backend, target: api }
+    image: voicecoach-api:dev
+    env_file: .env
+    environment: &rede-interna
+      DATABASE_URL: postgresql+asyncpg://voicecoach:voicecoach@postgres:5432/voicecoach
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT_URL: http://minio:9000
+      # Quem baixa o áudio é o leitor, fora da rede do compose (ADR-0045).
+      S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-http://localhost:9000}
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  # As regras de retenção do bucket (CARD-017, ADR-0075). Sem elas o worker
+  # não sobe — por isso o worker depende deste passo ter terminado bem.
+  storage-setup:
+    profiles: ["app"]
+    image: voicecoach-worker:dev
+    build: { context: backend, target: worker }
+    env_file: .env
+    environment: *rede-interna
+    command: ["voicecoach-storage-setup"]
+    depends_on:
+      createbuckets: { condition: service_completed_successfully }
+    restart: "no"
+
+  api:
+    profiles: ["app"]
+    image: voicecoach-api:dev
+    env_file: .env
+    environment: *rede-interna
+    ports:
+      - "${API_CONTAINER_PORT:-8001}:8000"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    healthcheck:
+      # Liveness, não readiness: o `ready` depende do worker, e um container
+      # "unhealthy" enquanto o worker carrega modelo seria mentira sobre a API.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    profiles: ["app"]
+    image: voicecoach-worker:dev
+    env_file: .env
+    environment:
+      <<: *rede-interna
+      # O `.env` de dev pode dizer `auto`/`mlx`; no container só existe este.
+      STT_PROVIDER: faster_whisper
+      TTS_VOICES_DIR: /app/voices
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      storage-setup: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    restart: unless-stopped
 
   jaeger:
     # Jaeger v2 — a imagem all-in-one do v1 foi substituída por esta.

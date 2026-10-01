@@ -139,3 +139,11 @@ resposta.
 > `uv run voicecoach-storage-setup` contra o bucket de produção antes de subir
 > o worker — sem as regras de retenção ele não sobe (ADR-0075). Reconferir o
 > lifecycle no provedor S3 real (ressalva do ADR-0024).
+
+> **Nota do CARD-024 (2026-10-01):** os dois `Dockerfile`s (item 1 deste card)
+> existem — `backend/Dockerfile`, alvos `api` e `worker` (ADR-0076) — e o
+> compose tem `migrate`/`storage-setup` antes da API e do worker. **Medido:** o
+> worker em container (`faster-whisper`, arm64, M4) dá p50 de 4,84 s até o
+> primeiro trecho, contra 1,91 s no host com `mlx` (`medicao-latencia.md` §14)
+> — o dobro do pior caso estimado pelo ADR-0060. Fazer a conta de CPU do VPS
+> com este número, não com a estimativa.
