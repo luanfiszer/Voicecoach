@@ -33,6 +33,7 @@ Por que os quatro recursos precisam disto e não podiam ser criados por request:
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
@@ -59,7 +60,19 @@ if TYPE_CHECKING:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Abre os pools do processo, serve, e os fecha na ordem inversa."""
+    """Abre os pools do processo, serve, e os fecha na ordem inversa.
+
+    ``logging.basicConfig`` mora aqui, não em ``create_app()``: `lifespan`
+    só roda quando um servidor de verdade sobe (`uvicorn`) — o `app` fixture
+    de teste NUNCA o executa (o `ASGITransport` não dispara eventos de ciclo
+    de vida), então isto não move uma linha do que os testes capturam.
+    Mesma razão do `logging.basicConfig` de `worker/main.py`: sem ele, todo
+    `logger.info` dos adapters (o `ConsoleEmailSender`, o default de custo
+    zero do ADR-0068) some em silêncio — o logger existe, mas não tem
+    handler nenhum ouvindo, e ninguém tinha rodado a API de verdade para
+    notar.
+    """
+    logging.basicConfig(level=logging.INFO)
     settings: Settings = app.state.settings
 
     engine = create_engine(settings.database_url)

@@ -1986,6 +1986,69 @@ async def test_credential_email_duplicado_e_recusado(
         await uow.commit()
 
 
+async def test_student_e_credential_novos_persistem_no_mesmo_commit(
+    db_session: AsyncSession,
+) -> None:
+    """Regressão: `RegisterStudentHandler` cria `Student` e `Credential` juntos,
+    sem um commit intermediário — diferente de todo outro teste deste arquivo,
+    que usa `aluno_isolado` (o `Student` já existe e comitado antes do
+    `Credential` entrar). Sem `CredentialRow.student` (ver `models.py`), o
+    unit-of-work não sabia que `students` precisa ser inserido antes de
+    `credentials` no mesmo flush e despachava os `INSERT`s na ordem errada —
+    toda chamada real de `/v1/auth/register` violava a FK e era silenciosamente
+    tratada como "e-mail já existe" (`ConflictingWriteError`).
+    """
+    student = Student(id=uuid4(), display_name="Aluno novo", created_at=NOW)
+    credencial = Credential(
+        id=uuid4(),
+        student_id=student.id,
+        email=f"{student.id}@example.com",
+        password_hash="$argon2id$fake$para-teste",
+        created_at=NOW,
+    )
+    students: StudentRepository = SqlAlchemyStudentRepository(db_session)
+    credentials: CredentialRepository = SqlAlchemyCredentialRepository(db_session)
+
+    await students.add(student)
+    await credentials.add(credencial)
+    await db_session.commit()
+
+    assert await credentials.get_by_email(credencial.email) == credencial
+
+
+async def test_student_e_social_identity_novos_persistem_no_mesmo_commit(
+    db_session: AsyncSession,
+) -> None:
+    """Mesma regressão de `test_student_e_credential_novos_persistem_no_mesmo_commit`,
+    para o caminho de `LoginWithSocialHandler` quando o aluno chega pela
+    primeira vez: `Student` e `SocialIdentity` novos no mesmo flush.
+    """
+    student = Student(id=uuid4(), display_name="Aluno via Google", created_at=NOW)
+    identidade = SocialIdentity(
+        id=uuid4(),
+        student_id=student.id,
+        provider=SocialProvider.GOOGLE,
+        external_id=f"google-sub-{student.id}",
+        email=f"{student.id}@example.com",
+        created_at=NOW,
+    )
+    students: StudentRepository = SqlAlchemyStudentRepository(db_session)
+    social_identities: SocialIdentityRepository = SqlAlchemySocialIdentityRepository(
+        db_session
+    )
+
+    await students.add(student)
+    await social_identities.add(identidade)
+    await db_session.commit()
+
+    assert (
+        await social_identities.get_by_provider(
+            SocialProvider.GOOGLE, identidade.external_id
+        )
+        == identidade
+    )
+
+
 async def test_mark_email_verified_persiste(
     db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
 ) -> None:

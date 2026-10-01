@@ -12,6 +12,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@expo/vector-icons": "^15.1.1",
+    "@react-native-google-signin/google-signin": "^16.1.5",
     "@voicecoach/api-client": "workspace:*",
     "expo": "~57.0.21",
     "expo-asset": "~57.0.16",
@@ -24,7 +26,8 @@
     "react": "19.2.3",
     "react-native": "0.86.3",
     "react-native-safe-area-context": "~5.7.0",
-    "react-native-screens": "~4.26.2"
+    "react-native-screens": "~4.26.2",
+    "react-native-svg": "^15.15.5"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",

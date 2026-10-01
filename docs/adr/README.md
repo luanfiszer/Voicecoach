@@ -107,6 +107,7 @@ Escreva um ADR sempre que a decisão:
 | [0068](0068-provedor-de-email-transacional-resend-com-console-como-default.md) | Provedor de e-mail transacional: Resend, com console como default de custo zero | aceito |
 | [0069](0069-delete-de-conta-conteudo-apaga-usageevent-sobrevive-anonimo.md) | Delete de conta: conteúdo apaga, `UsageEvent` sobrevive anônimo (`ON DELETE SET NULL`) | aceito |
 | [0070](0070-login-social-google-e-apple-juntos-vinculo-por-email.md) | Login social: Google e Apple juntos, vínculo por e-mail verificado (revisa o ADR-0007) | aceito |
+| [0071](0071-login-social-no-cliente-sdk-nativo-do-google.md) | Login social no cliente: SDK nativo do Google, logo em SVG, Apple ainda desligado | aceito |
 
 ## ADRs pendentes de decisão de produto
 

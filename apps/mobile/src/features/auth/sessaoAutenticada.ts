@@ -41,6 +41,7 @@ export type ClienteDeAuth = Pick<
   | 'reenviarConfirmacao'
   | 'pedirRedefinicaoDeSenha'
   | 'redefinirSenha'
+  | 'loginGoogle'
 >;
 
 export type SessaoAutenticada = {
@@ -48,6 +49,12 @@ export type SessaoAutenticada = {
   /** Chamado uma vez, ao montar o app: tenta o login silencioso. */
   inicializar(): Promise<void>;
   login(email: string, senha: string): Promise<void>;
+  /**
+   * Login social com Google (CARD-060, ADR-0070). `idToken` já vem pronto —
+   * quem chama (a tela) já rodou o SDK nativo antes; esta função só fala com
+   * o backend e aplica o par de tokens, exatamente como `login`.
+   */
+  loginGoogle(idToken: string): Promise<void>;
   registrar(email: string, senha: string): Promise<void>;
   sair(): Promise<void>;
   confirmarEmail(token: string): Promise<void>;
@@ -142,6 +149,11 @@ export function criarSessaoAutenticada(opcoes: {
     await aplicarParDeTokens(par);
   }
 
+  async function loginGoogle(idToken: string): Promise<void> {
+    const par = await opcoes.cliente.loginGoogle(idToken);
+    await aplicarParDeTokens(par);
+  }
+
   async function registrar(email: string, senha: string): Promise<void> {
     await opcoes.cliente.registrar(email, senha);
   }
@@ -203,6 +215,7 @@ export function criarSessaoAutenticada(opcoes: {
     obterEstado: () => estado,
     inicializar,
     login,
+    loginGoogle,
     registrar,
     sair,
     confirmarEmail,

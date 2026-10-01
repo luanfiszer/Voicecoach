@@ -4,7 +4,7 @@
 - **Épico:** Contas e auth de verdade (bloqueante de V1.0 se o app for publicado
   oferecendo login de terceiro)
 - **Esforço:** M
-- **Status:** bloqueado (2026-09-13) — ver "Execução"
+- **Status:** parcial (2026-10-01) — Google concluído ponta a ponta; Apple bloqueado pelo `APPLE_CLIENT_ID` (CARD-053). Ver "Retomada"
 - **Dependências:** CARD-049 (a base de e-mail+senha, JWT e refresh precisa
   existir primeiro), [ADR-0070](../adr/0070-login-social-google-e-apple-juntos-vinculo-por-email.md)
   (revisa o ADR-0007, que dizia "sem login social no MVP")
@@ -197,3 +197,65 @@ mudança de código); (3) instalar os SDKs nativos no `apps/mobile` e
 construir as duas telas/botões, chamando `Cliente.loginGoogle`/`loginApple`
 já prontos. Cada uma das três etapas é independente — não precisam ser
 feitas na mesma sessão.
+
+## Retomada (2026-09-14 pelo desenvolvedor; validada e mergeada em 2026-10-01)
+
+### O que mudou
+
+O desenvolvedor criou o client ID iOS no Google Cloud (`GOOGLE_CLIENT_ID` no
+`.env`, `extra.googleIosClientId` no `app.json`) e escreveu a metade Google do
+cliente — esta seção registra e valida esse trabalho, que estava sem commit.
+
+- **App:** `features/auth/googleSignIn.ts` (único importador do SDK nativo),
+  `sessaoAutenticada.loginGoogle` (núcleo, com teste), botão "Continuar com o
+  Google" na `TelaEntrada` com a variante `secundario` do `BotaoPrimario`, e o
+  logo em SVG. Botão da Apple desabilitado, "em breve".
+- **[ADR-0071](../adr/0071-login-social-no-cliente-sdk-nativo-do-google.md)**
+  (critérios **1** — três dependências de cliente novas — e **4** —
+  segurança): escrito na validação de 2026-10-01, porque o código introduzia
+  dependências sem ADR.
+- **Bug de `main` corrigido junto** — o mais grave achado desta retomada:
+  `CredentialRow`/`SocialIdentityRow` não tinham `relationship()` com
+  `StudentRow`, e o unit-of-work do SQLAlchemy despachava o `INSERT` de
+  `credentials` **antes** do de `students` no mesmo commit. **Todo
+  `/v1/auth/register` real violava a FK** e era traduzido como "e-mail já
+  existe". A suíte não pegava porque todo teste de persistência usava um
+  `Student` já comitado. Dois testes de regressão novos; verificado que
+  **falham** sem a correção:
+
+  ```
+  $ git stash push src/voicecoach/adapters/persistence/models.py
+  $ uv run pytest tests/adapters/test_persistence.py -k mesmo_commit
+  FAILED ...::test_student_e_credential_novos_persistem_no_mesmo_commit
+  FAILED ...::test_student_e_social_identity_novos_persistem_no_mesmo_commit
+  ```
+- **`logging.basicConfig` no `lifespan` da API:** sem ele o
+  `ConsoleEmailSender` (default do ADR-0068) logava num logger sem handler — o
+  link de confirmação sumia. Medido no QA de 2026-10-01: com
+  `EMAIL_PROVIDER=console`, o link aparece no log da API.
+
+### Evidência
+
+- Login Google real: linha `provider=google` em `social_identities` do banco
+  local, criada em 2026-09-14 03:36 UTC.
+- `POST /v1/auth/google` com token adulterado → `401`
+  `application/problem+json`; `POST /v1/auth/apple` sem `APPLE_CLIENT_ID` →
+  `503` (QA de 2026-10-01 contra a API real).
+- Gates: backend `ruff`/`mypy --strict`/`lint-imports` verdes, 655 testes,
+  cobertura 93,65% (núcleo 99%); cliente `pnpm run gates` verde, 87 testes.
+
+### Decisões autônomas — PENDENTE DE REVISÃO HUMANA
+
+> **Decisão autônoma (2026-10-01):** manter o botão da Apple visível e
+> desabilitado ("em breve") ou escondê-lo até haver credencial? → **mantido
+> como o desenvolvedor deixou** → é o código que ele escreveu e testou; muda
+> só a apresentação. → **PENDENTE DE REVISÃO HUMANA** (não é publicável
+> assim — Guideline 4.8).
+
+### O que falta para fechar
+
+1. `APPLE_CLIENT_ID` (depende da conta Apple Developer, CARD-053) +
+   `expo-apple-authentication` no app, mandando `display_name` na primeira
+   autorização.
+2. Android: `webClientId` no `GoogleSignin.configure` e o backend aceitando
+   mais de uma audiência (ADR-0071, Consequências).

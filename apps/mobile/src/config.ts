@@ -36,6 +36,13 @@ type Extra = {
    * que o artboard ancora a promessa ("sua fala FOI ENVIADA, mas...").
    */
   respostaTravadaEmSegundos: number;
+  /**
+   * O client ID **iOS** do OAuth do Google (CARD-060, ADR-0070) — não é
+   * segredo, é o mesmo valor que o backend usa em `GOOGLE_CLIENT_ID` para
+   * checar a audiência do `id_token`. Sem ele, `GoogleSignin.configure`
+   * nunca teria como saber qual app está pedindo o login.
+   */
+  googleIosClientId: string;
 };
 
 /**
@@ -158,6 +165,11 @@ function lerExtra(): Extra {
     throw new Error(`extra.respostaTravadaEmSegundos inválido: ${String(travamento)}`);
   }
 
+  const googleIosClientId = bruto.googleIosClientId;
+  if (typeof googleIosClientId !== 'string' || googleIosClientId.length === 0) {
+    throw new Error(`extra.googleIosClientId inválido: ${String(googleIosClientId)}`);
+  }
+
   // O critério de aceite do CARD-037 se lê no log de arranque: num aparelho
   // físico, a primeira pergunta é sempre "com quem esse app está falando?".
   console.info(`[config] apiBaseUrl=${api.url} (origem: ${api.origem})`);
@@ -167,6 +179,7 @@ function lerExtra(): Extra {
     apiBaseUrl: api.url,
     sseHabilitado: sse,
     respostaTravadaEmSegundos: travamento,
+    googleIosClientId,
   };
 }
 
