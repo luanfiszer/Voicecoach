@@ -22,6 +22,7 @@ reconectasse. Uma origem, um caminho de assinatura.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, assert_never
 from uuid import UUID
 
@@ -31,6 +32,7 @@ from sse_starlette.sse import EventSourceResponse
 from voicecoach.adapters.events.redis_turn_events import wire_name
 from voicecoach.api.audio_intake import extensao_para, medir
 from voicecoach.api.dependencies import (
+    agora,
     discard_turn_handler,
     enforce_translation_rate_limit,
     enforce_turn_rate_limit,
@@ -259,6 +261,7 @@ async def obter_turn(
     student_id: Annotated[UUID, Depends(requesting_student_id)],
     storage: Annotated[MediaStorage, Depends(media_storage)],
     settings: Annotated[Settings, Depends(get_settings_from_app)],
+    instante: Annotated[datetime, Depends(agora)],
 ) -> TurnResponse:
     """Tudo que o app precisa mostrar, com as URLs já assinadas.
 
@@ -268,14 +271,22 @@ async def obter_turn(
     """
     turn = await _turn_do_aluno(handler, turn_id=turn_id, student_id=student_id)
 
+    # CARD-017: previsão conservadora de retenção, a mesma do `ListSessions` —
+    # "não conte com ele" a partir de `created_at + retenção`, sem bater no
+    # bucket. Antes, a rota assinava URL de objeto já expirado: 404 no player.
+    idade = instante - turn.created_at
     ttl = settings.media_url_ttl
-    urls = [
-        await storage.presigned_get_url(chunk.storage_key, ttl)
-        for chunk in turn.audio_chunks
-    ]
+    urls = (
+        None
+        if idade > settings.retention_reply_chunk
+        else [
+            await storage.presigned_get_url(chunk.storage_key, ttl)
+            for chunk in turn.audio_chunks
+        ]
+    )
     reply_url = (
         await storage.presigned_get_url(turn.reply_audio_ref, ttl)
-        if turn.reply_audio_ref is not None
+        if turn.reply_audio_ref is not None and idade <= settings.retention_reply_full
         else None
     )
     return TurnResponse.de_turn(turn, chunk_urls=urls, reply_audio_url=reply_url)

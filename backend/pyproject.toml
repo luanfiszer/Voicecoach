@@ -244,6 +244,7 @@ exclude_also = [
 # vinda da configuração tipada em vez do default de localhost.
 [project.scripts]
 voicecoach-worker = "voicecoach.worker.main:run"
+voicecoach-storage-setup = "voicecoach.worker.storage_setup:run"
 
 [build-system]
 requires = ["hatchling"]

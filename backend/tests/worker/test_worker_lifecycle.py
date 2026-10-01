@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 
+from voicecoach.adapters.storage.lifecycle import LifecycleNotAppliedError
 from voicecoach.config import Settings
 from voicecoach.worker import main as worker_main
 from voicecoach.worker.readiness import READY_KEY
@@ -89,6 +90,14 @@ def ambiente(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(worker_main, "create_teacher_llm", fabricas["teacher"])
     monkeypatch.setattr(worker_main, "create_media_storage", fabricas["storage"])
     monkeypatch.setattr(worker_main, "get_settings", _settings_de_teste)
+    # CARD-017: o boot verifica as regras de retenção do bucket — aqui sem
+    # storage nenhum, só registrando que a verificação aconteceu.
+    monkeypatch.setattr(worker_main, "create_s3_admin_client", lambda _s: object())
+    monkeypatch.setattr(
+        worker_main,
+        "ensure_lifecycle",
+        lambda _c, _b, _s: registro.append("verifica:lifecycle"),
+    )
 
     class EngineFalso:
         async def dispose(self) -> None:
@@ -195,3 +204,36 @@ def test_o_arq_nao_consome_job_antes_de_o_startup_retornar() -> None:
     assert fonte.index("await self.on_startup(self.ctx)") < fonte.index(
         "async for _ in poll(self.poll_delay_s)"
     )
+
+
+async def test_sem_regras_de_retencao_no_bucket_o_worker_nao_sobe(
+    ambiente: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CARD-017: as regras existiam no código e nunca eram aplicadas — a voz
+    do aluno ficava para sempre no bucket. Agora isso impede o boot, e a API
+    nunca vê o worker como pronto.
+    """
+    registro: list[str] = ambiente["registro"]
+
+    def sem_regras(_c: object, _b: str, _s: Settings) -> None:
+        message = "sem lifecycle"
+        raise LifecycleNotAppliedError(message)
+
+    monkeypatch.setattr(worker_main, "ensure_lifecycle", sem_regras)
+    ctx: dict[str, Any] = {"redis": RedisEspiao(registro)}
+
+    with pytest.raises(LifecycleNotAppliedError):
+        await worker_main.startup(ctx)
+
+    assert f"ready:{READY_KEY}" not in registro
+
+
+async def test_a_verificacao_de_retencao_vem_antes_da_prontidao(
+    ambiente: dict[str, Any],
+) -> None:
+    registro: list[str] = ambiente["registro"]
+    ctx: dict[str, Any] = {"redis": RedisEspiao(registro)}
+
+    await worker_main.startup(ctx)
+
+    assert registro.index("verifica:lifecycle") < registro.index(f"ready:{READY_KEY}")

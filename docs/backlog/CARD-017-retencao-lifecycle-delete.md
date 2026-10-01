@@ -1,7 +1,7 @@
 # CARD-017 — Retenção de áudio: lifecycle, expiração e delete por prefixo
 
 - **ID:** CARD-017 · **Épico:** Fase 2 — Proteção de custo/privacidade (fecha a fase)
-- **Plataforma:** backend/infra · **Esforço:** P · **Status:** backlog
+- **Plataforma:** backend/infra · **Esforço:** P · **Status:** concluído (2026-10-01)
 - **Dependências:** CARD-008, CARD-010
 
 ## Contexto
@@ -66,3 +66,67 @@ três regras de lifecycle, não duas.
 Acrescenta-se um caso de degradação honesta: **trecho expirado com `full`
 presente** ⇒ o cliente toca o áudio inteiro, sem erro. Só quando os dois somem é
 que o áudio vira indisponível.
+
+## Execução (2026-10-01, loop autônomo)
+
+### O que já existia, e o defeito que isso escondia
+
+`build_rules`/`apply_lifecycle` (as três regras por tag) e
+`MediaStorage.delete_prefix` já estavam escritos e testados — o segundo ligado
+ao delete de conta pelo CARD-051. **Mas nada aplicava as regras**: só um teste
+chamava `apply_lifecycle`. No bucket local:
+
+```
+$ mc ilm rule ls l/voicecoach-media
+mc: <ERROR> Unable to get lifecycle. The lifecycle configuration does not exist.
+```
+
+A voz dos alunos ficava guardada para sempre, e o `GET` de turn antigo
+assinava URL de objeto que o contrato dizia estar expirado.
+
+### O que mudou
+
+- `uv run voicecoach-storage-setup` (`worker/storage_setup.py`): aplica e lê
+  de volta.
+- `ensure_lifecycle` no boot do worker, antes da readiness: sem regras (ou com
+  TTL divergente da config) o worker não sobe.
+- `GET /v1/turns/{id}`: trechos vencidos (1 d) saem de `chunks`; depois de 90 d
+  `reply_audio_url` é `null`; texto e correções ficam. Previsão por
+  `created_at`, sem `HEAD` no bucket.
+- [ADR-0075](../adr/0075-retencao-aplicada-por-comando-e-verificada-no-boot.md)
+  (critérios **4** — privacidade — e **2** — contrato) e
+  [`docs/retencao-de-dados.md`](../retencao-de-dados.md), a matriz que o
+  CARD-052 vai citar.
+
+### Evidência
+
+Gesto real, nesta ordem:
+
+```
+$ uv run voicecoach-worker
+LifecycleNotAppliedError: o bucket 'voicecoach-media' não tem as regras de
+retenção da configuração (ADR-0024). Rode, de backend/:  uv run voicecoach-storage-setup
+
+$ uv run voicecoach-storage-setup
+retenção aplicada ao bucket voicecoach-media: input=7 days, trecho=1 day, inteiro=90 days
+
+$ mc ilm rule ls l/voicecoach-media
+input        Enabled  retention=input         7
+reply-chunk  Enabled  retention=reply-chunk   1
+reply-full   Enabled  retention=reply-full   90
+
+$ uv run voicecoach-worker
+worker: pronto em 2.41 s
+```
+
+Testes: `test_ensure_lifecycle_recusa_bucket_sem_regras_e_aceita_depois_de_aplicar`
+(MinIO real: sem regras → erro; aplicadas → ok; TTL mudado → erro), dois no
+boot do worker (não sobe sem regras; verificação antes da readiness), três no
+`GET` — os dois de vencimento **falham na rota antiga**.
+
+### Decisão autônoma — PENDENTE DE REVISÃO HUMANA
+
+> **Decisão autônoma (2026-10-01):** trecho vencido — anular a `url` ou tirar
+> da lista? → **tirar da lista** → anular quebraria o tipo gerado do cliente
+> (ADR-0008), e o ADR-0024 já desenhou o recuo para o áudio inteiro. →
+> **PENDENTE DE REVISÃO HUMANA**.

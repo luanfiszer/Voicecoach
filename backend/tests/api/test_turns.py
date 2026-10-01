@@ -621,6 +621,64 @@ async def test_descartar_turn_de_outro_aluno_e_404_como_inexistente(
     assert fakes.turns.turns[turn.id].discarded_at is None
 
 
+# --- Retenção vencida: degradação honesta (CARD-017) ------------------------
+
+
+def _turn_completo(fakes: Fakes) -> Turn:
+    turn = turn_pronto(fakes, trechos=2, transcript="I go in the beach")
+    turn.attach_reply("Which beach did you go to?", AGORA)
+    turn.attach_reply_audio("full.aac", AGORA)
+    turn.complete(AGORA)
+    return turn
+
+
+async def test_trechos_vencidos_saem_e_o_cliente_cai_no_audio_inteiro(
+    app: FastAPI, client: AsyncClient, fakes: Fakes, settings: Settings
+) -> None:
+    """ADR-0024: trecho vive 1 dia, o inteiro 90. Passado o primeiro prazo, a
+    rota não assina mais URL de trecho (que daria 404 no player).
+    """
+    turn = _turn_completo(fakes)
+    depois = AGORA + settings.retention_reply_chunk + timedelta(minutes=1)
+    app.dependency_overrides[deps.agora] = lambda: depois
+
+    corpo = (await client.get(f"/v1/turns/{turn.id}")).json()
+
+    assert corpo["chunks"] == []
+    assert corpo["reply_audio_url"] is not None
+    assert corpo["reply_text"] == "Which beach did you go to?"
+
+
+async def test_tudo_vencido_e_200_com_texto_e_sem_audio_nunca_500(
+    app: FastAPI, client: AsyncClient, fakes: Fakes, settings: Settings
+) -> None:
+    """Critério de aceite do CARD-017: o texto e as correções ficam; o áudio
+    vira ausência declarada (`null`), como o contrato já prometia.
+    """
+    turn = _turn_completo(fakes)
+    depois = AGORA + settings.retention_reply_full + timedelta(minutes=1)
+    app.dependency_overrides[deps.agora] = lambda: depois
+
+    resposta = await client.get(f"/v1/turns/{turn.id}")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["reply_audio_url"] is None
+    assert corpo["chunks"] == []
+    assert corpo["transcript"] == "I go in the beach"
+
+
+async def test_dentro_da_retencao_os_trechos_e_o_inteiro_continuam_assinados(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    turn = _turn_completo(fakes)
+
+    corpo = (await client.get(f"/v1/turns/{turn.id}")).json()
+
+    assert len(corpo["chunks"]) == 2
+    assert corpo["reply_audio_url"] is not None
+
+
 # --- Dono do turn e da sessão (CARD-062) -----------------------------------
 #
 # Achado pelo QA da validação do loop (2026-10-01): `GET /v1/turns/{id}` e o SSE

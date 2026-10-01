@@ -1065,7 +1065,7 @@ export interface components {
             rejection_reason?: components["schemas"]["RejectionReason"] | null;
             /**
              * Chunks
-             * @description Campo ADITIVO (ADR-0008).
+             * @description Campo ADITIVO (ADR-0008). Vazio depois de a retenção dos trechos vencer (ADR-0024, CARD-017) — o cliente toca `reply_audio_url`.
              */
             chunks?: components["schemas"]["ChunkPayload"][];
             /**

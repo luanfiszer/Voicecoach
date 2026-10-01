@@ -258,6 +258,8 @@ docker compose up -d                      # na raiz: postgres, redis, minio
 
 cd backend
 uv sync                                   # cria .venv e instala do lockfile
+uv run alembic upgrade head               # esquema do banco
+uv run voicecoach-storage-setup           # regras de retenção do bucket (CARD-017)
 uv run lint-imports                       # contratos de arquitetura
 uv run pytest                             # testes
 uv run uvicorn voicecoach.api.app:create_app --factory --reload
@@ -265,6 +267,12 @@ uv run uvicorn voicecoach.api.app:create_app --factory --reload
 
 Depois, `curl localhost:8000/health/ready` deve responder 200 com as três
 dependências `up`.
+
+**O worker não sobe sem as regras de retenção no bucket** (CARD-017,
+[ADR-0075](../docs/adr/0075-retencao-aplicada-por-comando-e-verificada-no-boot.md)):
+se esquecer o `voicecoach-storage-setup`, o boot falha com a mensagem que manda
+rodá-lo. Mudou um `RETENTION_*` no `.env`? Rode o setup de novo — o worker
+também recusa um bucket cujas regras divergem da configuração.
 
 ### STT local (ADR-0027)
 

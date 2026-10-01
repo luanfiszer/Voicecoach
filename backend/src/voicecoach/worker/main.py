@@ -45,7 +45,11 @@ from voicecoach.adapters.persistence.repositories import (
 )
 from voicecoach.adapters.queue.arq_turn_queue import PROCESS_TURN_TASK
 from voicecoach.adapters.quota.redis_service_budget import RedisServiceBudget
-from voicecoach.adapters.storage.s3_media_storage import create_media_storage
+from voicecoach.adapters.storage.lifecycle import ensure_lifecycle
+from voicecoach.adapters.storage.s3_media_storage import (
+    create_media_storage,
+    create_s3_admin_client,
+)
 from voicecoach.adapters.stt.factory import create_speech_to_text, resolve_stt_provider
 from voicecoach.adapters.tts.encoding import AacAudioEncoder
 from voicecoach.adapters.tts.factory import create_text_to_speech
@@ -145,6 +149,10 @@ async def startup(ctx: dict[str, Any]) -> None:
     ctx["teacher"] = create_teacher_llm(settings)
     ctx["encoder"] = AacAudioEncoder()
     ctx["storage"] = create_media_storage(settings)
+    # CARD-017: sem as regras de retenção no bucket, a voz do aluno viveria
+    # para sempre — o worker NÃO sobe. Antes da readiness, para a API nunca
+    # anunciar um worker que grava áudio sem prazo de validade.
+    ensure_lifecycle(create_s3_admin_client(settings), settings.s3_bucket, settings)
 
     engine = create_engine(settings.database_url)
     ctx["engine"] = engine
