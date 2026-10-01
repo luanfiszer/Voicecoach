@@ -864,3 +864,36 @@ um limiar único e fixo perto de -1,0 herdaria o mesmo problema.
 - **O pipeline composto** (worker completo, §10) não foi remedido
   ponta-a-ponta com o modelo novo — só o componente STT isolado, que é o que
   este card altera.
+
+## 14. CARD-024 — o worker em container: `faster-whisper` contra `mlx`, mesma máquina
+
+**Data:** 2026-10-01. **Máquina:** Apple M4, 10 núcleos, 16 GB; Docker com
+10 CPUs e 8 GB para a VM. **Insumo:** `tests/fixtures/stt/amazing-project.wav`
+("Wow, that sounds like an amazing project."), 5 turns seguidos numa sessão,
+cliente HTTP local fazendo polling a cada 0,1 s. Professor `claude-haiku-4-5`
+e TTS Piper `en_US-lessac-medium` nos dois lados — **só o STT e o ambiente
+mudam**.
+
+| Caminho | STT | p50 até o 1º trecho | p50 completo |
+|---|---|---|---|
+| Host (dev) | `mlx-whisper` small multilíngue | **1,91 s** | 3,73 s |
+| Container (`--profile app`) | `faster-whisper` small, `float32`, CPU, Linux arm64 | **4,84 s** | 6,33 s |
+
+Amostras do container: 4,88 / 4,22 / 4,45 / 4,84 / 4,87 s até o 1º trecho.
+Host: 4,72 (frio, 1º turn) / 1,91 / 1,74 / 1,77 / 2,40 s.
+
+**Leitura:**
+
+- O container custa **+2,9 s** no p50 até o primeiro trecho. O ADR-0060
+  estimou +0,5 a +1,5 s para o servidor sem `mlx`; **a medição dobra a
+  estimativa pessimista**. É o número que o CARD-055 precisava antes de
+  escolher plano de VPS, e ele põe o alvo de 4,5 s do ADR-0060 em risco já
+  numa CPU de M4 — um VPS barato x86 tende a ser mais lento, não mais rápido.
+- **Ressalvas:** (1) é Linux arm64 numa VM do Docker no Mac, não x86 nativo —
+  a dívida "x86 medido" da §10.4 continua aberta até o servidor do CARD-055
+  existir; (2) `float32` foi mantido do adapter (escolha medida no host,
+  ADR-0027); `int8` em CPU x86 é o primeiro candidato a remedir no servidor;
+  (3) n=5, polling de 0,1 s.
+- O plano B do CARD-055 ("reduzir o STT para `base` multilíngue, remedindo")
+  deixa de ser hipotético: é a próxima medição a fazer se o servidor
+  confirmar este número.

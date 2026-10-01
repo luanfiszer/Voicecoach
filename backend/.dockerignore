@@ -1,0 +1,16 @@
+# O contexto do build é `backend/`. Fora daqui: segredo (.env vive na raiz,
+# mas um .env local aqui também não entra), artefato pesado que a imagem baixa
+# sozinha (voices/), e tudo que é da máquina de quem desenvolve.
+.env
+.env.*
+.venv/
+voices/
+benchmarks/
+qa/
+tests/
+**/__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
