@@ -38,6 +38,8 @@ export type ParDeTokens = Schemas['TokenPairResponse'];
  * num cookie `HttpOnly` que o servidor grava e o JavaScript não lê.
  */
 export type TokenDeAcesso = Schemas['AccessTokenResponse'];
+/** O saldo do dia e se o serviço aceita fala agora (ADR-0064). */
+export type CotaDoDia = Schemas['QuotaStatusResponse'];
 
 export type OpcoesDoCliente = {
   baseUrl: string;
@@ -186,6 +188,8 @@ export type Cliente = {
    * não recebe token.
    */
   excluirConta(sinal?: AbortSignal): Promise<void>;
+  /** `GET /v1/students/me/quota` — o artboard 12 (ADR-0064). */
+  lerCota(sinal?: AbortSignal): Promise<CotaDoDia>;
   /**
    * As quatro rotas de sessão da **web** (CARD-064, ADR-0077). Mesmo caso de
    * uso das versões do mobile; muda o transporte do refresh: o navegador o
@@ -608,6 +612,14 @@ export function criarCliente(opcoes: OpcoesDoCliente): Cliente {
         signal: sinal ?? null,
       });
       if (!resposta.ok) await falhar(resposta);
+    },
+
+    async lerCota(sinal?: AbortSignal): Promise<CotaDoDia> {
+      const resposta = await executar(`${base}/v1/students/me/quota`, {
+        headers: cabecalhos(),
+        signal: sinal ?? null,
+      });
+      return json<CotaDoDia>(resposta);
     },
 
     async excluirConta(sinal?: AbortSignal): Promise<void> {

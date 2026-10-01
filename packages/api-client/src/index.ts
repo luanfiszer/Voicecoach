@@ -10,6 +10,7 @@
 export {
   type AcompanhamentoDoTurn,
   type Cliente,
+  type CotaDoDia,
   criarCliente,
   type EnvioDeTurn,
   ErroDaApi,

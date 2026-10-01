@@ -1,0 +1,102 @@
+.casca {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+}
+
+.topo {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco-md);
+  padding: var(--espaco-sm) var(--espaco-lg);
+  border-bottom: 1px solid var(--cor-chip);
+  background: var(--cor-fundo);
+}
+
+.marca {
+  font: var(--texto-correcao);
+  color: var(--cor-tinta);
+}
+
+.navegacao {
+  display: flex;
+  gap: var(--espaco-xs);
+  overflow-x: auto;
+}
+
+.aba {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  padding: 0 var(--espaco-md);
+  border-radius: var(--raio-chip);
+  color: var(--cor-secundario);
+  font: var(--texto-apoio);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.aba:hover {
+  color: var(--cor-tinta);
+}
+
+.abaAtiva {
+  background: var(--cor-acento-suave);
+  color: var(--cor-acento);
+}
+
+.conteudo {
+  width: 100%;
+  max-width: var(--largura-conteudo);
+  margin: 0 auto;
+  padding: var(--espaco-lg);
+}
+
+.pagina {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-md);
+}
+
+.cabecalho {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-xs);
+}
+
+.secao {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-xs);
+}
+
+.carregandoTela {
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (max-width: 560px) {
+  .topo {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .navegacao {
+    /* Quatro abas não cabem em 390px: quebram linha em vez de rolar de lado
+       (o scroll lateral escondia "Configurações" sem nenhuma pista). */
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+  .aba {
+    padding: 0 var(--espaco-sm);
+  }
+  .conteudo {
+    padding: var(--espaco-md);
+  }
+}

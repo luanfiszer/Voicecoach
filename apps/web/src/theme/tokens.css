@@ -1,0 +1,63 @@
+/*
+ * Tokens do design — a ÚNICA fonte de cor, tipografia e espaçamento da web.
+ *
+ * Os MESMOS valores de `apps/mobile/src/theme/tokens.ts` (artboard 17,
+ * `docs/design/README.md`), reescritos como variáveis CSS: a web não importa
+ * nada do mobile (ADR-0002), então a paleta é duplicada de propósito — e este
+ * arquivo é o único lugar que muda quando o investimento de UX/UI chegar.
+ *
+ * O que o React Native não tem e o CSS tem: cascata. O tema escuro é só a
+ * redefinição das variáveis sob `prefers-color-scheme: dark`; nenhum
+ * componente sabe em qual tema está.
+ */
+
+:root {
+  --cor-fundo: #f7f5f2;
+  --cor-superficie: #ffffff;
+  --cor-tinta: #171614;
+  --cor-secundario: #6e6a62;
+  --cor-acento: #b44b31;
+  --cor-sobre-acento: #ffffff;
+  --cor-acento-suave: #f5ddd5;
+  --cor-chip: #edeae5;
+  --cor-perigo: #c0392b;
+
+  --fonte: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* Escalas do artboard 17, pelo PAPEL (não pelo tamanho). */
+  --texto-display: 600 30px / 36px var(--fonte);
+  --texto-correcao: 600 19px / 25px var(--fonte);
+  --texto-corpo: 400 16.5px / 24px var(--fonte);
+  --texto-apoio: 400 13.5px / 20px var(--fonte);
+  --texto-rotulo: 600 9.5px / 14px var(--fonte);
+  --tracking-rotulo: 0.16em;
+
+  --alvo-minimo: 48px;
+  --raio-card: 14px;
+  --raio-chip: 8px;
+  --raio-campo: 12px;
+
+  --espaco-xs: 4px;
+  --espaco-sm: 8px;
+  --espaco-md: 16px;
+  --espaco-lg: 24px;
+  --espaco-xl: 40px;
+
+  /* Largura de leitura: a web é companion, não dashboard largo (ainda). */
+  --largura-conteudo: 720px;
+  --largura-formulario: 400px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cor-fundo: #121211;
+    --cor-superficie: #1a1918;
+    --cor-tinta: #f2f0ec;
+    --cor-secundario: #8f8b83;
+    --cor-acento: #e4795c;
+    --cor-sobre-acento: #1a1918;
+    --cor-acento-suave: #3a2a24;
+    --cor-chip: #232220;
+    --cor-perigo: #e05b4c;
+  }
+}

@@ -1,0 +1,44 @@
+.linhaDoTopo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco-sm);
+}
+
+.titulo {
+  font-weight: 600;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--espaco-sm);
+}
+
+.chip {
+  padding: var(--espaco-xs) var(--espaco-sm);
+  border-radius: var(--raio-chip);
+  background: var(--cor-chip);
+  color: var(--cor-secundario);
+  font: var(--texto-apoio);
+}
+
+.chipDeCorrecao {
+  background: var(--cor-acento-suave);
+  color: var(--cor-acento);
+  font-weight: 600;
+}
+
+.aviso {
+  font-style: italic;
+}
+
+.nota {
+  padding-top: var(--espaco-sm);
+  text-align: center;
+}
+
+.acoes {
+  display: flex;
+  justify-content: flex-end;
+}

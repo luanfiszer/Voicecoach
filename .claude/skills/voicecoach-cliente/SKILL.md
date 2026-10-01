@@ -10,7 +10,7 @@ Regras **destiladas dos ADRs** (`docs/adr/`) e do design (`docs/design/`).
 reavaliá-la, está em [REFERENCE.md](REFERENCE.md).
 
 > **Cobertura desta skill:** ADRs 0001, 0002, 0003, 0007, 0008, 0010, 0023,
-> 0024, 0026, 0043, 0044, 0045, 0046, 0047, 0061, e o style guide de
+> 0024, 0026, 0043, 0044, 0045, 0046, 0047, 0061, 0077, 0078, e o style guide de
 > `docs/design/README.md`. Se a skill
 > contradisser um ADR, **o ADR ganha**.
 >
@@ -30,7 +30,7 @@ reavaliá-la, está em [REFERENCE.md](REFERENCE.md).
 
 ## Escopo
 
-Só o **cliente**: `apps/mobile` (Expo/RN), `apps/web` (Vite, ainda vazio) e o
+Só o **cliente**: `apps/mobile` (Expo/RN), `apps/web` (Vite + React, fase 1 desde o CARD-064) e o
 consumo de `packages/api-client`. O backend Python tem skill própria
 (`voicecoach-arquitetura`).
 
@@ -200,6 +200,29 @@ terceiro com o **artboard 13** (microcopy pronta: "Precisamos do microfone" →
 - **URL de trecho é assinada e expira** (ADR-0024). Trecho expirado com `full`
   presente ⇒ toque o inteiro; ambos expirados ⇒ áudio indisponível, texto e
   correções preservados. **Nunca** tratar como erro fatal.
+
+## Web (`apps/web`, ADR-0077, ADR-0078)
+
+| Preciso de… | Vai em | Fonte |
+|---|---|---|
+| uma tela | `src/features/<nome>/Tela*.tsx`, ligada a uma rota em `src/App.tsx` | ADR-0078 |
+| cor, fonte, espaço | **só** `src/theme/tokens.css` (variáveis CSS); estilo do componente num `.module.css` | ADR-0078 |
+| chamar a API autenticado | `useClienteAutenticado()` — o `fetch` já injeta o Bearer e renova | ADR-0077 |
+| config pública | `import.meta.env.VITE_*` lida em `src/config.ts` — nada secreto | ADR-0078 |
+
+- ❌ **Guardar token em `localStorage`/`sessionStorage`.** O refresh é cookie
+  `HttpOnly` (o JS nunca o vê); o access vive na memória da aba (ADR-0077).
+- ❌ **Chamar a API de outra origem / ligar CORS.** A web e a API ficam na
+  MESMA origem (proxy do Vite, reverse proxy em produção) — é o que mantém o
+  cookie `SameSite=Strict` (ADR-0077).
+- ❌ **Renovar a sessão fora de `navigator.locks`.** Duas abas renovando juntas
+  são reuso para o servidor e deslogam as duas — demonstrado (ADR-0077).
+- ❌ **Copiar o cookie para outro contexto** (teste, extensão): o servidor vê
+  reuso e revoga a família. Emule tema/viewport na mesma aba.
+- ❌ **Biblioteca de componentes ou Tailwind** antes do investimento de UX/UI
+  (gatilhos no ADR-0078).
+- ❌ **Importar de `apps/mobile`.** Texto do produto é copiado, com o teste
+  junto (ADR-0002).
 
 ## Design (`docs/design/`)
 

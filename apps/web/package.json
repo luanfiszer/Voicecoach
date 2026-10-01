@@ -1,0 +1,27 @@
+{
+  "name": "@voicecoach/web",
+  "private": true,
+  "version": "0.1.0",
+  "description": "App web companion (ADR-0001/0002): Vite + React + TypeScript. Fala com o backend só por @voicecoach/api-client.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@voicecoach/api-client": "workspace:*",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-router": "^8.4.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "@types/react-dom": "~19.2.2",
+    "@vitejs/plugin-react": "~5.2.0",
+    "typescript": "~6.0.3",
+    "vite": "~7.3.6"
+  },
+  "license": "UNLICENSED"
+}

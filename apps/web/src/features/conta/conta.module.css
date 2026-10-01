@@ -1,0 +1,42 @@
+.barra {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--cor-chip);
+}
+
+.preenchimento {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--cor-acento);
+  transition: width 240ms ease;
+}
+
+.saldo {
+  font: var(--texto-correcao);
+}
+
+.linha {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--espaco-sm);
+}
+
+.zonaDePerigo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-sm);
+  padding-top: var(--espaco-lg);
+  border-top: 1px solid var(--cor-chip);
+}
+
+.botoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--espaco-sm);
+}
+
+.botoes > * {
+  flex: 1 1 180px;
+}

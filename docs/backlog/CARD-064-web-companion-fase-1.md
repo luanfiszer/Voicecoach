@@ -3,7 +3,7 @@
 - **ID:** CARD-064
 - **Épico:** Web companion (Fase 6 do roadmap, antecipada a pedido do desenvolvedor)
 - **Esforço:** G
-- **Status:** em andamento (2026-10-01)
+- **Status:** concluído (2026-10-01) — com o login Google da web pendente do client ID (ver "Pendente")
 - **Dependências:** ADR-0001, ADR-0002, ADR-0007, ADR-0008, [ADR-0077](../adr/0077-sessao-da-web-refresh-em-cookie-httponly.md); CARD-049/050/051/060; a fase 2 é o [CARD-065](CARD-065-web-conversa-por-audio.md)
 
 ## Contexto
@@ -72,6 +72,57 @@ Native que o projeto já tem — e sessão de navegador: por que `HttpOnly` +
 - [ADR-0077](../adr/0077-sessao-da-web-refresh-em-cookie-httponly.md)
   (critérios **4** e **2**).
 
-### Parte 2 — o app web
+### Parte 2 — o app web (2026-10-01)
 
-*(em andamento)*
+- `apps/web`: Vite 7 + React 19.2.3 + React Router 8 + CSS Modules, tokens do
+  mobile em `theme/tokens.css` — [ADR-0078](../adr/0078-a-web-vite-react-router-css-modules-sem-biblioteca-de-ui.md)
+  (critérios **1** e **5**). `vite` 8 recusado: exigia exceção na política de
+  idade mínima de release do pnpm e dois `vite` no repo.
+- Telas: entrar, criar conta, confirme seu e-mail, confirmar e-mail (link),
+  esqueci/redefinir senha, histórico, conta (cota do dia + sair + excluir),
+  configurações, e o lugar da conversa (CARD-065).
+- `sessaoWeb.ts` (núcleo sem React): access token só em memória, renovação
+  dentro de `navigator.locks`. Teste das duas abas com servidor falso e pote
+  de cookies compartilhado: **com a trava, as duas ficam logadas; sem ela, a
+  família morre** (o contraexemplo também é teste).
+- `packages/api-client`: `lerCota()`.
+
+### QA no navegador real (Chromium headless via Playwright, fora do repo)
+
+20 verificações, todas verdes: deslogado → `/entrar`; senha curta avisa;
+cadastro → "confirme seu e-mail"; link confirma; senha errada avisa; login com
+Enter; **cookie `voicecoach_refresh` com `HttpOnly`, `SameSite=Strict`,
+`Path=/v1/auth/web`, e `document.cookie` sem ele**; recarregar mantém logado;
+histórico com uma sessão real (turn processado pelo worker); **duas abas
+abertas ao mesmo tempo continuam logadas, e uma terceira entra depois**; cota
+do dia; tema escuro com o fundo `#121211`; celular sem rolagem lateral;
+excluir conta volta a `/entrar` e a conta não entra mais; todo 401 visto é
+refresh sem sessão ou login recusado; nenhum erro de app no console.
+
+Dois achados do QA:
+
+1. **No celular a aba "Configurações" ficava cortada** num scroll lateral
+   invisível — corrigido (abas quebram linha), reconferido em 390 px.
+2. Copiar o cookie para outro contexto do navegador fez o servidor ver
+   **reuso** e revogar a família — comportamento correto (é o cenário do
+   cookie roubado); o roteiro passou a emular tema/viewport na mesma aba.
+
+### Pendente
+
+- **Google na web**: código pronto (GIS + `/v1/auth/web/google` + segunda
+  audiência), **sem verificação real** até o desenvolvedor criar o client ID
+  Web e preencher `GOOGLE_WEB_CLIENT_ID` (raiz) e `VITE_GOOGLE_WEB_CLIENT_ID`
+  (`apps/web/.env.local`). Sem ele o botão não aparece.
+- Os links dos e-mails ainda apontam para a API (JSON). As rotas
+  `/confirmar-email` e `/redefinir-senha?token=` da web já existem para
+  recebê-los quando o link mudar — decisão de deploy (CARD-055).
+- Rever uma sessão (turns e correções) no histórico: o backend não tem a
+  leitura de uma sessão com os turns.
+- Logout em uma aba só vale nas outras quando o access de 15 min expira
+  (`BroadcastChannel` resolveria; sem gatilho ainda).
+
+### Regra do explicador
+
+1 pergunta nesta sessão, no ponto da decisão do cookie → **dispensada pelo
+desenvolvedor**. A execução demonstrou a resposta e achou o defeito de
+rotação (registrado em `docs/perguntas-em-aberto.md`).
