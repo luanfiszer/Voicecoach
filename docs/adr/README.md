@@ -110,6 +110,7 @@ Escreva um ADR sempre que a decisão:
 | [0071](0071-login-social-no-cliente-sdk-nativo-do-google.md) | Login social no cliente: SDK nativo do Google, logo em SVG, Apple ainda desligado | aceito |
 | [0072](0072-a-imagem-do-minio-sai-do-quay-para-o-fork-pgsty.md) | A imagem do MinIO sai do quay.io para o fork `pgsty/minio` (substitui o ADR-0062) | aceito |
 | [0073](0073-dono-do-recurso-checado-no-caso-de-uso-404-identico.md) | O dono do recurso é checado no caso de uso; alheio é o mesmo 404 do inexistente | aceito |
+| [0074](0074-contadores-de-custo-fail-closed-e-custo-por-conta-como-view.md) | Contadores de custo são fail-closed; o custo por conta nova é uma view | aceito |
 
 ## ADRs pendentes de decisão de produto
 

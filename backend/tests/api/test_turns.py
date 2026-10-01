@@ -26,6 +26,8 @@ from voicecoach.api.schemas.turns import (
     FeedbackPayload,
     TurnResponse,
 )
+from voicecoach.application.ports.rate_limiter import RateLimiterError
+from voicecoach.application.ports.service_budget import ServiceBudgetError
 from voicecoach.config import Settings
 from voicecoach.domain.correction import Correction, CorrectionType, Severity
 from voicecoach.domain.session import Session
@@ -240,6 +242,41 @@ async def test_rate_limit_excedido_e_429_antes_de_ler_o_audio(
     assert corpo["type"] == "urn:voicecoach:problem:rate-limited"
     assert fakes.turns.turns == {}
     assert fakes.storage.objetos == {}
+
+
+async def test_rate_limiter_fora_do_ar_barra_com_503_fail_closed(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    """CARD-054: o contador de custo inalcançável BARRA — o oposto do reflexo
+    de disponibilidade. Antes era um `500 text/plain` acidental.
+    """
+    fakes.rate_limiter.falha = RateLimiterError("redis fora")
+
+    resposta = await client.post(
+        f"/v1/sessions/{fakes.sessao.id}/turns", files=upload(), headers=CHAVE
+    )
+
+    assert resposta.status_code == 503
+    assert resposta.headers["content-type"].startswith(CONTENT_TYPE)
+    assert resposta.json()["type"] == "urn:voicecoach:problem:dependency-unavailable"
+    assert fakes.turns.turns == {}
+    assert fakes.storage.objetos == {}
+
+
+async def test_orcamento_ilegivel_barra_o_turn_com_503_fail_closed(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    """Sem saber quanto o produto já gastou, não se gasta mais (CARD-054)."""
+    fakes.budget.falha = ServiceBudgetError("redis fora")
+
+    resposta = await client.post(
+        f"/v1/sessions/{fakes.sessao.id}/turns", files=upload(), headers=CHAVE
+    )
+
+    assert resposta.status_code == 503
+    assert resposta.json()["type"] == "urn:voicecoach:problem:dependency-unavailable"
+    assert fakes.turns.turns == {}
+    assert fakes.enfileirados == []
 
 
 # --- GET: o contrato de recuo ----------------------------------------------

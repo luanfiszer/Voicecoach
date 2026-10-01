@@ -21,6 +21,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from redis.exceptions import RedisError
+
+from voicecoach.application.ports.rate_limiter import RateLimiterError
+
 if TYPE_CHECKING:
     from datetime import timedelta
 
@@ -55,5 +59,9 @@ class RedisRateLimiter:
 
     async def hit(self, key: str, *, window: timedelta, limit: int) -> bool:
         janela_ms = int(window.total_seconds() * 1000)
-        atual = await self._script(keys=[f"{PREFIXO}{key}"], args=[janela_ms])
+        try:
+            atual = await self._script(keys=[f"{PREFIXO}{key}"], args=[janela_ms])
+        except RedisError as exc:
+            message = f"contador de rate limit inalcançável ({key}): {exc}"
+            raise RateLimiterError(message) from exc
         return int(atual) <= limit

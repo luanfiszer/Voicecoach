@@ -22,6 +22,17 @@ if TYPE_CHECKING:
     from datetime import timedelta
 
 
+class RateLimiterError(RuntimeError):
+    """O contador não respondeu — o Redis caiu ou não aceitou a operação.
+
+    **Quem recebe isto BARRA a requisição (fail-closed, CARD-054).** O reflexo
+    de disponibilidade seria deixar passar ("o limite é só proteção"), mas o
+    que este contador protege é custo: liberar sem contar abre exatamente a
+    torneira que ele existe para fechar. A borda o traduz para ``503``
+    (ADR-0040), nunca ``500`` mudo — o cliente pode tentar de novo.
+    """
+
+
 class RateLimiter(Protocol):
     """Um contador de janela fixa, atômico por construção.
 
@@ -32,5 +43,8 @@ class RateLimiter(Protocol):
     """
 
     async def hit(self, key: str, *, window: timedelta, limit: int) -> bool:
-        """``True`` se esta ocorrência ainda está dentro do limite da janela."""
+        """``True`` se esta ocorrência ainda está dentro do limite da janela.
+
+        Levanta ``RateLimiterError`` se o contador estiver inalcançável.
+        """
         ...

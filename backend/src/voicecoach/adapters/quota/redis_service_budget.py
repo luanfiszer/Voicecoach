@@ -22,6 +22,10 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
+from redis.exceptions import RedisError
+
+from voicecoach.application.ports.service_budget import ServiceBudgetError
+
 if TYPE_CHECKING:
     from datetime import datetime
 
@@ -76,15 +80,23 @@ class RedisServiceBudget:
         centavos = _centavos(usd)
         chave_dia = _chave_diaria(when)
         chave_mes = _chave_mensal(when)
-        await self._redis.incrby(chave_dia, centavos)
-        await self._redis.expire(chave_dia, _TTL_DIARIO_SEGUNDOS)
-        await self._redis.incrby(chave_mes, centavos)
-        await self._redis.expire(chave_mes, _TTL_MENSAL_SEGUNDOS)
+        try:
+            await self._redis.incrby(chave_dia, centavos)
+            await self._redis.expire(chave_dia, _TTL_DIARIO_SEGUNDOS)
+            await self._redis.incrby(chave_mes, centavos)
+            await self._redis.expire(chave_mes, _TTL_MENSAL_SEGUNDOS)
+        except RedisError as exc:
+            message = f"não deu para somar US$ {usd} ao orçamento: {exc}"
+            raise ServiceBudgetError(message) from exc
 
     async def is_exceeded(self, *, when: datetime) -> bool:
-        gasto_dia, gasto_mes = await self._redis.mget(
-            _chave_diaria(when), _chave_mensal(when)
-        )
+        try:
+            gasto_dia, gasto_mes = await self._redis.mget(
+                _chave_diaria(when), _chave_mensal(when)
+            )
+        except RedisError as exc:
+            message = f"não deu para ler o orçamento do produto: {exc}"
+            raise ServiceBudgetError(message) from exc
         # Chave ausente (nada gasto ainda hoje/este mês) vem `None` do MGET —
         # `int(None)` levantaria, então o `or 0` é o "zero é o normal" de
         # sempre, não um valor inventado para esconder erro.

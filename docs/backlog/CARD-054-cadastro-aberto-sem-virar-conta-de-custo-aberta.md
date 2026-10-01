@@ -3,7 +3,7 @@
 - **ID:** CARD-054
 - **Épico:** Proteção de custo (bloqueante de V1.0 — N7 do corte)
 - **Esforço:** M
-- **Status:** backlog
+- **Status:** parcial (2026-10-01) — itens 1, 2, fail-closed e a leitura de custo feitos; cota de avaliação e precedência do pagante **bloqueadas** pelo CARD-020 e por decisão de produto. Ver "Execução"
 - **Dependências:** CARD-049, CARD-015, ADR-0010 (**e o ADR que o substituir**)
 
 ## Contexto
@@ -129,3 +129,44 @@ na virada da janela, e a diferença é explorável. E entender por que o Redis �
 peça certa para isso e o Postgres não, mesmo o Postgres sendo a fonte da verdade
 de tudo o mais neste projeto: a distinção entre o que precisa **durar** e o que
 precisa ser **contado rápido e expirar sozinho**.
+
+## Execução (2026-10-01, loop autônomo) — parcial
+
+### Feito
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 3 cadastros/h por IP, 429 sem revelar o e-mail | **já existia** (CARD-049); faltava teste | `test_cadastro_alem_do_limite_por_ip_e_429_sem_dizer_se_o_email_existe` |
+| Redis fora → turn **barrado** | **feito**: era `500 text/plain` acidental, agora `503` Problem Details explícito | `test_rate_limiter_fora_do_ar_barra_com_503_fail_closed`, `test_orcamento_ilegivel_barra_o_turn_com_503_fail_closed`, 2 testes de adapter contra Redis inalcançável |
+| Custo por conta criada consultável | **feito**: view `account_costs` (migration `c7e2a9d41f30`) | `test_account_costs_soma_turns_e_traducoes_dentro_da_janela_da_conta`; `upgrade`/`downgrade -1`/`upgrade` e `alembic check` limpos |
+| Cota de avaliação separada | **bloqueado** | ver abaixo |
+| Kill switch poupa o pagante | **bloqueado** | ver abaixo |
+
+**Gesto real** (Redis parado com API de pé, aluno verificado posta turn):
+
+```
+antes:  POST turn com Redis fora: 500 text/plain; charset=utf-8 Internal Server Error
+depois: POST turn com Redis fora: 503 application/problem+json
+        {"type":"urn:voicecoach:problem:dependency-unavailable",...}
+```
+
+**View sobre os dados locais:** o aluno de dev aparece com 26 turns e
+US$ 0,0668 nos primeiros 7 dias.
+
+[ADR-0074](../adr/0074-contadores-de-custo-fail-closed-e-custo-por-conta-como-view.md)
+(critérios **3** — custo — e **2** — formato persistido).
+
+### Bloqueado, e por quê
+
+- **Cota de avaliação e precedência do pagante:** "pagante" não existe no
+  sistema — planos e entitlements são o CARD-020, ainda em backlog. E o
+  tamanho da cota gratuita é, nas palavras do próprio card, "decisão de
+  produto e não está tomada". Inventar o número violaria a regra do loop
+  ("nunca decida por adivinhação o que exige dado de fora do repositório").
+  Retomar depois do CARD-020, com o número decidido pelo desenvolvedor — a
+  view `account_costs` é o instrumento para escolhê-lo.
+
+### Decisões técnicas (registradas, sem pergunta)
+
+Fail-closed só nos contadores de custo (o SSE mantém o recuo para polling);
+view em vez de tabela, endpoint ou script — alternativas no ADR-0074.
