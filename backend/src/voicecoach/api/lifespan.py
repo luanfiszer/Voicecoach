@@ -123,9 +123,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Construído aqui, uma vez, pela mesma razão do tradutor: o `PyJWKClient`
     # cacheia a chave pública do provedor, e recriá-lo por request jogaria
     # fora esse cache.
+    audiencias_google = [
+        c for c in (settings.google_client_id, settings.google_web_client_id) if c
+    ]
     app.state.google_identity_provider = (
-        GoogleIdentityProvider(client_id=settings.google_client_id)
-        if settings.google_client_id
+        GoogleIdentityProvider(client_ids=audiencias_google)
+        if audiencias_google
         else None
     )
     app.state.apple_identity_provider = (

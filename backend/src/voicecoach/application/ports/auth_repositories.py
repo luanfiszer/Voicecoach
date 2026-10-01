@@ -67,7 +67,15 @@ class RefreshTokenRepository(Protocol):
 
     async def get_by_hash(self, token_hash: str) -> RefreshToken | None: ...
 
-    async def mark_revoked(self, token_id: UUID, when: datetime) -> None: ...
+    async def try_revoke(self, token_id: UUID, when: datetime) -> bool:
+        """Revoga o elo SE ele ainda estiver vivo; ``True`` só para quem revogou.
+
+        Atômico (CARD-064): dois refresh concorrentes com o MESMO token não
+        podem os dois "ganhar". Antes era ler-checar-escrever, e as duas
+        chamadas passavam pela checagem — a família bifurcava em dois tokens
+        válidos e a detecção de reuso do ADR-0007 era contornável.
+        """
+        ...
 
     async def revoke_family(self, family_id: UUID, when: datetime) -> None: ...
 

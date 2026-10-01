@@ -82,7 +82,14 @@ class RefreshTokensHandler:
         if not existente.is_usable(agora):
             return Err(RefreshRejected())
 
-        await self._refresh_tokens.mark_revoked(existente.id, agora)
+        if not await self._refresh_tokens.try_revoke(existente.id, agora):
+            # Outra requisição rotacionou este MESMO elo entre a nossa leitura
+            # e esta escrita (CARD-064): é reuso, com a mesma resposta do caso
+            # acima. Sem isto, as duas recebiam token novo e a família
+            # bifurcava — medido com dois `curl` em paralelo.
+            await self._refresh_tokens.revoke_family(existente.family_id, agora)
+            await self._uow.commit()
+            return Err(RefreshRejected())
         refresh_claro, refresh_hash = new_opaque_token()
         novo = RefreshToken(
             id=self._new_id(),

@@ -573,6 +573,11 @@ class Settings(BaseSettings):
     # mobile). Cada refresh rotaciona para um par novo com o MESMO prazo a
     # partir de agora; a família só morre por logout ou reuso detectado.
     refresh_token_ttl: timedelta = timedelta(days=30)
+    # A web guarda o refresh num cookie `HttpOnly` (CARD-064, ADR-0077).
+    # `Secure` por padrão; `false` só em desenvolvimento por HTTP, e mesmo lá
+    # Chrome e Firefox aceitam `Secure` em `http://localhost` — quem precisa
+    # desligar é quem testa no Safari.
+    web_refresh_cookie_secure: bool = True
 
     # 24h para confirmar o e-mail. Maior que o TTL de tradução/professor
     # porque quem confirma é um humano lendo a caixa de entrada, não um
@@ -629,6 +634,10 @@ class Settings(BaseSettings):
     # diferentes no fluxo da Apple; confundi-los produz um `aud` sempre
     # errado, com o mesmo sintoma de "token adulterado".
     google_client_id: str | None = None
+    # O client ID **Web** do Google (CARD-064), outra credencial no Google
+    # Cloud: o `id_token` que o navegador recebe tem `aud` igual a ESTE valor,
+    # não ao do iOS. As duas audiências são aceitas; nenhuma outra.
+    google_web_client_id: str | None = None
     apple_client_id: str | None = None
 
     # Mesmo teto de abuso do cadastro (CARD-049) — o login social já se

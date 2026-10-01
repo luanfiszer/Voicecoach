@@ -468,6 +468,179 @@
         }
       }
     },
+    "/v1/auth/web/login": {
+      "post": {
+        "tags": [
+          "auth-web"
+        ],
+        "summary": "Login por e-mail+senha da web \u2014 refresh em cookie HttpOnly",
+        "operationId": "login_web_v1_auth_web_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessTokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/web/google": {
+      "post": {
+        "tags": [
+          "auth-web"
+        ],
+        "summary": "Login com Google da web \u2014 refresh em cookie HttpOnly",
+        "operationId": "login_google_web_v1_auth_web_google_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessTokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/web/refresh": {
+      "post": {
+        "tags": [
+          "auth-web"
+        ],
+        "summary": "Rotaciona a sess\u00e3o da web a partir do cookie",
+        "operationId": "refresh_web_v1_auth_web_refresh_post",
+        "parameters": [
+          {
+            "name": "voicecoach_refresh",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Voicecoach Refresh"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessTokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/web/logout": {
+      "post": {
+        "tags": [
+          "auth-web"
+        ],
+        "summary": "Encerra a sess\u00e3o da web: revoga a fam\u00edlia e apaga o cookie",
+        "operationId": "logout_web_v1_auth_web_logout_post",
+        "parameters": [
+          {
+            "name": "voicecoach_refresh",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Voicecoach Refresh"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/sessions": {
       "post": {
         "tags": [
@@ -1079,6 +1252,31 @@
   },
   "components": {
     "schemas": {
+      "AccessTokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In",
+            "description": "Segundos at\u00e9 o `access_token` expirar."
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "expires_in"
+        ],
+        "title": "AccessTokenResponse",
+        "description": "O que a web recebe (CARD-064, ADR-0077): s\u00f3 o access token.\n\nO refresh vai no cookie `HttpOnly` que o pr\u00f3prio servidor grava \u2014 ele\nnunca aparece num corpo que o JavaScript da p\u00e1gina consiga ler."
+      },
       "AppleLoginRequest": {
         "properties": {
           "identity_token": {

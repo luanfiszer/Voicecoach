@@ -177,6 +177,18 @@ seguinte (ela não é "sem desfecho"; o desfecho é a dispensa).
 
 ## Arquivadas — e o que a execução demonstrou sobre cada uma
 
+> **CARD-064 (2026-10-01), dispensada pelo desenvolvedor** ("ok, continue"):
+> *"Duas abas abertas, o access expira e as duas chamam
+> `POST /v1/auth/web/refresh` ao mesmo tempo com o mesmo cookie — o que
+> acontece com a sessão?"* **O que a execução demonstrou** (dois `curl` em
+> paralelo): antes da correção, numa rodada uma ganhou e outra levou 401;
+> noutra, **as duas** receberam token novo — corrida *check-then-act* no
+> `RefreshTokensHandler`, a família bifurcava e a detecção de reuso era
+> contornável. Corrigido com `try_revoke` atômico; depois, uma ganha, a outra
+> é reuso, a família inteira é revogada (até o token novo da vencedora → 401):
+> **o aluno é deslogado nas duas abas**. Daí a Web Locks API no cliente
+> (ADR-0077). Volta quando um card tocar sessão multi-dispositivo.
+
 Arquivadas em **2026-08-26**, na abertura do CARD-013, por decisão do
 desenvolvedor (LEARNING-0005). O passivo veio dos CARDs 001–011: as quatro
 primeiras nasceram sob o mecanismo antigo (agente perguntava no fim e fechava o

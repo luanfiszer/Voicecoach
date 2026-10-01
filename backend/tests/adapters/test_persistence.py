@@ -2221,6 +2221,42 @@ async def test_refresh_token_faz_roundtrip_por_hash(
     assert relido == token
 
 
+async def test_try_revoke_concorrente_tem_um_vencedor_so(
+    database_url: str, aluno_isolado: tuple[Student, Session]
+) -> None:
+    """CARD-064: duas conexões revogando o MESMO elo ao mesmo tempo — o que
+    duas abas fazem quando o access expira junto. Exatamente uma vence; antes
+    o `UPDATE` cego deixava as duas seguirem e emitirem token novo.
+    """
+    student, _sessao = aluno_isolado
+    token = RefreshToken(
+        id=uuid4(),
+        student_id=student.id,
+        family_id=uuid4(),
+        token_hash=f"hash-corrida-{uuid4()}",
+        created_at=NOW,
+        expires_at=NOW + timedelta(days=30),
+    )
+    engine = create_engine(database_url)
+    factory = create_session_factory(engine)
+    async with factory() as preparo:
+        await SqlAlchemyRefreshTokenRepository(preparo).add(token)
+        await preparo.commit()
+
+    async def revogar() -> bool:
+        async with factory() as sessao:
+            venceu = await SqlAlchemyRefreshTokenRepository(sessao).try_revoke(
+                token.id, NOW + timedelta(minutes=1)
+            )
+            await sessao.commit()
+            return venceu
+
+    resultados = await asyncio.gather(revogar(), revogar())
+    await engine.dispose()
+
+    assert sorted(resultados) == [False, True]
+
+
 async def test_revoke_family_revoga_so_os_vivos_e_preserva_o_instante_anterior(
     db_session: AsyncSession, aluno_isolado: tuple[Student, Session]
 ) -> None:

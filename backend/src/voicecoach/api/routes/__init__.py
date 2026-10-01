@@ -15,10 +15,11 @@ contrato de produto e não versiona junto com ele (ADR-0014).
 
 from fastapi import APIRouter
 
-from voicecoach.api.routes import auth, sessions, students, turns
+from voicecoach.api.routes import auth, auth_web, sessions, students, turns
 
 v1 = APIRouter(prefix="/v1")
 v1.include_router(auth.router)
+v1.include_router(auth_web.router)
 v1.include_router(sessions.router)
 v1.include_router(students.router)
 v1.include_router(turns.router)

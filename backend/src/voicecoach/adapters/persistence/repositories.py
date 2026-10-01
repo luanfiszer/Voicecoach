@@ -156,13 +156,23 @@ class SqlAlchemyRefreshTokenRepository:
         row = (await self._session.execute(stmt)).scalar_one_or_none()
         return None if row is None else mappers.refresh_token_from_row(row)
 
-    async def mark_revoked(self, token_id: UUID, when: datetime) -> None:
+    async def try_revoke(self, token_id: UUID, when: datetime) -> bool:
+        """`UPDATE ... WHERE revoked_at IS NULL RETURNING id` — o mesmo idioma
+        do `try_end`: o Postgres serializa dois `UPDATE` na mesma linha, e o
+        segundo, ao reavaliar o `WHERE` depois do commit do primeiro, já não
+        casa nada. Quem recebe a linha de volta é o único vencedor.
+        """
         stmt = (
             update(RefreshTokenRow)
-            .where(RefreshTokenRow.id == token_id)
+            .where(
+                RefreshTokenRow.id == token_id,
+                RefreshTokenRow.revoked_at.is_(None),
+            )
             .values(revoked_at=when)
+            .returning(RefreshTokenRow.id)
         )
-        await self._session.execute(stmt)
+        resultado = await self._session.execute(stmt)
+        return resultado.scalar_one_or_none() is not None
 
     async def revoke_family(self, family_id: UUID, when: datetime) -> None:
         """Revoga todos os elos VIVOS da família — a detecção de reuso do ADR-0007.
