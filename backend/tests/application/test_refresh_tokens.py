@@ -127,3 +127,40 @@ async def test_token_expirado_e_rejeitado_sem_rotacionar() -> None:
     assert isinstance(resultado.error, RefreshRejected)
     assert len(refresh_tokens.by_id) == 1
     assert uow.commits == 0
+
+
+class _RepositorioQuePerdeACorrida(FakeRefreshTokenRepository):
+    """Simula a outra aba rotacionando o MESMO elo entre a nossa leitura e a
+    nossa escrita (CARD-064): a leitura vê o token vivo, o `try_revoke` diz
+    que alguém já revogou.
+    """
+
+    async def try_revoke(self, token_id: UUID, when: datetime) -> bool:
+        await super().try_revoke(token_id, when)
+        return False
+
+
+async def test_perder_a_corrida_da_rotacao_e_reuso_e_revoga_a_familia() -> None:
+    """Antes do CARD-064 as duas requisições concorrentes ganhavam token novo e
+    a família bifurcava — medido com dois `curl` em paralelo.
+    """
+    plano, _hash = new_opaque_token()
+    original = token_vivo(plano=plano)
+    irmao = token_vivo(plano="outro-elo-vivo-da-familia")
+    refresh_tokens = _RepositorioQuePerdeACorrida(original, irmao)
+    uow = FakeUnitOfWork()
+    handler = RefreshTokensHandler(
+        refresh_tokens=refresh_tokens,
+        token_issuer=FakeAccessTokenIssuer(),
+        unit_of_work=uow,
+        clock=RelogioFalso(inicio=INICIO),
+        new_id=uuid4,
+        access_token_ttl=timedelta(minutes=15),
+        refresh_token_ttl=timedelta(days=30),
+    )
+
+    resultado = await handler.handle(RefreshTokens(refresh_token=plano))
+
+    assert resultado == Err(RefreshRejected())
+    assert len(refresh_tokens.by_id) == 2  # nenhum elo novo
+    assert refresh_tokens.by_id[irmao.id].revoked_at is not None

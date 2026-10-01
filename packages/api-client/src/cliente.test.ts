@@ -523,3 +523,55 @@ describe('loginApple', () => {
     });
   });
 });
+
+describe('sessão da web (CARD-064)', () => {
+  function gravador(resposta: () => Response) {
+    const chamadas: { url: string; init: RequestInit | undefined }[] = [];
+    const fake: typeof fetch = async (url, init) => {
+      chamadas.push({ url: String(url), init });
+      return resposta();
+    };
+    return { chamadas, fake };
+  }
+  const acesso = { access_token: 'acesso-web', token_type: 'bearer', expires_in: 900 };
+  const ok = () =>
+    new Response(JSON.stringify(acesso), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+
+  it('loginWeb vai para /auth/web/login e devolve só o access token', async () => {
+    const { chamadas, fake } = gravador(ok);
+    const cliente = criarCliente({ baseUrl: '', fetch: fake });
+
+    const resultado = await cliente.loginWeb('a@b.com', 'senha-forte');
+
+    expect(chamadas[0]?.url).toBe('/v1/auth/web/login');
+    expect(JSON.parse(String(chamadas[0]?.init?.body))).toEqual({
+      email: 'a@b.com',
+      password: 'senha-forte',
+    });
+    expect(resultado).toEqual(acesso);
+  });
+
+  it('renovarSessaoWeb não manda corpo nenhum — o refresh vai no cookie', async () => {
+    const { chamadas, fake } = gravador(ok);
+    const cliente = criarCliente({ baseUrl: '', fetch: fake });
+
+    await cliente.renovarSessaoWeb();
+
+    expect(chamadas[0]?.url).toBe('/v1/auth/web/refresh');
+    expect(chamadas[0]?.init?.body).toBeUndefined();
+  });
+
+  it('sairDaWeb aceita 204 e lança ErroDaApi em 5xx', async () => {
+    const vazio = gravador(() => new Response(null, { status: 204 }));
+    await criarCliente({ baseUrl: '', fetch: vazio.fake }).sairDaWeb();
+    expect(vazio.chamadas[0]?.url).toBe('/v1/auth/web/logout');
+
+    const quebrado = gravador(() => new Response('{}', { status: 503 }));
+    await expect(
+      criarCliente({ baseUrl: '', fetch: quebrado.fake }).sairDaWeb(),
+    ).rejects.toBeInstanceOf(ErroDaApi);
+  });
+});

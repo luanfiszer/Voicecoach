@@ -47,6 +47,18 @@ class TokenPairResponse(BaseModel):
     expires_in: int = Field(description="Segundos até o `access_token` expirar.")
 
 
+class AccessTokenResponse(BaseModel):
+    """O que a web recebe (CARD-064, ADR-0077): só o access token.
+
+    O refresh vai no cookie `HttpOnly` que o próprio servidor grava — ele
+    nunca aparece num corpo que o JavaScript da página consiga ler.
+    """
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int = Field(description="Segundos até o `access_token` expirar.")
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 

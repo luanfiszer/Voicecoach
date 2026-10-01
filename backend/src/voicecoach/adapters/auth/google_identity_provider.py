@@ -21,6 +21,7 @@ processo paga o custo cheio.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from typing import Any, Protocol
 
 import jwt
@@ -66,9 +67,16 @@ class GoogleIdentityProvider:
     provider = SocialProvider.GOOGLE
 
     def __init__(
-        self, *, client_id: str, jwks_client: _ClienteDeChaves | None = None
+        self,
+        *,
+        client_ids: Sequence[str],
+        jwks_client: _ClienteDeChaves | None = None,
     ) -> None:
-        self._client_id = client_id
+        # Uma audiência POR CLIENTE (CARD-064): o client ID do iOS e o da web
+        # são credenciais diferentes no Google Cloud, e o `aud` do `id_token` é
+        # o de quem pediu. O PyJWT aceita a lista e exige que o `aud` case com
+        # alguma — nenhuma outra audiência passa.
+        self._client_ids = list(client_ids)
         self._jwks_client = jwks_client or PyJWKClient(_JWKS_URL)
 
     async def verify(self, token: str) -> VerifiedSocialIdentity:
@@ -81,7 +89,7 @@ class GoogleIdentityProvider:
                 token,
                 chave.key,
                 algorithms=[_ALGORITHM],
-                audience=self._client_id,
+                audience=self._client_ids,
                 issuer=list(_ISSUERS),
             )
         except (jwt.exceptions.PyJWTError, PyJWKClientError) as exc:

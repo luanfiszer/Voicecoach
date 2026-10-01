@@ -727,8 +727,12 @@ class FakeRefreshTokenRepository:
             (t for t in self.by_id.values() if t.token_hash == token_hash), None
         )
 
-    async def mark_revoked(self, token_id: UUID, when: datetime) -> None:
-        self.by_id[token_id].revoked_at = when
+    async def try_revoke(self, token_id: UUID, when: datetime) -> bool:
+        token = self.by_id[token_id]
+        if token.revoked_at is not None:
+            return False
+        token.revoked_at = when
+        return True
 
     async def revoke_family(self, family_id: UUID, when: datetime) -> None:
         for token in self.by_id.values():

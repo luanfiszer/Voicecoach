@@ -21,6 +21,7 @@ export {
   type ParDeTokens,
   type Sessao,
   type SessaoDoHistorico,
+  type TokenDeAcesso,
   type Trecho,
   type Turn,
   type TurnAceito,

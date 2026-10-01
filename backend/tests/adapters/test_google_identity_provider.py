@@ -84,7 +84,7 @@ async def test_token_valido_devolve_a_identidade_verificada() -> None:
     privada, publica = _par_de_chaves()
     token = _token_do_google(privada)
     provider = GoogleIdentityProvider(
-        client_id=CLIENT_ID, jwks_client=_ClienteDeChavesFalso(publica)
+        client_ids=[CLIENT_ID], jwks_client=_ClienteDeChavesFalso(publica)
     )
 
     identidade = await provider.verify(token)
@@ -103,7 +103,7 @@ async def test_sem_name_display_name_e_none_e_nao_e_erro() -> None:
     privada, publica = _par_de_chaves()
     token = _token_do_google(privada, name=None)
     provider = GoogleIdentityProvider(
-        client_id=CLIENT_ID, jwks_client=_ClienteDeChavesFalso(publica)
+        client_ids=[CLIENT_ID], jwks_client=_ClienteDeChavesFalso(publica)
     )
 
     identidade = await provider.verify(token)
@@ -120,7 +120,7 @@ async def test_assinado_com_outra_chave_e_invalido() -> None:
     _, publica_de_verdade = _par_de_chaves()
     token_adulterado = _token_do_google(privada_do_atacante)
     provider = GoogleIdentityProvider(
-        client_id=CLIENT_ID, jwks_client=_ClienteDeChavesFalso(publica_de_verdade)
+        client_ids=[CLIENT_ID], jwks_client=_ClienteDeChavesFalso(publica_de_verdade)
     )
 
     with pytest.raises(InvalidSocialTokenError):
@@ -134,18 +134,38 @@ async def test_audiencia_errada_e_invalido() -> None:
     privada, publica = _par_de_chaves()
     token = _token_do_google(privada, aud="outro-app.apps.googleusercontent.com")
     provider = GoogleIdentityProvider(
-        client_id=CLIENT_ID, jwks_client=_ClienteDeChavesFalso(publica)
+        client_ids=[CLIENT_ID], jwks_client=_ClienteDeChavesFalso(publica)
     )
 
     with pytest.raises(InvalidSocialTokenError):
         await provider.verify(token)
 
 
+async def test_aceita_o_id_token_de_qualquer_cliente_configurado() -> None:
+    """CARD-064: o `id_token` do navegador vem com `aud` = client ID **Web**,
+    o do iPhone com o client ID iOS. Os dois passam; um terceiro não.
+    """
+    privada, publica = _par_de_chaves()
+    provider = GoogleIdentityProvider(
+        client_ids=[CLIENT_ID, "web-client.apps.googleusercontent.com"],
+        jwks_client=_ClienteDeChavesFalso(publica),
+    )
+
+    do_ios = await provider.verify(_token_do_google(privada))
+    da_web = await provider.verify(
+        _token_do_google(privada, aud="web-client.apps.googleusercontent.com")
+    )
+
+    assert do_ios.external_id == da_web.external_id
+    with pytest.raises(InvalidSocialTokenError):
+        await provider.verify(_token_do_google(privada, aud="outro-app"))
+
+
 async def test_emissor_errado_e_invalido() -> None:
     privada, publica = _par_de_chaves()
     token = _token_do_google(privada, iss="https://outro-emissor.example.com")
     provider = GoogleIdentityProvider(
-        client_id=CLIENT_ID, jwks_client=_ClienteDeChavesFalso(publica)
+        client_ids=[CLIENT_ID], jwks_client=_ClienteDeChavesFalso(publica)
     )
 
     with pytest.raises(InvalidSocialTokenError):
@@ -156,7 +176,7 @@ async def test_token_expirado_e_invalido() -> None:
     privada, publica = _par_de_chaves()
     token = _token_do_google(privada, exp_delta=-10)
     provider = GoogleIdentityProvider(
-        client_id=CLIENT_ID, jwks_client=_ClienteDeChavesFalso(publica)
+        client_ids=[CLIENT_ID], jwks_client=_ClienteDeChavesFalso(publica)
     )
 
     with pytest.raises(InvalidSocialTokenError):
@@ -179,7 +199,7 @@ async def test_sem_email_e_invalido() -> None:
     }
     token = jwt.encode(payload, privada, algorithm="RS256")
     provider = GoogleIdentityProvider(
-        client_id=CLIENT_ID, jwks_client=_ClienteDeChavesFalso(publica)
+        client_ids=[CLIENT_ID], jwks_client=_ClienteDeChavesFalso(publica)
     )
 
     with pytest.raises(InvalidSocialTokenError):
@@ -193,7 +213,7 @@ async def test_jwks_fora_do_ar_vira_invalid_social_token_nunca_exception_crua() 
     """
     _, publica = _par_de_chaves()
     provider = GoogleIdentityProvider(
-        client_id=CLIENT_ID,
+        client_ids=[CLIENT_ID],
         jwks_client=_ClienteDeChavesFalso(
             publica, erro=PyJWKClientError("JWKS do Google fora do ar")
         ),

@@ -113,6 +113,7 @@ Escreva um ADR sempre que a decisão:
 | [0074](0074-contadores-de-custo-fail-closed-e-custo-por-conta-como-view.md) | Contadores de custo são fail-closed; o custo por conta nova é uma view | aceito |
 | [0075](0075-retencao-aplicada-por-comando-e-verificada-no-boot.md) | A retenção do bucket é aplicada por comando e verificada no boot do worker | aceito |
 | [0076](0076-uma-imagem-dois-alvos-pesos-no-build.md) | Um Dockerfile, dois alvos; os pesos do worker entram no build | aceito |
+| [0077](0077-sessao-da-web-refresh-em-cookie-httponly.md) | Sessão da web: refresh em cookie HttpOnly, rotação atômica e uma aba por vez | aceito |
 
 ## ADRs pendentes de decisão de produto
 

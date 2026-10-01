@@ -33,6 +33,11 @@ export type AlvoDeTraducao = Schemas['TranslationTarget'];
 export type Traducao = Schemas['TranslationResponse'];
 /** O par emitido por login e por refresh — mesma forma nos dois (ADR-0007). */
 export type ParDeTokens = Schemas['TokenPairResponse'];
+/**
+ * O que a web recebe (CARD-064, ADR-0077): só o access token. O refresh mora
+ * num cookie `HttpOnly` que o servidor grava e o JavaScript não lê.
+ */
+export type TokenDeAcesso = Schemas['AccessTokenResponse'];
 
 export type OpcoesDoCliente = {
   baseUrl: string;
@@ -181,6 +186,18 @@ export type Cliente = {
    * não recebe token.
    */
   excluirConta(sinal?: AbortSignal): Promise<void>;
+  /**
+   * As quatro rotas de sessão da **web** (CARD-064, ADR-0077). Mesmo caso de
+   * uso das versões do mobile; muda o transporte do refresh: o navegador o
+   * manda e recebe sozinho, num cookie `HttpOnly` restrito a `/v1/auth/web`.
+   * Exigem que a página esteja na MESMA origem da API (proxy do Vite em dev,
+   * reverse proxy em produção) — o `fetch` só manda cookie de outra origem
+   * com `credentials: 'include'` e CORS configurado, e a API não tem CORS.
+   */
+  loginWeb(email: string, senha: string, sinal?: AbortSignal): Promise<TokenDeAcesso>;
+  loginGoogleWeb(idToken: string, sinal?: AbortSignal): Promise<TokenDeAcesso>;
+  renovarSessaoWeb(sinal?: AbortSignal): Promise<TokenDeAcesso>;
+  sairDaWeb(sinal?: AbortSignal): Promise<void>;
 };
 
 /**
@@ -548,6 +565,49 @@ export function criarCliente(opcoes: OpcoesDoCliente): Cliente {
         signal: sinal ?? null,
       });
       return json<ParDeTokens>(resposta);
+    },
+
+    async loginWeb(
+      email: string,
+      senha: string,
+      sinal?: AbortSignal,
+    ): Promise<TokenDeAcesso> {
+      const resposta = await executar(`${base}/v1/auth/web/login`, {
+        method: 'POST',
+        headers: cabecalhos({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ email, password: senha }),
+        signal: sinal ?? null,
+      });
+      return json<TokenDeAcesso>(resposta);
+    },
+
+    async loginGoogleWeb(idToken: string, sinal?: AbortSignal): Promise<TokenDeAcesso> {
+      const resposta = await executar(`${base}/v1/auth/web/google`, {
+        method: 'POST',
+        headers: cabecalhos({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ id_token: idToken }),
+        signal: sinal ?? null,
+      });
+      return json<TokenDeAcesso>(resposta);
+    },
+
+    async renovarSessaoWeb(sinal?: AbortSignal): Promise<TokenDeAcesso> {
+      // Sem corpo: o refresh vai no cookie, que o navegador anexa sozinho.
+      const resposta = await executar(`${base}/v1/auth/web/refresh`, {
+        method: 'POST',
+        headers: cabecalhos(),
+        signal: sinal ?? null,
+      });
+      return json<TokenDeAcesso>(resposta);
+    },
+
+    async sairDaWeb(sinal?: AbortSignal): Promise<void> {
+      const resposta = await executar(`${base}/v1/auth/web/logout`, {
+        method: 'POST',
+        headers: cabecalhos(),
+        signal: sinal ?? null,
+      });
+      if (!resposta.ok) await falhar(resposta);
     },
 
     async excluirConta(sinal?: AbortSignal): Promise<void> {
