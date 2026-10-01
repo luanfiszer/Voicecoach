@@ -14,10 +14,12 @@ from typing import get_args
 from uuid import uuid4
 
 import pytest
+from fastapi import FastAPI
 from httpx import AsyncClient
 
 from fakes_api import AGORA, TURN_ID, Fakes, turn_pronto, wav_de
 from fakes_pipeline import tradutor_fora_do_ar
+from voicecoach.api import dependencies as deps
 from voicecoach.api.schemas.problem import CONTENT_TYPE
 from voicecoach.api.schemas.turns import (
     CorrectionPayload,
@@ -580,6 +582,94 @@ async def test_descartar_turn_de_outro_aluno_e_404_como_inexistente(
     assert resposta.status_code == 404
     assert resposta.json()["type"] == "urn:voicecoach:problem:turn-not-found"
     assert fakes.turns.turns[turn.id].discarded_at is None
+
+
+# --- Dono do turn e da sessão (CARD-062) -----------------------------------
+#
+# Achado pelo QA da validação do loop (2026-10-01): `GET /v1/turns/{id}` e o SSE
+# não pediam token nenhum, e `POST .../turns` e `POST .../end` aceitavam a
+# sessão de qualquer aluno. Todos agora respondem o MESMO 404 da inexistente.
+
+
+def _turn_de_outro_aluno(fakes: Fakes) -> Turn:
+    outra_sessao = Session(id=uuid4(), student_id=uuid4(), started_at=AGORA)
+    fakes.sessions.sessions[outra_sessao.id] = outra_sessao
+    turn = turn_pronto(fakes, trechos=1, transcript="segredo de outro aluno")
+    turn.session_id = outra_sessao.id
+    return turn
+
+
+def _sessao_de_outro_aluno(fakes: Fakes) -> Session:
+    outra_sessao = Session(id=uuid4(), student_id=uuid4(), started_at=AGORA)
+    fakes.sessions.sessions[outra_sessao.id] = outra_sessao
+    return outra_sessao
+
+
+async def test_get_de_turn_de_outro_aluno_e_404_como_inexistente(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    turn = _turn_de_outro_aluno(fakes)
+
+    resposta = await client.get(f"/v1/turns/{turn.id}")
+
+    assert resposta.status_code == 404
+    assert resposta.json()["type"] == "urn:voicecoach:problem:turn-not-found"
+    assert "segredo" not in resposta.text
+
+
+async def test_sse_de_turn_de_outro_aluno_e_404_antes_do_stream(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    turn = _turn_de_outro_aluno(fakes)
+
+    resposta = await client.get(f"/v1/turns/{turn.id}/events")
+
+    assert resposta.status_code == 404
+    assert resposta.headers["content-type"].startswith(CONTENT_TYPE)
+
+
+async def test_get_de_turn_sem_token_e_401(
+    app: FastAPI, client: AsyncClient, fakes: Fakes
+) -> None:
+    """Sem o override do fixture: o `requesting_student_id` real decide."""
+    app.dependency_overrides.pop(deps.requesting_student_id)
+    turn = turn_pronto(fakes, trechos=1, transcript="hi")
+
+    sem_token = await client.get(f"/v1/turns/{turn.id}")
+    token_lixo = await client.get(
+        f"/v1/turns/{turn.id}", headers={"Authorization": "Bearer lixo"}
+    )
+    sse = await client.get(f"/v1/turns/{turn.id}/events")
+
+    assert sem_token.status_code == 401
+    assert token_lixo.status_code == 401
+    assert sse.status_code == 401
+
+
+async def test_post_de_turn_na_sessao_de_outro_aluno_e_404_e_nada_e_gravado(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    alheia = _sessao_de_outro_aluno(fakes)
+
+    resposta = await client.post(
+        f"/v1/sessions/{alheia.id}/turns", files=upload(), headers=CHAVE
+    )
+
+    assert resposta.status_code == 404
+    assert resposta.json()["type"] == "urn:voicecoach:problem:session-not-found"
+    assert fakes.turns.turns == {}
+    assert fakes.enfileirados == []
+
+
+async def test_encerrar_a_sessao_de_outro_aluno_e_404_e_ela_continua_ativa(
+    client: AsyncClient, fakes: Fakes
+) -> None:
+    alheia = _sessao_de_outro_aluno(fakes)
+
+    resposta = await client.post(f"/v1/sessions/{alheia.id}/end")
+
+    assert resposta.status_code == 404
+    assert fakes.sessions.sessions[alheia.id].ended_at is None
 
 
 # --- POST /v1/turns/{id}/translations (CARD-036) ----------------------------

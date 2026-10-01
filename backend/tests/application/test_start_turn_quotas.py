@@ -52,9 +52,12 @@ def sessao_ativa() -> Session:
     return Session(id=uuid4(), student_id=ALUNO, started_at=AGORA_UTC)
 
 
-def comando(session_id: UUID, *, key: str = "chave-1") -> StartTurn:
+def comando(
+    session_id: UUID, *, key: str = "chave-1", aluno: UUID = ALUNO
+) -> StartTurn:
     return StartTurn(
         session_id=session_id,
+        student_id=aluno,
         idempotency_key=key,
         audio=AUDIO,
         content_type="audio/aac",

@@ -43,7 +43,7 @@ def montar(
 async def test_sessao_inexistente_e_err_e_nao_excecao() -> None:
     handler, _sessions, uow = montar(sessao_ativa())
 
-    resultado = await handler.handle(EndSession(session_id=uuid4()))
+    resultado = await handler.handle(EndSession(session_id=uuid4(), student_id=ALUNO))
 
     assert isinstance(resultado, Err)
     assert isinstance(resultado.error, SessionNotFound)
@@ -55,7 +55,9 @@ async def test_encerra_e_devolve_o_resumo_vazio_sem_nenhum_turn() -> None:
     session = sessao_ativa()
     handler, sessions, uow = montar(session)
 
-    resultado = await handler.handle(EndSession(session_id=session.id))
+    resultado = await handler.handle(
+        EndSession(session_id=session.id, student_id=ALUNO)
+    )
 
     assert isinstance(resultado, Ok)
     resumo = resultado.value
@@ -72,12 +74,28 @@ async def test_chamar_de_novo_numa_sessao_ja_encerrada_e_idempotente() -> None:
     clock = RelogioFalso(inicio=INICIO + timedelta(minutes=5))
     handler, sessions, _uow = montar(session, clock=clock)
 
-    primeiro = await handler.handle(EndSession(session_id=session.id))
+    primeiro = await handler.handle(EndSession(session_id=session.id, student_id=ALUNO))
     ended_at_primeiro = sessions.sessions[session.id].ended_at
-    segundo = await handler.handle(EndSession(session_id=session.id))
+    segundo = await handler.handle(EndSession(session_id=session.id, student_id=ALUNO))
 
     assert isinstance(primeiro, Ok)
     assert isinstance(segundo, Ok)
     assert primeiro.value == segundo.value
     # O relógio andou entre as duas chamadas, mas `ended_at` não se move.
     assert sessions.sessions[session.id].ended_at == ended_at_primeiro
+
+
+async def test_sessao_de_outro_aluno_e_o_mesmo_err_da_inexistente() -> None:
+    """RNF2 (CARD-062): encerrar a sessão alheia não encerra nada, e o 404 é
+    idêntico ao da sessão inexistente — nenhum oráculo de "este id existe".
+    """
+    session = sessao_ativa()
+    handler, sessions, uow = montar(session)
+
+    resultado = await handler.handle(
+        EndSession(session_id=session.id, student_id=uuid4())
+    )
+
+    assert resultado == Err(SessionNotFound(session.id))
+    assert sessions.sessions[session.id].ended_at is None
+    assert uow.commits == 0

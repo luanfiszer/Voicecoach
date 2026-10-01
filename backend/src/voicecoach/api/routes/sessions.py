@@ -74,11 +74,14 @@ async def criar_sessao(
 async def encerrar_sessao(
     session_id: UUID,
     handler: Annotated[EndSessionHandler, Depends(end_session_handler)],
+    student_id: Annotated[UUID, Depends(requesting_student_id)],
 ) -> SessionSummaryResponse:
     """Idempotente (RF2): chamar de novo numa sessão já encerrada devolve o
     mesmo resumo, não um erro — ver o docstring de ``EndSessionHandler``.
     """
-    resultado = await handler.handle(EndSession(session_id=session_id))
+    resultado = await handler.handle(
+        EndSession(session_id=session_id, student_id=student_id)
+    )
     match resultado:
         case Ok(value=resumo):
             return SessionSummaryResponse.de_resumo(resumo)

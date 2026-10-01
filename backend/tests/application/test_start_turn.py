@@ -124,9 +124,10 @@ def sessao_ativa() -> Session:
     )
 
 
-def comando(session_id: UUID, *, key: str = CHAVE) -> StartTurn:
+def comando(session_id: UUID, *, key: str = CHAVE, aluno: UUID = ALUNO) -> StartTurn:
     return StartTurn(
         session_id=session_id,
+        student_id=aluno,
         idempotency_key=key,
         audio=AUDIO,
         content_type="audio/aac",
@@ -303,4 +304,62 @@ async def test_fila_fora_do_ar_atravessa_como_erro_de_porta() -> None:
 
     # O turn EXISTE: foi gravado antes de enfileirar. É o estado de crash 2, e
     # é o CARD-025 (ou o retry do cliente) quem o resolve.
+    assert len(turns.turns) == 1
+
+
+async def test_sessao_de_outro_aluno_e_session_not_found_e_nada_e_gravado() -> None:
+    """RNF2 (CARD-062): o aluno A não grava fala na sessão do aluno B — o que
+    antes gastava a cota de B e punha a voz de A no histórico dele.
+    """
+    session = sessao_ativa()
+    handler, turns, fila, storage, _usage = montar(
+        sessions=FakeSessionRepository(session)
+    )
+
+    resultado = await handler.handle(comando(session.id, aluno=uuid4()))
+
+    assert resultado == Err(SessionNotFound(session.id))
+    assert turns.turns == {}
+    assert storage.objetos == {}
+    assert fila.enfileirados == []
+
+
+async def test_a_chave_de_outro_aluno_nao_devolve_o_turn_dele() -> None:
+    """A `Idempotency-Key` é única no banco inteiro: sem a checagem de dono
+    antes do replay, acertar a chave alheia revelaria o `turn_id` alheio.
+    """
+    da_vitima = sessao_ativa()
+    outro = UUID("22222222-2222-2222-2222-222222222222")
+    do_atacante = Session(
+        id=uuid4(), student_id=outro, started_at=datetime(2026, 8, 23, tzinfo=UTC)
+    )
+    handler, _turns, _fila, _storage, _usage = montar(
+        sessions=FakeSessionRepository(da_vitima, do_atacante)
+    )
+    original = await handler.handle(comando(da_vitima.id))
+    assert isinstance(original, Ok)
+
+    resultado = await handler.handle(comando(do_atacante.id, aluno=outro))
+
+    assert resultado == Err(SessionNotFound(do_atacante.id))
+
+
+async def test_a_mesma_chave_do_mesmo_aluno_em_outra_sessao_dele_ainda_e_replay() -> (
+    None
+):
+    """A checagem nova não muda o replay legítimo: a chave é do aluno, e
+    reenviá-la por outra sessão dele devolve o turn original, como antes.
+    """
+    primeira, segunda = sessao_ativa(), sessao_ativa()
+    handler, turns, _fila, _storage, _usage = montar(
+        sessions=FakeSessionRepository(primeira, segunda)
+    )
+    original = await handler.handle(comando(primeira.id))
+    assert isinstance(original, Ok)
+
+    resultado = await handler.handle(comando(segunda.id))
+
+    assert isinstance(resultado, Ok)
+    assert resultado.value.turn_id == original.value.turn_id
+    assert resultado.value.replayed is True
     assert len(turns.turns) == 1

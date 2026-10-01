@@ -1581,7 +1581,9 @@ export interface operations {
     encerrar_sessao_v1_sessions__session_id__end_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 session_id: string;
             };
@@ -1711,7 +1713,9 @@ export interface operations {
     obter_turn_v1_turns__turn_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 turn_id: string;
             };
@@ -1813,6 +1817,7 @@ export interface operations {
             header?: {
                 /** @description O `id:` do último evento recebido. O servidor reenvia só o que vem depois dele, lendo do banco (ADR-0026, item 3). */
                 "Last-Event-ID"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 turn_id: string;

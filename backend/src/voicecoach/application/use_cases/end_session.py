@@ -33,14 +33,15 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class EndSession:
-    """O comando: só o id. Quem encerra é sempre o dono da sessão (Fase 3, auth)."""
+    """O comando: a sessão e quem pede. Só o dono encerra (RNF2, CARD-062)."""
 
     session_id: UUID
+    student_id: UUID
 
 
 @dataclass(frozen=True, slots=True)
 class SessionNotFound:
-    """A sessão referida não existe — o mesmo desfecho do `StartTurn`."""
+    """A sessão não existe, OU não é do aluno — o mesmo desfecho do `StartTurn`."""
 
     session_id: UUID
 
@@ -63,7 +64,8 @@ class EndSessionHandler:
         self, command: EndSession
     ) -> Result[SessionSummary, SessionNotFound]:
         session = await self._sessions.get(command.session_id)
-        if session is None:
+        if session is None or session.student_id != command.student_id:
+            # RNF2: sessão alheia recebe o MESMO 404 da inexistente.
             return Err(SessionNotFound(command.session_id))
 
         # `try_end` é quem decide de verdade, atomicamente. Não há exceção a

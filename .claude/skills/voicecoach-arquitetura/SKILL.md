@@ -89,6 +89,7 @@ fronteira é um lint.
 | **Formato de erro HTTP** | `api/errors.py` (exception handlers) + `api/schemas/problem.py`. **Problem Details RFC 9457, `application/problem+json`**, com `type` em URN (`urn:voicecoach:problem:...`) como chave semântica. Rota **nunca** monta `JSONResponse` de erro | ADR-0040 |
 | **Pool/engine/cliente de vida longa na API** | `api/lifespan.py` — context manager async passado ao `FastAPI(lifespan=...)`. Nunca por request: um engine por request esgota o Postgres, uma conexão de Redis por stream esgota o Redis | ADR-0040, CARD-010 |
 | **Composição por request** | `api/dependencies.py`: **um provider por porta**, e os handlers montados a partir deles. É o que faz o teste de rota trocar seis folhas por dublês sem tocar em infraestrutura | ADR-0012 |
+| **Recurso do aluno (turn, sessão) acessado por id** | o comando leva `student_id` e o **caso de uso** compara com o dono; alheio é o MESMO `Err`/404 do inexistente (sem oráculo). No SSE, checado na rota antes do primeiro byte. Teste: sem token → 401 (sem override) e outro aluno → 404 | ADR-0073 |
 | **Desfecho esperado de caso de uso** | `Result[T, E]` de `application/result.py` (`Ok`/`Err`, união fechada, `match` + `assert_never`). `E` é um tipo **por caso de uso**, declarado junto do handler | ADR-0039 |
 | **`id` de evento SSE e retomada** | id **estruturado** (`transcribed`, `chunk:{index}`, `feedback`, `completed`, `failed`), recalculado do `Turn`. A ordem é uma função (`posicao`), nunca comparação de strings | ADR-0041 |
 | **Idempotência de requisição** | coluna em `turns` com índice único **parcial**, nunca `SETNX` no Redis. A chave e o Turn nascem no mesmo commit | ADR-0042 |
@@ -277,6 +278,7 @@ conta como cumprido (CLAUDE.md).
       (ADR-0004), literal de modelo de IA (ADR-0009) ou `float` para dinheiro
       (ADR-0013)
 - [ ] Todo `# noqa`/`# type: ignore` é específico e traz o motivo (ADR-0015)
+- [ ] Rota com id de recurso do aluno passa `student_id` ao caso de uso e tem os testes de 401 e de outro aluno → 404 (ADR-0073)
 - [ ] Decisão que cruza fronteira, dependência, custo ou segurança virou **ADR**
       — conferido contra a lista "Quando um ADR é OBRIGATÓRIO" de
       `docs/adr/README.md`, citando o critério (LEARNING-0003)

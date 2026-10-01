@@ -36,12 +36,12 @@ from voicecoach.api.dependencies import (
     enforce_turn_rate_limit,
     enforce_verified_email,
     get_settings_from_app,
+    get_turn_handler,
     media_storage,
     requesting_student_id,
     start_turn_handler,
     stream_handler,
     translate_text_handler,
-    turn_repository,
 )
 from voicecoach.api.errors import ProblemError
 from voicecoach.api.schemas.problem import (
@@ -68,7 +68,6 @@ from voicecoach.api.schemas.turns import (
     TurnResponse,
 )
 from voicecoach.application.ports.media_storage import MediaStorage
-from voicecoach.application.ports.repositories import TurnRepository
 from voicecoach.application.ports.turn_events import (
     ChunkReady,
     Completed,
@@ -84,6 +83,7 @@ from voicecoach.application.use_cases.discard_turn import (
     TurnAlreadyCompleted,
     TurnNotFound,
 )
+from voicecoach.application.use_cases.get_turn import GetTurn, GetTurnHandler
 from voicecoach.application.use_cases.process_turn import TurnNotFoundError
 from voicecoach.application.use_cases.start_turn import (
     DailyQuotaExceeded,
@@ -119,6 +119,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
     from datetime import timedelta
 
+    from voicecoach.domain.turn import Turn
+
 router = APIRouter(tags=["turns"])
 
 # Cabeçalhos que dizem a todo intermediário para não segurar a resposta.
@@ -152,6 +154,10 @@ CABECALHOS_DE_STREAM = {
 async def criar_turn(
     session_id: UUID,
     handler: Annotated[StartTurnHandler, Depends(start_turn_handler)],
+    # O mesmo `requesting_student_id` que o `enforce_verified_email` já
+    # resolveu — o FastAPI memoiza a dependência por request, então isto não
+    # decodifica o token nem busca o aluno uma segunda vez.
+    student_id: Annotated[UUID, Depends(requesting_student_id)],
     settings: Annotated[Settings, Depends(get_settings_from_app)],
     audio: Annotated[UploadFile, File(description="A fala do aluno.")],
     idempotency_key: Annotated[
@@ -185,6 +191,7 @@ async def criar_turn(
     resultado = await handler.handle(
         StartTurn(
             session_id=session_id,
+            student_id=student_id,
             idempotency_key=idempotency_key,
             audio=bytes_do_aluno,
             content_type=audio.content_type or "application/octet-stream",
@@ -248,7 +255,8 @@ async def criar_turn(
 )
 async def obter_turn(
     turn_id: UUID,
-    turns: Annotated[TurnRepository, Depends(turn_repository)],
+    handler: Annotated[GetTurnHandler, Depends(get_turn_handler)],
+    student_id: Annotated[UUID, Depends(requesting_student_id)],
     storage: Annotated[MediaStorage, Depends(media_storage)],
     settings: Annotated[Settings, Depends(get_settings_from_app)],
 ) -> TurnResponse:
@@ -258,10 +266,7 @@ async def obter_turn(
     que torna aceitável entregar as URLs prontas em vez de o cliente pedir uma
     por trecho, que era o roundtrip por frase que o ADR-0024 recusou.
     """
-    turn = await turns.get(turn_id)
-    if turn is None:
-        message = f"Turn {turn_id} não existe."
-        raise TurnNotFoundError(message)
+    turn = await _turn_do_aluno(handler, turn_id=turn_id, student_id=student_id)
 
     ttl = settings.media_url_ttl
     urls = [
@@ -402,6 +407,8 @@ async def acompanhar_turn(
     request: Request,
     turn_id: UUID,
     handler: Annotated[StreamTurnEventsHandler, Depends(stream_handler)],
+    leitura: Annotated[GetTurnHandler, Depends(get_turn_handler)],
+    student_id: Annotated[UUID, Depends(requesting_student_id)],
     storage: Annotated[MediaStorage, Depends(media_storage)],
     settings: Annotated[Settings, Depends(get_settings_from_app)],
     last_event_id: Annotated[
@@ -435,12 +442,27 @@ async def acompanhar_turn(
     # de a resposta começar.
     if last_event_id:
         posicao(last_event_id)
+    # Dono ANTES do primeiro byte, pela mesma razão acima (CARD-062): um 404
+    # depois de o stream começar não teria mais como sair.
+    await _turn_do_aluno(leitura, turn_id=turn_id, student_id=student_id)
 
     fluxo = handler.stream(turn_id, last_event_id=last_event_id)
     return EventSourceResponse(
         _no_fio(fluxo, storage=storage, ttl=settings.media_url_ttl),
         headers=CABECALHOS_DE_STREAM,
     )
+
+
+async def _turn_do_aluno(
+    handler: GetTurnHandler, *, turn_id: UUID, student_id: UUID
+) -> Turn:
+    """O turn, se for do aluno; senão o 404 de sempre (RNF2, CARD-062)."""
+    resultado = await handler.handle(GetTurn(turn_id=turn_id, student_id=student_id))
+    match resultado:
+        case Ok(value=turn):
+            return turn
+        case Err():
+            raise TurnNotFoundError(f"Turn {turn_id} não existe.")
 
 
 async def _no_fio(
