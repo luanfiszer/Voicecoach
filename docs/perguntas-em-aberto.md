@@ -177,6 +177,15 @@ seguinte (ela não é "sem desfecho"; o desfecho é a dispensa).
 
 ## Arquivadas — e o que a execução demonstrou sobre cada uma
 
+> **CARD-065 (2026-10-02), dispensada pelo desenvolvedor** ("continue"):
+> *"O WebM do `MediaRecorder` sai sem duração no cabeçalho — o `POST` de turn
+> responde 202, 415 ou 422, e com que duração desconta a cota?"* **O que a
+> execução demonstrou:** gravado no Chromium com microfone simulado
+> (`audio/webm;codecs=opus`, `stream.duration: None` no PyAV), o servidor
+> respondeu **202** e descontou **3,96 s** — a duração vem das amostras
+> decodificadas (`audio_intake.medir`), nunca do cabeçalho. Volta quando um
+> card tocar formato de áudio ou cota.
+
 > **CARD-064 (2026-10-01), dispensada pelo desenvolvedor** ("ok, continue"):
 > *"Duas abas abertas, o access expira e as duas chamam
 > `POST /v1/auth/web/refresh` ao mesmo tempo com o mesmo cookie — o que

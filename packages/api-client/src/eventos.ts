@@ -32,10 +32,23 @@ export type EventoDoTurn =
   | { id: string; tipo: 'chunk'; dados: Schemas['ChunkPayload'] }
   | { id: string; tipo: 'feedback'; dados: Schemas['FeedbackPayload'] }
   | { id: string; tipo: 'completed'; dados: Schemas['CompletedPayload'] }
-  | { id: string; tipo: 'failed'; dados: Schemas['FailedPayload'] };
+  | { id: string; tipo: 'failed'; dados: Schemas['FailedPayload'] }
+  /**
+   * O turn terminou SEM professor (CARD-040, ADR-0057): não ouviu nada, não
+   * era inglês, ou não deu para entender. Entrou no cliente no CARD-065 —
+   * até lá era ignorado como evento desconhecido, e o aluno não via motivo.
+   */
+  | { id: string; tipo: 'rejected'; dados: Schemas['RejectedPayload'] };
 
 /** Os nomes de evento que o servidor emite (`wire_name`, ADR-0035 item 6). */
-const TIPOS = ['transcribed', 'chunk', 'feedback', 'completed', 'failed'] as const;
+const TIPOS = [
+  'transcribed',
+  'chunk',
+  'feedback',
+  'completed',
+  'failed',
+  'rejected',
+] as const;
 
 type TipoDeEvento = (typeof TIPOS)[number];
 
