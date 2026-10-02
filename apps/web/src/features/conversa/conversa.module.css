@@ -1,0 +1,173 @@
+/* A conversa (CARD-065). Tamanhos do style guide: botão de gravar 84px,
+   pulso = gravando, quadrado = parar (docs/design/README.md). */
+
+.tela {
+  display: flex;
+  min-height: calc(100vh - 140px);
+  flex-direction: column;
+  gap: var(--espaco-md);
+}
+
+.lista {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--espaco-sm);
+}
+
+.bolha {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-xs);
+  padding: var(--espaco-md);
+  border-radius: var(--raio-card);
+  background: var(--cor-superficie);
+}
+
+.trechoTocando {
+  color: var(--cor-acento);
+}
+
+.correcao {
+  border-left: 3px solid var(--cor-acento);
+}
+
+.selos {
+  display: flex;
+  gap: var(--espaco-sm);
+}
+
+.seloDoTipo {
+  color: var(--cor-acento);
+}
+
+.original {
+  color: var(--cor-secundario);
+  font: var(--texto-apoio);
+  text-decoration: line-through;
+}
+
+.corrigido {
+  font: var(--texto-correcao);
+}
+
+.recusa {
+  border-left: 3px solid var(--cor-secundario);
+}
+
+.botaoDeTexto {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cor-acento);
+  font: var(--texto-rotulo);
+  letter-spacing: var(--tracking-rotulo);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.botaoDeTexto:disabled {
+  color: var(--cor-secundario);
+  cursor: default;
+}
+
+.rodape {
+  position: sticky;
+  bottom: 0;
+  /* Sempre embaixo, com ou sem lista: o botão não pode pular de lugar entre
+     "gravando" (lista vazia) e "concluído" (lista cheia). */
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--espaco-sm);
+  padding: var(--espaco-md) 0 var(--espaco-lg);
+  background: linear-gradient(transparent, var(--cor-fundo) 30%);
+}
+
+.gravar {
+  position: relative;
+  display: flex;
+  width: 84px;
+  height: 84px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--cor-acento);
+  cursor: pointer;
+}
+
+.gravar:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Parado: um círculo (o "toque para falar"). Gravando: um quadrado (parar). */
+.icone {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--cor-sobre-acento);
+  transition: border-radius 160ms ease;
+}
+
+.gravando .icone {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+}
+
+.gravando::after {
+  position: absolute;
+  inset: -6px;
+  border: 3px solid var(--cor-acento);
+  border-radius: 50%;
+  animation: pulso 1.2s ease-out infinite;
+  content: "";
+}
+
+@keyframes pulso {
+  from {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gravando::after {
+    animation: none;
+  }
+}
+
+.fundoDoOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--espaco-lg);
+  background: rgb(0 0 0 / 0.45);
+}
+
+.overlay {
+  display: flex;
+  width: 100%;
+  max-width: 420px;
+  flex-direction: column;
+  gap: var(--espaco-md);
+  padding: var(--espaco-lg);
+  border-radius: var(--raio-card);
+  background: var(--cor-superficie);
+}
+
+.overlay h2 {
+  margin: 0;
+  font: var(--texto-correcao);
+}

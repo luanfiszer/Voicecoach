@@ -223,6 +223,12 @@ terceiro com o **artboard 13** (microcopy pronta: "Precisamos do microfone" →
   (gatilhos no ADR-0078).
 - ❌ **Importar de `apps/mobile`.** Texto do produto é copiado, com o teste
   junto (ADR-0002).
+- **Áudio na web (CARD-065):** grave no formato que o navegador suporta
+  (`formatoDeGravacao.ts`: WebM/Opus ou MP4) — o backend mede a duração pelas
+  amostras, então WebM sem duração no cabeçalho é aceito (demonstrado). Um
+  `HTMLAudioElement` por trecho, criado na chegada (prefetch, ADR-0047), e
+  **`pause()` antes de tirar o `src`** (LEARNING-0006 vale aqui também).
+  Safari ainda não verificado.
 
 ## Design (`docs/design/`)
 
